@@ -66,18 +66,12 @@ async function postJson(url: string, body?: Record<string, unknown>) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-  const cronToken = import.meta.env.VITE_SHIFT_SYNC_CRON_TOKEN;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (cronToken) {
-    headers["Authorization"] = `Bearer ${cronToken}`;
-  }
-
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(body || {}),
       signal: controller.signal,
     });

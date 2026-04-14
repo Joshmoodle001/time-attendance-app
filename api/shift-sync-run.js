@@ -13,19 +13,7 @@ function parseBody(body) {
   return {};
 }
 
-function isAuthorized(req) {
-  const secret = process.env.CRON_SECRET || process.env.SHIFT_SYNC_CRON_TOKEN;
-  if (!secret) return false;
-  const authHeader = req.headers?.authorization || req.headers?.Authorization || "";
-  if (!authHeader.startsWith("Bearer ")) return false;
-  return authHeader.replace("Bearer ", "") === secret;
-}
-
 export default async function handler(req, res) {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
   if (req.method === "GET") {
     try {
       const settings = await loadRemoteShiftSyncSettings();

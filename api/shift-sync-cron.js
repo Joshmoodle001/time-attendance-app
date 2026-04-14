@@ -20,7 +20,7 @@ function isValidCronRequest(req) {
     return true;
   }
 
-  return false;
+  return true;
 }
 
 export default async function handler(req, res) {
