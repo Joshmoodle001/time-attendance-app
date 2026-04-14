@@ -86,6 +86,8 @@ function devShiftDownloadProxy(): Plugin {
   }
 }
 
+const BUILD_TIME = new Date().toISOString();
+
 export default defineConfig({
   plugins: [react(), devShiftDownloadProxy()],
   resolve: {
@@ -94,7 +96,7 @@ export default defineConfig({
     },
   },
   define: {
-    __BUILD_TIMESTAMP__: JSON.stringify(new Date().toISOString()),
+    __BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIME),
   },
   build: {
     target: 'es2020',

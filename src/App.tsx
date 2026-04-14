@@ -3646,14 +3646,14 @@ export default function App() {
         <div className="relative mb-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-white">Attendance Overview <span className="text-base font-bold text-cyan-400">
-                  {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__ 
-                    ? new Date((window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__!).toLocaleString('en-ZA', { 
+<h2 className="text-2xl md:text-3xl font-bold text-white">Attendance Overview <span className="text-base font-bold text-cyan-400">
+                  {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__ 
+                    ? new Date((window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                         day: '2-digit', month: '2-digit', year: '2-digit', 
                         hour: '2-digit', minute: '2-digit', hour12: false 
                       }) 
                     : ''}
-                </span></h2>
+              </span></h2>
               <p className="text-slate-400 text-sm mt-1">Live overview synced to attendance, employees, clocks, shifts, leave, calendar, and iPulse status</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -5222,11 +5222,11 @@ export default function App() {
               </div>
               <div>
                 <div className="text-[10px] uppercase tracking-[0.25em] text-cyan-400 font-bold">Attendance</div>
-                <div className="flex items-center gap-2">
-                  <div className="text-lg font-bold text-gradient">Backend</div>
-                  <span className="text-[9px] text-white font-mono">
-                    {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__ 
-                      ? new Date((window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__!).toLocaleString('en-ZA', { 
+<div className="flex items-center gap-2">
+                  <div className="text-sm font-bold text-white">Backend</div>
+                  <span className="text-[10px] text-white font-mono">
+                    {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__ 
+                      ? new Date((window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                           day: '2-digit', month: '2-digit', year: '2-digit', 
                           hour: '2-digit', minute: '2-digit', hour12: false 
                         }) 
