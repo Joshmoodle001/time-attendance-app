@@ -5248,9 +5248,19 @@ export default function App() {
               <div className="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-cyan-500/20" style={{ background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)' }}>
                 <TimerReset className="h-5 w-5 text-white" />
               </div>
-              <div>
+              <div className="flex flex-col">
                 <div className="text-[9px] uppercase tracking-[0.2em] text-cyan-400 font-bold">Attendance</div>
-                <div className="text-sm font-bold text-white">Backend</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-bold text-white">Backend</div>
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__ 
+                      ? new Date((window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__!).toLocaleString('en-ZA', { 
+                          day: '2-digit', month: '2-digit', year: '2-digit', 
+                          hour: '2-digit', minute: '2-digit', hour12: false 
+                        }) 
+                      : 'Dev'}
+                  </div>
+                </div>
               </div>
             </div>
             <button
