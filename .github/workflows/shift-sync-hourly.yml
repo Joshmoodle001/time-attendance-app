@@ -1,0 +1,24 @@
+name: Hourly Shift Sync
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger production shift sync
+        env:
+          SHIFT_SYNC_URL: ${{ secrets.SHIFT_SYNC_URL }}
+          SHIFT_SYNC_CRON_TOKEN: ${{ secrets.SHIFT_SYNC_CRON_TOKEN }}
+        run: |
+          echo "Triggering hourly shift sync..."
+          if [ -z "$SHIFT_SYNC_URL" ]; then
+            echo "SHIFT_SYNC_URL secret is missing"
+            exit 1
+          fi
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer $SHIFT_SYNC_CRON_TOKEN" \
+            "$SHIFT_SYNC_URL"
