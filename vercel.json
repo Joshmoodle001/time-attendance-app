@@ -14,10 +14,5 @@
       ]
     }
   ],
-  "crons": [
-    {
-      "path": "/api/shift-sync-cron",
-      "schedule": "*/15 * * * *"
-    }
-  ]
+  "crons": []
 }
