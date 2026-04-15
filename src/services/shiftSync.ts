@@ -3,6 +3,8 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 export const SHIFT_SYNC_STORAGE_KEY = "shift-sync-settings-v2";
 export const SHIFT_SYNC_UPDATED_EVENT = "shift-sync-settings-updated";
 const LEGACY_SHIFT_SYNC_STORAGE_KEY = "shift-sync-sections-v1";
+const REMOVED_DEFAULT_IDS = new Set(["checkers-local", "checkers-country", "shoprite-local", "shoprite-country"]);
+
 const SHIFT_SYNC_REMOTE_SETUP_HINT =
   "Background auto sync needs the remote shift sync table to be set up first. The links are still being stored in this browser for now.";
 
@@ -90,7 +92,7 @@ function mergeSections(...sectionSets: Array<ShiftSyncSection[] | undefined>) {
   });
 
   const customSections = Array.from(parsedMap.values())
-    .filter((section) => section.id)
+    .filter((section) => section.id && !REMOVED_DEFAULT_IDS.has(section.id))
     .map((section) => ({
       id: section.id!,
       label: pickPreferredText(section.label, section.id),
@@ -119,7 +121,7 @@ function normalizeSettings(value: unknown): ShiftSyncSettings {
     lastLiveSyncedAt: normalizeText(raw.lastLiveSyncedAt),
     lastLiveStatus: normalizeText(raw.lastLiveStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastLiveStatus,
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || createLiveWebhookKey(),
-    sections: mergeSections(raw.sections || legacySections),
+    sections: (mergeSections(raw.sections || legacySections)).filter((s) => !REMOVED_DEFAULT_IDS.has(s.id)),
   };
 }
 
@@ -228,17 +230,19 @@ export async function loadShiftSyncSettings() {
         const localIds = new Set(localSettings.sections.map((s) => s.id));
         const remoteIds = new Set(remoteSettings.sections.map((s) => s.id));
         const allIds = new Set([...localIds, ...remoteIds]);
-        return Array.from(allIds).map((id) => {
-          const localSection = localSettings.sections.find((item) => item.id === id);
-          const remoteSection = remoteSettings.sections.find((item) => item.id === id);
-          return {
-            id: id,
-            label: pickPreferredText(remoteSection?.label, localSection?.label, id),
-            url: pickPreferredText(remoteSection?.url, localSection?.url),
-            lastSyncedAt: pickPreferredText(remoteSection?.lastSyncedAt, localSection?.lastSyncedAt),
-            lastStatus: pickPreferredText(remoteSection?.lastStatus, localSection?.lastStatus, "Waiting for a Google document link."),
-          };
-        });
+        return Array.from(allIds)
+          .filter((id) => !REMOVED_DEFAULT_IDS.has(id))
+          .map((id) => {
+            const localSection = localSettings.sections.find((item) => item.id === id);
+            const remoteSection = remoteSettings.sections.find((item) => item.id === id);
+            return {
+              id: id,
+              label: pickPreferredText(remoteSection?.label, localSection?.label, id),
+              url: pickPreferredText(remoteSection?.url, localSection?.url),
+              lastSyncedAt: pickPreferredText(remoteSection?.lastSyncedAt, localSection?.lastSyncedAt),
+              lastStatus: pickPreferredText(remoteSection?.lastStatus, localSection?.lastStatus, "Waiting for a Google document link."),
+            };
+          });
       })(),
     });
 

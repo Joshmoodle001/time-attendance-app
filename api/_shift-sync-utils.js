@@ -7,6 +7,8 @@ const SUPABASE_REST_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 const DEFAULT_SHIFT_SYNC_SECTIONS = [];
 
+const REMOVED_DEFAULT_IDS = new Set(["checkers-local", "checkers-country", "shoprite-local", "shoprite-country"]);
+
 const DEFAULT_SHIFT_SYNC_SETTINGS = {
   autoSyncEnabled: false,
   backupIntervalMinutes: 60,
@@ -83,7 +85,7 @@ function normalizeSettings(value) {
     lastLiveSyncedAt: normalizeText(raw.lastLiveSyncedAt),
     lastLiveStatus: normalizeText(raw.lastLiveStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastLiveStatus,
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || createLiveWebhookKey(),
-    sections: mergeSections(raw.sections),
+    sections: mergeSections(raw.sections).filter((s) => !REMOVED_DEFAULT_IDS.has(s.id)),
   };
 }
 

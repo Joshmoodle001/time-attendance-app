@@ -14,6 +14,8 @@ import {
 } from "@/services/shiftSync";
 import { CheckCircle2, Copy, Link2, Plus, Radio, RefreshCw, Trash2, Waves } from "lucide-react";
 
+const REMOVED_DEFAULT_IDS = new Set(["checkers-local", "checkers-country", "shoprite-local", "shoprite-country"]);
+
 function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
 }
@@ -34,7 +36,9 @@ function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
     lastLiveSyncedAt: normalizeText(raw.lastLiveSyncedAt),
     lastLiveStatus: normalizeText(raw.lastLiveStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastLiveStatus,
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || DEFAULT_SHIFT_SYNC_SETTINGS.liveWebhookKey,
-    sections: incomingSections.map((section) => ({
+    sections: incomingSections
+      .filter((section) => section?.id && !REMOVED_DEFAULT_IDS.has(section.id))
+      .map((section) => ({
       id: section?.id || `sheet-${Date.now().toString(36)}`,
       label: normalizeText(section?.label) || section?.id || "Unnamed",
       url: normalizeText(section?.url),
