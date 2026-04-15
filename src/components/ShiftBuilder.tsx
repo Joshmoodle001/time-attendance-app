@@ -335,6 +335,54 @@ export default function ShiftBuilder() {
   const isInitialLoadRef = useRef(true);
   const prevSelectedSheetRef = useRef<string>("");
   const scrollPositionRef = useRef<number>(0);
+  const hasAutoSyncRef = useRef(false);
+  const lastSyncCheckRef = useRef<string>("");
+
+  // Auto-sync on page load
+  useEffect(() => {
+    if (hasAutoSyncRef.current) return;
+    hasAutoSyncRef.current = true;
+    
+    // Delay sync slightly to allow initial render
+    const timer = setTimeout(() => {
+      void handleSyncFromSheets();
+    }, 1500);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Poll for live sync events and trigger sync when detected
+  useEffect(() => {
+    let alive = true;
+    let pollInterval: ReturnType<typeof setInterval>;
+
+    const checkForLiveSync = async () => {
+      try {
+        const settings = await loadShiftSyncSettings();
+        if (!alive) return;
+        
+        // If live sync is enabled, poll more frequently
+        if (settings.liveSyncEnabled) {
+          const lastLiveSync = settings.lastLiveSyncedAt;
+          if (lastLiveSync && lastLiveSync !== lastSyncCheckRef.current) {
+            lastSyncCheckRef.current = lastLiveSync;
+            console.log("[ShiftBuilder] Live sync detected, refreshing shifts...");
+            void handleSyncFromSheets();
+          }
+        }
+      } catch (e) {
+        // Ignore polling errors
+      }
+    };
+
+    // Check every 10 seconds when live sync is enabled
+    pollInterval = setInterval(checkForLiveSync, 10000);
+
+    return () => {
+      alive = false;
+      clearInterval(pollInterval);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -871,10 +919,6 @@ export default function ShiftBuilder() {
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => fileInputRef.current?.click()}>
             <Upload className="mr-2 h-4 w-4" />
             Upload workbook
-          </Button>
-          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleSyncFromSheets} disabled={isSyncing}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-            {isSyncing ? "Syncing..." : "Sync Sheets"}
           </Button>
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExportPdf} disabled={!selectedRoster}>
             <FileText className="mr-2 h-4 w-4" />

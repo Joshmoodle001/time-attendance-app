@@ -862,14 +862,8 @@ export async function runUniversalShiftSync(trigger = "manual", options = {}) {
       };
     }
 
-    if (trigger === "live" && !currentSettings.liveSyncEnabled) {
-      return {
-        success: true,
-        skipped: true,
-        settings: currentSettings,
-        message: "Live shift sync listening is disabled.",
-      };
-    }
+    // Live sync processes when called directly (webhook from Google Apps Script)
+    // even if liveSyncEnabled is false, so users can trigger sync manually via script
 
     const requestedSectionIds = Array.isArray(options.sectionIds)
       ? options.sectionIds.map((value) => normalizeText(value)).filter(Boolean)
