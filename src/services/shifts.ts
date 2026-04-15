@@ -401,9 +401,16 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
   const headerRow = (rows[0] || []) as unknown[];
   const header = parseHeaderRow(headerRow);
-  const title = normalizeText(headerRow[0]) || sheetName;
+  
+  // Check if first cell looks like a header label (not a store name)
+  const firstCell = normalizeText(headerRow[0]).toLowerCase();
+  const looksLikeHeaderLabel = /^(run\s*date|week|employee|date|no\.?|name|store|branch|section|department|code)/i.test(firstCell);
+  
+  // Use first cell as title only if it looks like a store name (starts with number or specific keywords)
+  const looksLikeStoreName = /^\d+\s|^checkers|^shoprite|^game|^cna|^pick/i.test(firstCell);
+  const title = (!looksLikeHeaderLabel || looksLikeStoreName) && firstCell ? normalizeText(headerRow[0]) : sheetName;
   const storeCode = (title.match(/^(\d+)/)?.[1] || "").trim();
-  const storeName = title;
+  const storeName = looksLikeHeaderLabel && !looksLikeStoreName ? sheetName : title;
   const rowMap = new Map<string, ShiftRow>();
   const customColumnSet = new Set<string>();
   let importedRows = 0;
