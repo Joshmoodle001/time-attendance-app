@@ -286,7 +286,7 @@ export async function saveShiftSyncSettings(settings: ShiftSyncSettings) {
   }
 
   try {
-    const { error } = await supabase.from("shift_sync_settings").upsert(
+    const { data, error } = await supabase.from("shift_sync_settings").upsert(
       {
         id: "global",
         auto_sync_enabled: normalized.autoSyncEnabled,
@@ -308,15 +308,15 @@ export async function saveShiftSyncSettings(settings: ShiftSyncSettings) {
 
     if (error) {
       const message = getShiftSyncStorageErrorMessage(error);
-      console.warn("Save shift sync settings warning:", message);
-      return { success: true, error: message };
+      console.error("Failed to save shift sync settings to Supabase:", error);
+      return { success: false, error: message };
     }
 
     return { success: true };
   } catch (error) {
     const message = getShiftSyncStorageErrorMessage(error);
-    console.warn("Save shift sync settings warning:", message);
-    return { success: true, error: message };
+    console.error("Exception saving shift sync settings:", error);
+    return { success: false, error: message };
   }
 }
 
