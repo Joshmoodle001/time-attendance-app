@@ -13,7 +13,7 @@ import {
   saveShiftSyncSettings,
   type ShiftSyncSettings,
 } from "@/services/shiftSync";
-import { CheckCircle2, Copy, Link2, Plus, Radio, RefreshCw, Trash2, Waves } from "lucide-react";
+import { CheckCircle2, Copy, Link2, Plus, Radio, RefreshCw, Trash2, Waves, Share2 } from "lucide-react";
 
 function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
@@ -386,6 +386,22 @@ export default function ShiftSyncAdminPanel() {
     }
   };
 
+  const handleApplyToAll = async (sectionId: string) => {
+    const section = settings.sections.find((item) => item.id === sectionId);
+    if (!section || !normalizeText(section.url)) return;
+
+    const nextSettings = {
+      ...settings,
+      sections: settings.sections.map((item) =>
+        item.id === sectionId || normalizeText(item.url)
+          ? item
+          : { ...item, url: section.url, lastStatus: `Link copied from ${section.label}. Click 'Process now' to sync.` }
+      ),
+    };
+
+    await persistSettings(nextSettings, `Applied ${section.label} link to all empty sections.`);
+  };
+
   const handleRemoveSection = async (sectionId: string) => {
     if (isDefaultSection(sectionId)) {
       setStatusMessage("Default live sheets stay in place. You can clear their links if you do not need them.");
@@ -666,6 +682,12 @@ export default function ShiftSyncAdminPanel() {
                       <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
                       {syncing ? "Processing..." : "Process now"}
                     </Button>
+                    {normalizeText(section.url) && settings.sections.some((item) => item.id !== section.id && !normalizeText(item.url)) && (
+                      <Button variant="outline" size="sm" onClick={() => void handleApplyToAll(section.id)} disabled={saving}>
+                        <Share2 className="mr-2 h-4 w-4" />
+                        Apply to all
+                      </Button>
+                    )}
                     {!isDefaultSection(section.id) && (
                       <Button variant="outline" size="sm" onClick={() => void handleRemoveSection(section.id)} disabled={saving || syncing}>
                         <Trash2 className="mr-2 h-4 w-4" />
