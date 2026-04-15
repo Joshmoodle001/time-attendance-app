@@ -330,6 +330,8 @@ export default function ShiftBuilder() {
   const [statusMessage, setStatusMessage] = useState("Load a workbook to build shifts.");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncStatus, setSyncStatus] = useState("");
   const isInitialLoadRef = useRef(true);
   const prevSelectedSheetRef = useRef<string>("");
   const scrollPositionRef = useRef<number>(0);
@@ -538,8 +540,10 @@ export default function ShiftBuilder() {
 
   const handleSyncFromSheets = async () => {
     setIsSyncing(true);
+    setSyncProgress(0);
     const log = (msg: string) => {
       console.log(`[ShiftSync] ${msg}`);
+      setSyncStatus(msg);
       setStatusMessage(msg);
     };
 
@@ -553,15 +557,20 @@ export default function ShiftBuilder() {
 
       if (linked.length === 0) {
         log("No Google Sheets links configured. Go to Admin > Sync Settings to add links.");
+        setIsSyncing(false);
         return;
       }
 
       let totalImported = 0;
       let failures = 0;
+      let currentProgress = 0;
+      const progressStep = 100 / linked.length;
       const currentMap = new Map(rosters.map((r) => [r.sheet_name, r]));
       const allMerged: ShiftRoster[] = [];
 
       for (const section of linked) {
+        currentProgress += progressStep;
+        setSyncProgress(Math.round(currentProgress));
         try {
           log(`[${section.label}] Building download URL from: ${section.url}`);
           const downloadUrl = buildShiftDownloadUrl(section.url);
@@ -613,6 +622,7 @@ export default function ShiftBuilder() {
         }
       }
 
+      setSyncProgress(90);
       if (allMerged.length > 0) {
         log(`Saving ${allMerged.length} synced roster(s)...`);
         const preserved = rosters.filter((r) => !allMerged.some((m) => m.sheet_name === r.sheet_name));
@@ -626,11 +636,13 @@ export default function ShiftBuilder() {
       if (totalImported > 0) parts.push(`Synced ${totalImported} sheet${totalImported === 1 ? "" : "s"}`);
       if (failures > 0) parts.push(`${failures} failed`);
       log(parts.length > 0 ? parts.join(", ") + "." : "Sync complete — no sheets found.");
+      setSyncProgress(100);
     } catch (err) {
       log(`Sync failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error("Sync error:", err);
     } finally {
       setIsSyncing(false);
+      setSyncProgress(0);
     }
   };
 
@@ -880,6 +892,23 @@ export default function ShiftBuilder() {
       </div>
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleWorkbookUpload} />
+
+      {isSyncing && (
+        <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <RefreshCw className="h-5 w-5 animate-spin text-cyan-400" />
+            <span className="text-sm font-medium text-white">Syncing from Google Sheets...</span>
+            <span className="ml-auto text-sm font-mono text-cyan-400">{syncProgress}%</span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-slate-700 overflow-hidden">
+            <div 
+              className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 transition-all duration-300"
+              style={{ width: `${syncProgress}%` }}
+            />
+          </div>
+          <div className="mt-2 text-xs text-slate-400">{syncStatus}</div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-2 shadow-sm">
         <div className="px-2 pb-2">
