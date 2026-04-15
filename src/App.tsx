@@ -1861,9 +1861,9 @@ export default function App() {
     let alive = true;
 
     const hydrateSavedData = async () => {
-      const [dates] = await Promise.all([getAvailableDates(), loadClockEvents(), loadEmployees()]);
+      // Load essential data in parallel - dates first
+      const dates = await getAvailableDates();
       if (!alive) return;
-
       setAvailableDates(dates);
 
       const lastSavedDate =
@@ -1873,6 +1873,10 @@ export default function App() {
       if (dateToLoad) {
         await loadAttendanceForDate(dateToLoad, { silent: true });
       }
+
+      // Load employees and clocks in background without blocking
+      loadEmployees();
+      loadClockEvents();
     };
 
     void hydrateSavedData();
@@ -1908,19 +1912,30 @@ export default function App() {
     if (activeNav !== "overview") return;
 
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
     const refreshOverview = async () => {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       await loadOverviewDashboard();
     };
 
-    void refreshOverview();
+    // Defer overview load slightly to let essential data load first
+    timeoutId = setTimeout(() => {
+      if (!cancelled) {
+        void refreshOverview();
+      }
+    }, 500);
+
     const interval = window.setInterval(() => {
-      void refreshOverview();
+      if (!cancelled) {
+        void refreshOverview();
+      }
     }, OVERVIEW_REFRESH_TTL_MS);
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
       window.clearInterval(interval);
     };
   }, [activeNav, loadOverviewDashboard, trialResetReady]);
