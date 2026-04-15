@@ -1861,7 +1861,7 @@ export default function App() {
     let alive = true;
 
     const hydrateSavedData = async () => {
-      // Load essential data in parallel - dates first
+      // Load essential data - dates first
       const dates = await getAvailableDates();
       if (!alive) return;
       setAvailableDates(dates);
@@ -1874,9 +1874,8 @@ export default function App() {
         await loadAttendanceForDate(dateToLoad, { silent: true });
       }
 
-      // Load employees and clocks in background without blocking
+      // Load employees in background (clocks load on-demand in ClockDataHub)
       loadEmployees();
-      loadClockEvents();
     };
 
     void hydrateSavedData();
@@ -1884,7 +1883,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [loadClockEvents, loadEmployees, trialResetReady]);
+  }, [loadEmployees, trialResetReady]);
 
   useEffect(() => {
     if (!trialResetReady) return;

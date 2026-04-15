@@ -267,12 +267,11 @@ export default function EmployeesHub({
     }
   };
 
-  // Initial load
+  // Initial load - employees only (clocks load on demand in ClockDataHub)
   useEffect(() => {
     void loadEmployees();
-    void loadClockEvents();
     void loadStaffListLogs();
-  }, [loadClockEvents, loadEmployees]);
+  }, [loadEmployees]);
 
   // Refresh employees when payroll upload completes
   const prevUploadingRef = useRef(false);
