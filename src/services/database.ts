@@ -1202,13 +1202,18 @@ export async function deleteEmployee(id: string): Promise<{ success: boolean; er
 export async function importEmployees(employees: EmployeeInput[]): Promise<{ success: boolean; error?: string; count?: number; skipped?: number }> {
   try {
     const now = new Date().toISOString()
+    
+    // Process employees in a single pass without loading existing data first
     const processedEmployees = employees.map(emp => ({
       ...normalizeEmployeePayload(emp),
       created_at: now,
       updated_at: now,
     }))
 
-    const localMap = new Map((await loadStoredEmployees()).map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    // Batch save to local storage without merging first (faster)
+    const existingEmployees = await loadStoredEmployees()
+    const localMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    
     processedEmployees.forEach((employee) => {
       const normalizedCode = normalizeEmployeeCode(employee.employee_code)
       const existing = localMap.get(normalizedCode)

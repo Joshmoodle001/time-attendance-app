@@ -116,6 +116,8 @@ export default function ShiftSyncAdminPanel() {
   const savedSettingsRef = useRef<ShiftSyncSettings>(DEFAULT_SHIFT_SYNC_SETTINGS);
   // Track the URL value when input was focused (to compare on blur)
   const focusedUrlRef = useRef<string>("");
+  // Track auto-save timer for section links
+  const linkSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -275,14 +277,19 @@ export default function ShiftSyncAdminPanel() {
           ? {
               ...item,
               url: nextUrl,
-              lastStatus: nextUrl ? "Link saved. Click 'Process now' to sync." : "Waiting for a Google document link.",
+              lastStatus: nextUrl ? "Saving link..." : "Waiting for a Google document link.",
             }
           : item
       ),
     };
 
     setSettings(nextSettings);
-    await persistSettings(nextSettings, nextUrl ? "Link saved. Click 'Process now' to sync." : "Live Google Sheet removed.");
+    const result = await persistSettings(nextSettings, nextUrl ? "Link saved. Click 'Process now' to sync." : "Live Google Sheet removed.");
+    
+    // Show error if save failed
+    if (!result.success && result.error) {
+      setStatusMessage(`Save failed: ${result.error}`);
+    }
   };
 
   const handleToggle = async (field: "autoSyncEnabled" | "liveSyncEnabled", value: boolean) => {
@@ -615,18 +622,29 @@ export default function ShiftSyncAdminPanel() {
                       onFocus={() => {
                         focusedUrlRef.current = section.url;
                       }}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const newUrl = event.target.value;
                         setSettings((current) => ({
                           ...current,
                           sections: current.sections.map((item) =>
-                            item.id === section.id ? { ...item, url: event.target.value } : item
+                            item.id === section.id ? { ...item, url: newUrl } : item
                           ),
-                        }))
-                      }
+                        }));
+                        // Auto-save after typing stops (500ms delay)
+                        if (linkSaveTimerRef.current) {
+                          clearTimeout(linkSaveTimerRef.current);
+                        }
+                        linkSaveTimerRef.current = setTimeout(() => {
+                          const current = settings.sections.find(s => s.id === section.id);
+                          if (current && current.url !== newUrl) {
+                            void handleSectionLinkCommit(section.id);
+                          }
+                        }, 500);
+                      }}
                       onBlur={() => void handleSectionLinkCommit(section.id)}
                     />
                     <div className="mt-1 text-xs text-slate-500">
-                      Paste the sheet link, click outside the field, then click "Process now" to sync.
+                      Paste the sheet link, wait 1 second, then click "Process now" to sync.
                     </div>
                   </div>
 

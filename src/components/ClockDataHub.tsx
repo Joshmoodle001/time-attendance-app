@@ -87,7 +87,44 @@ const EMPTY_OVERVIEW: ClockOverview = {
 };
 
 // Cache for clock data to avoid reloading on every interaction
-const clockDataCache = {
+// Persistent cache for clock data (survives re-renders)
+const CLOCK_CACHE_KEY = "pfm-clock-cache-v1";
+const CLOCK_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function loadClockCache() {
+  try {
+    const cached = localStorage.getItem(CLOCK_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      return {
+        overview: parsed.overview as ClockOverview | null,
+        rawEventsCache: new Map<string, BiometricClockEvent[]>(Object.entries(parsed.rawEventsCache || {})),
+        processedCache: new Map<string, ProcessedClockDay[]>(Object.entries(parsed.processedCache || {})),
+        lastLoaded: parsed.lastLoaded || 0,
+        isInitialized: true,
+      };
+    }
+  } catch (e) {
+    console.warn("Failed to load clock cache:", e);
+  }
+  return null;
+}
+
+function saveClockCache(overview: ClockOverview, rawEvents: BiometricClockEvent[], processedDays: ProcessedClockDay[]) {
+  try {
+    const cacheObj = {
+      overview,
+      rawEventsCache: Object.fromEntries([["default", rawEvents]]),
+      processedCache: Object.fromEntries([["default", processedDays]]),
+      lastLoaded: Date.now(),
+    };
+    localStorage.setItem(CLOCK_CACHE_KEY, JSON.stringify(cacheObj));
+  } catch (e) {
+    console.warn("Failed to save clock cache:", e);
+  }
+}
+
+const clockDataCache = loadClockCache() || {
   overview: null as ClockOverview | null,
   rawEventsCache: new Map<string, BiometricClockEvent[]>(),
   processedCache: new Map<string, ProcessedClockDay[]>(),
@@ -100,7 +137,7 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
   const autoLinkRef = useRef(false);
   const processedTableRef = useRef<HTMLDivElement | null>(null);
   const rawTableRef = useRef<HTMLDivElement | null>(null);
-  const [overview, setOverview] = useState<ClockOverview>(EMPTY_OVERVIEW);
+  const [overview, setOverview] = useState<ClockOverview>(clockDataCache.overview || EMPTY_OVERVIEW);
   const [rawEvents, setRawEvents] = useState<BiometricClockEvent[]>([]);
   const [processedClockDays, setProcessedClockDays] = useState<ProcessedClockDay[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -119,7 +156,7 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
   const [lastImportReport, setLastImportReport] = useState<ClockWorkbookImportReport | null>(null);
   
   // Track if we have initial data loaded
-  const hasInitialDataRef = useRef(false);
+  const hasInitialDataRef = useRef(!!clockDataCache.overview);
   const isBackgroundLoadingRef = useRef(false);
 
   // Virtualizers for large tables
@@ -163,8 +200,8 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
     const load = async (isBackground = false) => {
       if (!isBackground && hasInitialDataRef.current) {
         // Use cached data immediately, load in background
-        setRawEvents(clockDataCache.rawEventsCache.get(getCacheKey(rawPage, RAW_PAGE_SIZE)) || []);
-        setProcessedClockDays(clockDataCache.processedCache.get(getCacheKey(processedPage, PROCESSED_PAGE_SIZE)) || []);
+        setRawEvents(clockDataCache.rawEventsCache.get(getCacheKey(rawPage, RAW_PAGE_SIZE)) ?? []);
+        setProcessedClockDays(clockDataCache.processedCache.get(getCacheKey(processedPage, PROCESSED_PAGE_SIZE)) ?? []);
         if (clockDataCache.overview) {
           setOverview(clockDataCache.overview);
         }

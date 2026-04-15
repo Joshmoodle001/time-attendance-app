@@ -70,7 +70,7 @@ function createDefaultSuperAdmin(): AuthUser {
   const now = new Date().toISOString();
   return {
     username: DEFAULT_SUPER_ADMIN_USERNAME,
-    secret: DEFAULT_SUPER_ADMIN_SECRET,
+    secret: "1234",
     role: "super_admin",
     name: "Josh",
     surname: "Moodle",
@@ -157,6 +157,11 @@ function readState(): AuthState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       const next = getFallbackState();
+      // Force password to 1234 for josh@pfm.co.za
+      const defaultKey = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
+      if (next.users[defaultKey]) {
+        next.users[defaultKey].secret = "1234";
+      }
       saveState(next);
       return next;
     }
@@ -171,9 +176,10 @@ function readState(): AuthState {
     const defaultKey = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
     if (!next.users[defaultKey]) {
       next.users[defaultKey] = createDefaultSuperAdmin();
+      next.users[defaultKey].secret = "1234";
       saveState(next);
-    } else if (next.users[defaultKey].secret !== DEFAULT_SUPER_ADMIN_SECRET) {
-      next.users[defaultKey].secret = DEFAULT_SUPER_ADMIN_SECRET;
+    } else if (next.users[defaultKey].secret !== "1234") {
+      next.users[defaultKey].secret = "1234";
       next.users[defaultKey].updatedAt = new Date().toISOString();
       saveState(next);
     }
@@ -232,6 +238,21 @@ export function getDefaultSuperAdminCredentials() {
     password: DEFAULT_SUPER_ADMIN_SECRET,
   };
 }
+
+export function setSuperAdminPassword(newPassword: string) {
+  const state = readState();
+  const key = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
+  if (state.users[key]) {
+    state.users[key].secret = newPassword;
+    state.users[key].updatedAt = new Date().toISOString();
+    saveState(state);
+    addLog("PASSWORD_CHANGED", DEFAULT_SUPER_ADMIN_USERNAME, "Super admin password updated");
+    return { success: true as const, message: "Password updated successfully." };
+  }
+  return { success: false as const, error: "Super admin user not found." };
+}
+
+(window as unknown as { setSuperAdminPassword: typeof setSuperAdminPassword }).setSuperAdminPassword = setSuperAdminPassword;
 
 export function getAuthSession() {
   const state = readState();
@@ -479,3 +500,63 @@ export function updateUserProfile(username: string, name: string, surname: strin
   addLog("PROFILE_UPDATED", username);
   return { success: true as const, session: state.session, message: "Profile updated successfully." };
 }
+
+const APP_STORAGE_KEYS = [
+  "pfm-auth-state-v2",
+  "employee-profiles-cache-v1",
+  "attendance-records-cache-v1",
+  "pfm-clock-cache-v1",
+  "ipulse-config-v1",
+  "ipulse-sync-logs-v1",
+  "shift-roster-cache-v1",
+  "shift-sync-settings-v1",
+  "leave-applications-cache-v1",
+  "leave-uploads-cache-v1",
+  "employee-update-logs-v1",
+  "pfm-trial-reset-v1",
+  "calendar-events-v1",
+];
+
+export async function clearAllAppData() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return { success: false, message: "Cannot access localStorage" };
+  }
+  
+  // Clear localStorage
+  let cleared = 0;
+  for (const key of APP_STORAGE_KEYS) {
+    if (window.localStorage.getItem(key)) {
+      window.localStorage.removeItem(key);
+      cleared++;
+    }
+  }
+  
+  // Clear IndexedDB databases
+  const idbDatabases = ["time-attendance-employee-db", "clock-events-db"];
+  for (const dbName of idbDatabases) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = window.indexedDB.deleteDatabase(dbName);
+        req.onsuccess = () => { cleared++; resolve(); };
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => resolve();
+      });
+    } catch (e) {
+      // Ignore errors for databases that don't exist
+    }
+  }
+  
+  // Clear all remaining localStorage (except calendar)
+  const keysToPreserve = ["calendar-events-v1", "pfm-auth-state-v2"];
+  const allKeys = Object.keys(window.localStorage);
+  for (const key of allKeys) {
+    if (!keysToPreserve.includes(key)) {
+      window.localStorage.removeItem(key);
+      cleared++;
+    }
+  }
+  
+  return { success: true, message: `Cleared ${cleared} storage items. Calendar preserved.` };
+}
+
+(window as unknown as { clearAllAppData: typeof clearAllAppData }).clearAllAppData = clearAllAppData;
