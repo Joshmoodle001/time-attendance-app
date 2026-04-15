@@ -87,6 +87,8 @@ const sidebarItems = [
   { key: "admin", label: "Admin", icon: Settings },
 ] as const;
 
+declare const __BUILD_TIMESTAMP__: string;
+
 const ShiftBuilder = lazy(() => import("@/components/ShiftBuilder"));
 const CalendarBuilder = lazy(() => import("@/components/CalendarBuilder"));
 const RosterBuilder = lazy(() => import("@/components/RosterBuilder"));
@@ -3647,8 +3649,8 @@ export default function App() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
 <h2 className="text-2xl md:text-3xl font-bold text-white">Attendance Overview <span className="text-base font-bold text-cyan-400">
-                  {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__ 
-                    ? new Date((window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
+                  {typeof __BUILD_TIMESTAMP__ !== 'undefined' && __BUILD_TIMESTAMP__ 
+                    ? new Date(__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                         day: '2-digit', month: '2-digit', year: '2-digit', 
                         hour: '2-digit', minute: '2-digit', hour12: false 
                       }) 
@@ -5225,8 +5227,8 @@ export default function App() {
 <div className="flex items-center gap-2">
                   <div className="text-sm font-bold text-white">Backend</div>
                   <span className="text-[10px] text-white font-mono">
-                    {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__ 
-                      ? new Date((window as unknown as { __BUILD_TIMESTAMP__: string }).__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
+                    {typeof __BUILD_TIMESTAMP__ !== 'undefined' && __BUILD_TIMESTAMP__ 
+                      ? new Date(__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                           day: '2-digit', month: '2-digit', year: '2-digit', 
                           hour: '2-digit', minute: '2-digit', hour12: false 
                         }) 
@@ -5270,8 +5272,8 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <div className="text-sm font-bold text-white">Backend</div>
                   <span className="text-[10px] text-white font-mono">
-                    {typeof window !== 'undefined' && (window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__ 
-                      ? new Date((window as unknown as { __BUILD_TIMESTAMP__?: string }).__BUILD_TIMESTAMP__!).toLocaleString('en-ZA', { 
+                    {typeof __BUILD_TIMESTAMP__ !== 'undefined' && __BUILD_TIMESTAMP__ 
+                      ? new Date(__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                           day: '2-digit', month: '2-digit', year: '2-digit', 
                           hour: '2-digit', minute: '2-digit', hour12: false 
                         }) 
