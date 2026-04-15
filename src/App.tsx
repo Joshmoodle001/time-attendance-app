@@ -12,6 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
+import { getAuthSession, updateUserProfile, logoutSuperAdmin, type AuthSession } from "@/services/auth";
 import { motion } from "framer-motion";
 import type { CommunicationAutomation, CommunicationProfile, ReportTemplate } from "@/types/workflows";
 import type { WorkBook } from "xlsx";
@@ -49,6 +50,9 @@ import {
   FileSpreadsheet,
   Search,
   X,
+  User,
+  Pencil,
+  LogOut,
 } from "lucide-react";
 import {
   Card,
@@ -86,6 +90,8 @@ const sidebarItems = [
   { key: "devices", label: "Devices", icon: Server },
   { key: "admin", label: "Admin", icon: Settings },
 ] as const;
+
+type SidebarItem = typeof sidebarItems[number];
 
 declare const __BUILD_TIMESTAMP__: string;
 
@@ -1314,6 +1320,12 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState("all");
   const [activeNav, setActiveNav] = useState<(typeof sidebarItems)[number]["key"]>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileSurname, setProfileSurname] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportDate, setDeviceImportDate] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -1808,6 +1820,15 @@ export default function App() {
 
     return mappedRecords;
   };
+
+  useEffect(() => {
+    const currentSession = getAuthSession();
+    setSession(currentSession);
+    if (currentSession) {
+      setProfileName(currentSession.name || "");
+      setProfileSurname(currentSession.surname || "");
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -5208,6 +5229,22 @@ export default function App() {
     </Card>
   );
 
+  const handleSaveProfile = () => {
+    if (!session) return;
+    const result = updateUserProfile(session.username, profileName, profileSurname);
+    if (result.success && result.session) {
+      setSession(result.session);
+      setProfileMessage(result.message);
+      setEditingProfile(false);
+      setTimeout(() => setProfileMessage(""), 3000);
+    }
+  };
+
+  const handleLogout = () => {
+    logoutSuperAdmin();
+    window.location.reload();
+  };
+
   const handleNavClick = (key: typeof sidebarItems[number]["key"]) => {
     setActiveNav(key);
     setMobileMenuOpen(false);
@@ -5259,6 +5296,120 @@ export default function App() {
               );
             })}
           </nav>
+
+          <div className="mt-auto pt-4 border-t border-slate-700/50">
+            <button
+              onClick={() => {
+                setShowProfilePanel(!showProfilePanel);
+                setEditingProfile(false);
+                setProfileMessage("");
+              }}
+              className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 transition-all ${
+                showProfilePanel
+                  ? "bg-gradient-to-r from-cyan-500/20 to-purple-500/20 text-white border border-cyan-500/20"
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-purple-500 text-white">
+                <User className="h-5 w-5" />
+              </div>
+              <div className="flex-1 text-left">
+                <div className="text-sm font-medium text-white">
+                  {session?.name || session?.username?.split("@")[0] || "User"}
+                </div>
+                <div className="text-xs text-slate-400 truncate">
+                  {session?.surname || "Tap to edit profile"}
+                </div>
+              </div>
+              <Pencil className={`h-4 w-4 text-slate-400 transition-transform ${showProfilePanel ? "rotate-12" : ""}`} />
+            </button>
+
+            {showProfilePanel && (
+              <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-800/80 p-4 backdrop-blur-sm">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                  Profile Settings
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Name</label>
+                    <Input
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      disabled={!editingProfile}
+                      className="bg-slate-700/50 border-slate-600 text-white text-sm h-9 disabled:opacity-60"
+                      placeholder="Enter your name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Surname</label>
+                    <Input
+                      value={profileSurname}
+                      onChange={(e) => setProfileSurname(e.target.value)}
+                      disabled={!editingProfile}
+                      className="bg-slate-700/50 border-slate-600 text-white text-sm h-9 disabled:opacity-60"
+                      placeholder="Enter your surname"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Email</label>
+                    <Input
+                      value={session?.username || ""}
+                      disabled
+                      className="bg-slate-900/50 border-slate-600 text-slate-500 text-sm h-9 disabled:opacity-60"
+                    />
+                    <div className="text-[10px] text-slate-500 mt-1">Email cannot be changed</div>
+                  </div>
+                </div>
+
+                {profileMessage && (
+                  <div className="mt-3 text-xs text-cyan-400 bg-cyan-500/10 rounded-lg px-3 py-2">
+                    {profileMessage}
+                  </div>
+                )}
+
+                <div className="mt-4 flex gap-2">
+                  {editingProfile ? (
+                    <>
+                      <button
+                        onClick={handleSaveProfile}
+                        className="flex-1 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-medium py-2 hover:bg-cyan-500/30 transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingProfile(false);
+                          setProfileName(session?.name || "");
+                          setProfileSurname(session?.surname || "");
+                        }}
+                        className="flex-1 rounded-lg bg-slate-700/50 border border-slate-600 text-slate-300 text-xs font-medium py-2 hover:bg-slate-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setEditingProfile(true)}
+                      className="flex-1 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-medium py-2 hover:bg-cyan-500/30 transition-colors"
+                    >
+                      Edit Profile
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleLogout}
+                  className="mt-3 w-full flex items-center justify-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium py-2 hover:bg-red-500/20 transition-colors"
+                >
+                  <LogOut className="h-3 w-3" />
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </aside>
 
         <div className="header-gradient sticky top-0 z-50 border-b border-slate-200/10 px-4 py-3 md:hidden backdrop-blur-md">

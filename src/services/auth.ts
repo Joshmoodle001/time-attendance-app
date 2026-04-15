@@ -4,6 +4,8 @@ export type AuthUser = {
   username: string;
   secret: string;
   role: AuthRole;
+  name: string;
+  surname: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -11,6 +13,8 @@ export type AuthUser = {
 export type AuthSession = {
   username: string;
   role: AuthRole;
+  name: string;
+  surname: string;
   loggedInAt: string;
 };
 
@@ -33,6 +37,8 @@ function createDefaultSuperAdmin(): AuthUser {
     username: DEFAULT_SUPER_ADMIN_USERNAME,
     secret: DEFAULT_SUPER_ADMIN_SECRET,
     role: "super_admin",
+    name: "Josh",
+    surname: "Moodle",
     createdAt: now,
     updatedAt: now,
   };
@@ -130,6 +136,8 @@ export function loginSuperAdmin(username: string, password: string) {
   const session: AuthSession = {
     username: user.username,
     role: user.role,
+    name: user.name || "",
+    surname: user.surname || "",
     loggedInAt: new Date().toISOString(),
   };
 
@@ -187,4 +195,33 @@ export function restoreDefaultSuperAdminPassword(username: string) {
   saveState(state);
 
   return { success: true as const, message: "Password restored to the default super admin password." };
+}
+
+export function updateUserProfile(username: string, name: string, surname: string) {
+  const state = readState();
+  const key = normalizeUsername(username);
+  const user = state.users[key];
+
+  if (!user) {
+    return { success: false as const, error: "User not found." };
+  }
+
+  state.users[key] = {
+    ...user,
+    name: name.trim(),
+    surname: surname.trim(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (state.session && normalizeUsername(state.session.username) === key) {
+    state.session.name = name.trim();
+    state.session.surname = surname.trim();
+  }
+
+  saveState(state);
+  return { 
+    success: true as const, 
+    session: state.session,
+    message: "Profile updated successfully." 
+  };
 }
