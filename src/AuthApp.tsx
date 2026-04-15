@@ -8,7 +8,6 @@ import {
   EyeOff,
   Key,
   Lock,
-  LogOut,
   RefreshCw,
   TimerReset,
   User,
@@ -265,15 +264,6 @@ export default function AuthApp() {
     });
   };
 
-  const handleLogout = () => {
-    logoutSuperAdmin();
-    setSession(null);
-    setShowWelcome(false);
-    setPassword("");
-    setActivePanel("login");
-    setBanner({ type: "info", text: "Session ended. Sign in again to continue." });
-  };
-
   if (isBooting) {
     return (
       <div className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
@@ -515,18 +505,6 @@ export default function AuthApp() {
   return (
     <>
       <App />
-      <div className="pointer-events-none fixed right-4 top-4 z-[120]">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-white shadow-[0_20px_60px_rgba(2,6,23,0.5)] backdrop-blur-xl">
-          <div className="hidden text-right sm:block">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-300">Signed In</div>
-            <div className="text-sm font-medium">{session.username}</div>
-          </div>
-          <Button variant="outline" size="sm" className="h-9" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
-        </div>
-      </div>
     </>
   );
 }
