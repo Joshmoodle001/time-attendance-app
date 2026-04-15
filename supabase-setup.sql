@@ -327,6 +327,19 @@ REVOKE ALL PRIVILEGES ON TABLE
   public.ipulse_sync_logs
 FROM anon, authenticated;
 
+-- Store assignments for Rep/Regional/Divisional roles
+CREATE TABLE IF NOT EXISTS public.store_assignments (
+  username TEXT PRIMARY KEY,
+  store_keys JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.store_assignments ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read/write (same pattern as other tables in this project)
+GRANT ALL ON public.store_assignments TO anon;
+GRANT ALL ON public.store_assignments TO authenticated;
+
 -- =====================================================
 -- NEXT STEP
 -- =====================================================

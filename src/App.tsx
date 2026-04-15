@@ -12,7 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
+import { getAuthSession, updateUserProfile, logout, isSuperAdmin, getRoleLabel, type AuthSession, type AuthRole } from "@/services/auth";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { CommunicationAutomation, CommunicationProfile, ReportTemplate } from "@/types/workflows";
@@ -20,6 +20,7 @@ import type { WorkBook } from "xlsx";
 import {
   TimerReset,
   AlertTriangle,
+  Building2,
   CheckCircle2,
   Layers3,
   Upload,
@@ -79,7 +80,7 @@ import {
   Line,
 } from "recharts";
 
-const sidebarItems = [
+const ALL_SIDEBAR_ITEMS = [
   { key: "overview", label: "Overview", icon: Layers3 },
   { key: "employees", label: "Employees", icon: Users },
   { key: "reports", label: "Reports", icon: Table2 },
@@ -92,9 +93,10 @@ const sidebarItems = [
   { key: "devices", label: "Devices", icon: Server },
   { key: "admin", label: "Admin", icon: Settings },
   { key: "superadmin", label: "Super Admin", icon: Shield },
+  { key: "myportal", label: "My Portal", icon: Building2 },
 ] as const;
 
-type SidebarItem = typeof sidebarItems[number];
+type SidebarItem = typeof ALL_SIDEBAR_ITEMS[number];
 
 declare const __BUILD_TIMESTAMP__: string;
 
@@ -108,6 +110,7 @@ const LeaveHub = lazy(() => import("@/components/LeaveHub"));
 const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"));
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
+const RegionalRepPanel = lazy(() => import("@/components/RegionalRepPanel"));
 
 const ATTENDANCE_STATUS_CONFIG = [
   { key: "atWork", name: "At Work", color: "#22c55e" },
@@ -1321,9 +1324,18 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [selectedStore, setSelectedStore] = useState("all");
-  const [activeNav, setActiveNav] = useState<(typeof sidebarItems)[number]["key"]>("overview");
+  const [activeNav, setActiveNav] = useState<(typeof ALL_SIDEBAR_ITEMS[number]["key"])>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
+
+  const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
+
+  const sidebarItems = useMemo(() => {
+    if (!session) return ALL_SIDEBAR_ITEMS;
+    if (session.role === "super_admin" || session.role === "admin") return ALL_SIDEBAR_ITEMS.filter((i) => i.key !== "myportal");
+    // Field roles (rep, regional, divisional) show My Portal instead of full admin
+    return ALL_SIDEBAR_ITEMS.filter((i) => !["admin", "superadmin", "devices"].includes(i.key));
+  }, [session?.role]);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -1830,6 +1842,9 @@ export default function App() {
     if (currentSession) {
       setProfileName(currentSession.name || "");
       setProfileSurname(currentSession.surname || "");
+      if ((currentSession.role === "rep" || currentSession.role === "regional" || currentSession.role === "divisional") && activeNav === "overview") {
+        setActiveNav("myportal");
+      }
     }
   }, []);
 
@@ -5217,6 +5232,34 @@ export default function App() {
   };
 
   const renderMainSection = () => {
+    if (activeNav === "myportal") {
+      if (!isFieldRole || !session) {
+        return (
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardContent className="p-8 text-center">
+              <Building2 className="h-16 w-16 mx-auto mb-4 text-slate-600" />
+              <h2 className="text-xl font-bold text-white mb-2">My Portal</h2>
+              <p className="text-slate-400">This section is available for Rep, Regional, and Divisional roles.</p>
+            </CardContent>
+          </Card>
+        );
+      }
+      return (
+        <Suspense fallback={
+          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
+            <CardContent className="tech-loader p-8 text-center text-slate-300">
+              <div className="orb-loader mx-auto mb-4 w-fit">
+                <span /><span /><span />
+              </div>
+              <div className="font-medium text-white">Loading portal</div>
+              <div className="mt-1 text-xs text-slate-400">Preparing your dashboard...</div>
+            </CardContent>
+          </Card>
+        }>
+          <RegionalRepPanel session={session} />
+        </Suspense>
+      );
+    }
     if (activeNav === "shifts") return <ShiftBuilder />;
     if (activeNav === "calendar") return <CalendarBuilder />;
     if (activeNav === "roster") return <RosterBuilder />;
