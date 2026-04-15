@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,10 +21,9 @@ import {
   ensureSuperAdminSeeded,
   getAuthSession,
   getDefaultSuperAdminCredentials,
-  loginSuperAdmin,
-  logoutSuperAdmin,
-  resetSuperAdminPassword,
-  restoreDefaultSuperAdminPassword,
+  login,
+  logout,
+  updateOwnPassword,
   type AuthSession,
 } from "@/services/auth";
 
@@ -190,16 +189,12 @@ export default function AuthApp() {
   const [isBooting, setIsBooting] = useState(true);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
-  const [activePanel, setActivePanel] = useState<"login" | "reset">("login");
   const [username, setUsername] = useState(defaults.username);
   const [password, setPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [resetUsername, setResetUsername] = useState(defaults.username);
   const [showPassword, setShowPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
   const [banner, setBanner] = useState<Banner | null>({
     type: "info",
-    text: "Sign in with your super admin credentials.",
+    text: "Sign in with your credentials.",
   });
 
   useEffect(() => {
@@ -215,7 +210,7 @@ export default function AuthApp() {
 
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = loginSuperAdmin(username, password);
+    const result = login(username, password);
 
     if (!result.success) {
       setBanner({ type: "error", text: result.error });
@@ -225,43 +220,7 @@ export default function AuthApp() {
     setSession(result.session);
     setShowWelcome(true);
     setPassword("");
-    setBanner({ type: "success", text: `Welcome back, ${result.session.username}.` });
-  };
-
-  const handleResetPassword = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const result = resetSuperAdminPassword(resetUsername, newPassword);
-
-    if (!result.success) {
-      setBanner({ type: "error", text: result.error });
-      return;
-    }
-
-    setSession(null);
-    setShowWelcome(false);
-    setPassword("");
-    setNewPassword("");
-    setActivePanel("login");
-    setBanner({ type: "success", text: result.message });
-  };
-
-  const handleRestoreDefault = () => {
-    const result = restoreDefaultSuperAdminPassword(resetUsername);
-
-    if (!result.success) {
-      setBanner({ type: "error", text: result.error });
-      return;
-    }
-
-    setSession(null);
-    setShowWelcome(false);
-    setPassword("");
-    setNewPassword("");
-    setActivePanel("login");
-    setBanner({
-      type: "success",
-      text: `${result.message} Sign in with your default credentials.`,
-    });
+    setBanner({ type: "success", text: `Welcome back, ${result.session.username}!` });
   };
 
   if (isBooting) {
@@ -355,50 +314,25 @@ export default function AuthApp() {
                     <div className="text-2xl font-bold">Sign in</div>
                   </div>
                 </div>
-
-                <div className="rounded-full border border-white/10 bg-white/5 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setActivePanel("login")}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                      activePanel === "login" ? "bg-cyan-500 text-white" : "text-slate-300"
-                    )}
-                  >
-                    Login
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActivePanel("reset")}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                      activePanel === "reset" ? "bg-violet-500 text-white" : "text-slate-300"
-                    )}
-                  >
-                    Reset
-                  </button>
-                </div>
               </div>
 
               <StatusBanner banner={banner} />
 
-              <AnimatePresence mode="wait">
-                {activePanel === "login" ? (
-                  <motion.form
-                    key="login"
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.22 }}
-                    onSubmit={handleLogin}
-                    className="mt-6 space-y-4"
-                  >
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-300">Username</label>
-                      <div className="relative">
-                        <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
-                        <Input
-                          value={username}
+              <motion.form
+                key="login"
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22 }}
+                onSubmit={handleLogin}
+                className="mt-6 space-y-4"
+              >
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-300">Username</label>
+                  <div className="relative">
+                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                    <Input
+                      value={username}
                           onChange={(event) => setUsername(event.target.value)}
                           className="h-12 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500"
                           placeholder="Super admin username"
@@ -436,65 +370,6 @@ export default function AuthApp() {
                       <ChevronRight className="ml-2 h-4 w-4" />
                     </Button>
                   </motion.form>
-                ) : (
-                  <motion.form
-                    key="reset"
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.22 }}
-                    onSubmit={handleResetPassword}
-                    className="mt-6 space-y-4"
-                  >
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-300">Super admin username</label>
-                      <div className="relative">
-                        <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-300" />
-                        <Input
-                          value={resetUsername}
-                          onChange={(event) => setResetUsername(event.target.value)}
-                          className="h-12 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500"
-                          placeholder="Account username"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-300">New password</label>
-                      <div className="relative">
-                        <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-300" />
-                        <Input
-                          type={showNewPassword ? "text" : "password"}
-                          value={newPassword}
-                          onChange={(event) => setNewPassword(event.target.value)}
-                          className="h-12 border-white/10 bg-white/5 pl-10 pr-12 text-white placeholder:text-slate-500"
-                          placeholder="Choose a new password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowNewPassword((current) => !current)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-white"
-                        >
-                          {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Button type="submit" size="lg" className="h-12 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500">
-                        Save new password
-                      </Button>
-                      <Button type="button" size="lg" variant="outline" className="h-12" onClick={handleRestoreDefault}>
-                        Restore default password
-                      </Button>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                      Reset is handled locally for this dashboard installation and signs out the current session after changes.
-                    </div>
-                  </motion.form>
-                )}
-              </AnimatePresence>
             </motion.div>
           </div>
         </div>

@@ -12,7 +12,8 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { getAuthSession, updateUserProfile, logoutSuperAdmin, type AuthSession } from "@/services/auth";
+import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
+import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { CommunicationAutomation, CommunicationProfile, ReportTemplate } from "@/types/workflows";
 import type { WorkBook } from "xlsx";
@@ -53,6 +54,7 @@ import {
   User,
   Pencil,
   LogOut,
+  Shield,
 } from "lucide-react";
 import {
   Card,
@@ -89,6 +91,7 @@ const sidebarItems = [
   { key: "communications", label: "Comms Hub", icon: Globe },
   { key: "devices", label: "Devices", icon: Server },
   { key: "admin", label: "Admin", icon: Settings },
+  { key: "superadmin", label: "Super Admin", icon: Shield },
 ] as const;
 
 type SidebarItem = typeof sidebarItems[number];
@@ -5224,6 +5227,23 @@ export default function App() {
     if (activeNav === "admin") return renderAdmin();
     if (activeNav === "reports") return renderReports();
     if (activeNav === "devices") return renderDevices();
+    if (activeNav === "superadmin") {
+      if (!isSuperAdmin(session)) {
+        return (
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardContent className="p-8 text-center">
+              <Shield className="h-16 w-16 mx-auto mb-4 text-slate-600" />
+              <h2 className="text-xl font-bold text-white mb-2">Access Restricted</h2>
+              <p className="text-slate-400">Only Super Admins can access this section.</p>
+            </CardContent>
+          </Card>
+        );
+      }
+      if (session) {
+        return <SuperAdminPanel session={session} />;
+      }
+      return renderOverview();
+    }
     return renderOverview();
   };
 
@@ -5255,7 +5275,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    logoutSuperAdmin();
+    logout();
     window.location.reload();
   };
 
