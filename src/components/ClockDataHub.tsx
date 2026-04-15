@@ -557,13 +557,6 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
         </Card>
         <Card className="section-tech-stat rounded-2xl border-slate-700/50">
           <CardContent className="p-4 text-center">
-            <div className="section-tech-kicker text-purple-400">Daily Intelligence</div>
-            <div className="mt-2 text-3xl font-bold text-purple-400">{overview.totalProcessedDays}</div>
-            <div className="text-sm text-slate-400">Processed Clock Days</div>
-          </CardContent>
-        </Card>
-        <Card className="section-tech-stat rounded-2xl border-slate-700/50">
-          <CardContent className="p-4 text-center">
             <div className="section-tech-kicker text-cyan-400">Coverage</div>
             <div className="mt-2 text-3xl font-bold text-white">{overview.employeesWithClocks}</div>
             <div className="text-sm text-slate-400">Employees With Clocks</div>
@@ -797,88 +790,6 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="section-tech-table">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-gray-100 px-4 py-3">
-              <div className="text-sm font-semibold text-gray-800">Processed Clock Days</div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <span>
-                  Showing {(processedPage - 1) * PROCESSED_PAGE_SIZE + (processedClockDays.length ? 1 : 0)}-
-                  {(processedPage - 1) * PROCESSED_PAGE_SIZE + processedClockDays.length} of {overview.totalProcessedDays}
-                </span>
-                <Button variant="outline" size="sm" onClick={() => setProcessedPage((page) => Math.max(1, page - 1))} disabled={processedPage === 1}>
-                  Prev
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setProcessedPage((page) => page + 1)}
-                  disabled={processedPage * PROCESSED_PAGE_SIZE >= overview.totalProcessedDays}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-            <div ref={processedTableRef} className="overflow-auto max-h-[500px]">
-              <table className="w-full min-w-[1200px] border-collapse sticky top-0">
-                <thead className="bg-slate-800/80 text-left">
-                  <tr>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Date</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Employee</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Store</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Clocks</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">First Clock</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Last Clock</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Status</th>
-                    <th className="px-4 py-3 text-sm font-semibold text-cyan-400">Method / Device</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {processedClockDays.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
-                        No processed clock days match the current search.
-                      </td>
-                    </tr>
-) : (
-                     processedRowVirtualizer.getVirtualItems().map((virtualRow: { index: number; size: number }) => {
-                       const day = processedClockDays[virtualRow.index];
-                       return (
-                         <tr
-                           key={day.key}
-                           className="border-t border-white/10 bg-transparent hover:bg-white/5"
-                           style={{
-                             height: `${virtualRow.size}px`,
-                           }}
-                         >
-                          <td className="px-4 py-3 text-sm font-medium text-white">{formatClockDate(day.clock_date)}</td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className="font-medium text-white">
-                              {day.employee_code} - {day.employee_name}
-                            </div>
-                            <div className="text-xs text-slate-400">{day.id_number || "No ID number"}</div>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-slate-300">{day.store || "-"}</td>
-                          <td className="px-4 py-3 text-sm font-semibold text-white">{day.clock_count}</td>
-                          <td className="px-4 py-3 text-sm text-slate-300">{day.first_clock || "-"}</td>
-                          <td className="px-4 py-3 text-sm text-slate-300">{day.last_clock || "-"}</td>
-                          <td className="px-4 py-3 text-sm">
-                            <Badge className={day.status === "In/Out" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}>
-                              {day.status}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className="font-medium text-white">{day.methods.join(", ") || "-"}</div>
-                            <div className="text-xs text-slate-400">{day.devices.join(", ") || "-"}</div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
         </CardContent>
       </Card>
