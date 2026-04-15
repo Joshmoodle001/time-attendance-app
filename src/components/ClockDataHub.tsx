@@ -86,11 +86,20 @@ const EMPTY_OVERVIEW: ClockOverview = {
   summaries: [],
 };
 
+// Cache for clock data to avoid reloading on every interaction
+const clockDataCache = {
+  overview: null as ClockOverview | null,
+  rawEventsCache: new Map<string, BiometricClockEvent[]>(),
+  processedCache: new Map<string, ProcessedClockDay[]>(),
+  lastLoaded: 0,
+  isInitialized: false,
+};
+
 export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDataHubProps) {
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const autoLinkRef = useRef(false);
-  const processedTableRef = useRef<HTMLDivElement>(null);
-  const rawTableRef = useRef<HTMLDivElement>(null);
+  const processedTableRef = useRef<HTMLDivElement | null>(null);
+  const rawTableRef = useRef<HTMLDivElement | null>(null);
   const [overview, setOverview] = useState<ClockOverview>(EMPTY_OVERVIEW);
   const [rawEvents, setRawEvents] = useState<BiometricClockEvent[]>([]);
   const [processedClockDays, setProcessedClockDays] = useState<ProcessedClockDay[]>([]);
@@ -103,11 +112,15 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [loadPercent, setLoadPercent] = useState(0);
   const [loadStage, setLoadStage] = useState("");
-const [importPercent, setImportPercent] = useState(0);
-   const [importStage, setImportStage] = useState("");
-   const [rawPage, setRawPage] = useState(1);
-   const [processedPage, setProcessedPage] = useState(1);
-   const [lastImportReport, setLastImportReport] = useState<ClockWorkbookImportReport | null>(null);
+  const [importPercent, setImportPercent] = useState(0);
+  const [importStage, setImportStage] = useState("");
+  const [rawPage, setRawPage] = useState(1);
+  const [processedPage, setProcessedPage] = useState(1);
+  const [lastImportReport, setLastImportReport] = useState<ClockWorkbookImportReport | null>(null);
+  
+  // Track if we have initial data loaded
+  const hasInitialDataRef = useRef(false);
+  const isBackgroundLoadingRef = useRef(false);
 
   // Virtualizers for large tables
   const processedRowVirtualizer = useVirtualizer({
@@ -139,32 +152,72 @@ const [importPercent, setImportPercent] = useState(0);
     };
   }, [isLoadingData]);
 
+  // Generate cache key for current filters
+  const getCacheKey = (page: number, pageSize: number) => 
+    `${deferredSearchTerm || ""}-${storeFilter}-${page}-${pageSize}`;
+
   useEffect(() => {
     let alive = true;
+    let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const load = async () => {
+    const load = async (isBackground = false) => {
+      if (!isBackground && hasInitialDataRef.current) {
+        // Use cached data immediately, load in background
+        setRawEvents(clockDataCache.rawEventsCache.get(getCacheKey(rawPage, RAW_PAGE_SIZE)) || []);
+        setProcessedClockDays(clockDataCache.processedCache.get(getCacheKey(processedPage, PROCESSED_PAGE_SIZE)) || []);
+        if (clockDataCache.overview) {
+          setOverview(clockDataCache.overview);
+        }
+        
+        // Background refresh if data is stale (older than 30 seconds)
+        const now = Date.now();
+        if (!isBackground && !isBackgroundLoadingRef.current && clockDataCache.lastLoaded > 0 && now - clockDataCache.lastLoaded > 30000) {
+          isBackgroundLoadingRef.current = true;
+          backgroundTimer = setTimeout(() => {
+            if (alive) {
+              void loadInBackground();
+            }
+          }, 100);
+        }
+        return;
+      }
+
       setIsLoadingData(true);
       setLoadPercent(8);
       setLoadStage("Opening the clock database...");
       await initializeClockDatabase();
+      
+      // Initialize database in background
       const filters = {
         search: deferredSearchTerm.trim() || undefined,
         store: storeFilter === "all" ? undefined : storeFilter,
       };
       setLoadPercent(28);
       setLoadStage("Loading overview and processed clock summaries...");
+      
       const [overviewResult, processedResult, rawResult] = await Promise.all([
         getClockOverview(filters),
         getProcessedClockDaysPage({ ...filters, offset: (processedPage - 1) * PROCESSED_PAGE_SIZE, limit: PROCESSED_PAGE_SIZE }),
         getClockEventsPage({ ...filters, offset: (rawPage - 1) * RAW_PAGE_SIZE, limit: RAW_PAGE_SIZE }),
       ]);
+      
       if (!alive) return;
+      
+      // Update cache
+      clockDataCache.overview = overviewResult;
+      clockDataCache.rawEventsCache.set(getCacheKey(rawPage, RAW_PAGE_SIZE), rawResult.items);
+      clockDataCache.processedCache.set(getCacheKey(processedPage, PROCESSED_PAGE_SIZE), processedResult.items);
+      clockDataCache.lastLoaded = Date.now();
+      clockDataCache.isInitialized = true;
+      hasInitialDataRef.current = true;
+      
       setLoadPercent(100);
       setLoadStage("Clock data loaded.");
       setOverview(overviewResult);
       setProcessedClockDays(processedResult.items);
       setRawEvents(rawResult.items);
       setStatusMessage(`Loaded ${overviewResult.totalEvents} biometric clock event${overviewResult.totalEvents === 1 ? "" : "s"} using the optimized clock store.`);
+      
       window.setTimeout(() => {
         if (!alive) return;
         setIsLoadingData(false);
@@ -172,9 +225,44 @@ const [importPercent, setImportPercent] = useState(0);
       }, 300);
     };
 
+    const loadInBackground = async () => {
+      try {
+        const filters = {
+          search: deferredSearchTerm.trim() || undefined,
+          store: storeFilter === "all" ? undefined : storeFilter,
+        };
+        
+        const [overviewResult, processedResult, rawResult] = await Promise.all([
+          getClockOverview(filters),
+          getProcessedClockDaysPage({ ...filters, offset: (processedPage - 1) * PROCESSED_PAGE_SIZE, limit: PROCESSED_PAGE_SIZE }),
+          getClockEventsPage({ ...filters, offset: (rawPage - 1) * RAW_PAGE_SIZE, limit: RAW_PAGE_SIZE }),
+        ]);
+        
+        if (!alive) return;
+        
+        // Update cache
+        clockDataCache.overview = overviewResult;
+        clockDataCache.rawEventsCache.set(getCacheKey(rawPage, RAW_PAGE_SIZE), rawResult.items);
+        clockDataCache.processedCache.set(getCacheKey(processedPage, PROCESSED_PAGE_SIZE), processedResult.items);
+        clockDataCache.lastLoaded = Date.now();
+        
+        // Update UI
+        setOverview(overviewResult);
+        setProcessedClockDays(processedResult.items);
+        setRawEvents(rawResult.items);
+      } catch (e) {
+        console.log("[ClockDataHub] Background refresh failed, will retry next time");
+      } finally {
+        isBackgroundLoadingRef.current = false;
+      }
+    };
+
     void load();
     return () => {
       alive = false;
+      if (backgroundTimer) {
+        clearTimeout(backgroundTimer);
+      }
     };
   }, [deferredSearchTerm, storeFilter, rawPage, processedPage]);
 
@@ -195,6 +283,13 @@ const [importPercent, setImportPercent] = useState(0);
         getProcessedClockDaysPage({ ...filters, offset: (processedPage - 1) * PROCESSED_PAGE_SIZE, limit: PROCESSED_PAGE_SIZE }),
         getClockEventsPage({ ...filters, offset: (rawPage - 1) * RAW_PAGE_SIZE, limit: RAW_PAGE_SIZE }),
       ]);
+      
+      // Update cache
+      clockDataCache.overview = overviewResult;
+      clockDataCache.rawEventsCache.set(getCacheKey(rawPage, RAW_PAGE_SIZE), rawResult.items);
+      clockDataCache.processedCache.set(getCacheKey(processedPage, PROCESSED_PAGE_SIZE), processedResult.items);
+      clockDataCache.lastLoaded = Date.now();
+      
       setLoadPercent(100);
       setLoadStage("Clock data loaded.");
       setOverview(overviewResult);
