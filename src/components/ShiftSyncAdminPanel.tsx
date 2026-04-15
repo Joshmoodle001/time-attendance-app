@@ -8,7 +8,6 @@ import {
   buildShiftLiveWebhookUrl,
   createShiftSyncSectionId,
   DEFAULT_SHIFT_SYNC_SETTINGS,
-  DEFAULT_SHIFT_SYNC_SECTIONS,
   loadShiftSyncSettings,
   saveShiftSyncSettings,
   type ShiftSyncSettings,
@@ -22,29 +21,6 @@ function normalizeText(value: unknown) {
 function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
   const raw = typeof value === "object" && value !== null ? (value as Partial<ShiftSyncSettings>) : {};
   const incomingSections = Array.isArray(raw.sections) ? raw.sections : [];
-  const mergedSections = [
-    ...DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
-      const incoming = incomingSections.find((item) => item?.id === section.id);
-      return {
-        ...section,
-        ...(incoming || {}),
-        id: section.id,
-        label: section.label,
-        url: normalizeText(incoming?.url || section.url),
-        lastSyncedAt: normalizeText(incoming?.lastSyncedAt || section.lastSyncedAt),
-        lastStatus: normalizeText(incoming?.lastStatus || section.lastStatus),
-      };
-    }),
-    ...incomingSections
-      .filter((section) => section?.id && !DEFAULT_SHIFT_SYNC_SECTIONS.some((defaultSection) => defaultSection.id === section.id))
-      .map((section) => ({
-        id: section.id!,
-        label: normalizeText(section.label) || section.id!,
-        url: normalizeText(section.url),
-        lastSyncedAt: normalizeText(section.lastSyncedAt),
-        lastStatus: normalizeText(section.lastStatus) || "Waiting for a Google document link.",
-      })),
-  ];
 
   return {
     autoSyncEnabled: Boolean(raw.autoSyncEnabled),
@@ -58,7 +34,13 @@ function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
     lastLiveSyncedAt: normalizeText(raw.lastLiveSyncedAt),
     lastLiveStatus: normalizeText(raw.lastLiveStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastLiveStatus,
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || DEFAULT_SHIFT_SYNC_SETTINGS.liveWebhookKey,
-    sections: mergedSections,
+    sections: incomingSections.map((section) => ({
+      id: section?.id || `sheet-${Date.now().toString(36)}`,
+      label: normalizeText(section?.label) || section?.id || "Unnamed",
+      url: normalizeText(section?.url),
+      lastSyncedAt: normalizeText(section?.lastSyncedAt),
+      lastStatus: normalizeText(section?.lastStatus) || "Waiting for a Google document link.",
+    })),
   };
 }
 
@@ -162,10 +144,7 @@ export default function ShiftSyncAdminPanel() {
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
-  const visibleSections = useMemo(
-    () => (settings.sections.length > 0 ? settings.sections : DEFAULT_SHIFT_SYNC_SECTIONS),
-    [settings.sections]
-  );
+  const visibleSections = settings.sections;
 
   const universalWebhookUrl = useMemo(
     () => buildShiftLiveWebhookUrl(origin, settings.liveWebhookKey),
@@ -184,9 +163,6 @@ export default function ShiftSyncAdminPanel() {
     setSaving(false);
     return result;
   };
-
-  const isDefaultSection = (sectionId: string) =>
-    DEFAULT_SHIFT_SYNC_SECTIONS.some((section) => section.id === sectionId);
 
   const refreshFromServer = async () => {
     const next = await loadShiftSyncSettings();
@@ -380,10 +356,6 @@ export default function ShiftSyncAdminPanel() {
   };
 
   const handleRemoveSection = async (sectionId: string) => {
-    if (isDefaultSection(sectionId)) {
-      setStatusMessage("Default live sheets stay in place. You can clear their links if you do not need them.");
-      return;
-    }
 
     const nextSettings = {
       ...settings,
@@ -407,7 +379,7 @@ export default function ShiftSyncAdminPanel() {
               Live Shift Sheets
             </CardTitle>
             <CardDescription>
-              Manage live Google Sheets here. Paste a sheet link, click outside the field, and the app will save it and process it immediately while keeping the Shifts builder unchanged.
+              Manage live Google Sheets here. Add a sheet name and link, then click outside the field to save. Click "Process now" to sync shift data.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -516,7 +488,7 @@ export default function ShiftSyncAdminPanel() {
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Sheet name</div>
                 <Input
                   value={newSectionLabel}
-                  placeholder="Example: Checkers Specials"
+                  placeholder="Example: Weekly Roster"
                   onChange={(event) => setNewSectionLabel(event.target.value)}
                 />
               </div>
@@ -582,6 +554,12 @@ export default function ShiftSyncAdminPanel() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
+          {visibleSections.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+              <div className="text-sm font-medium text-slate-600">No live sheets added yet</div>
+              <div className="mt-1 text-xs text-slate-500">Add a live sheet above to connect a Google Sheet and start syncing shifts.</div>
+            </div>
+          )}
           {visibleSections.map((section) => {
             const listenerUrl = buildShiftLiveWebhookUrl(origin, settings.liveWebhookKey, section.id);
             const syncing = syncingIds.includes(section.id);
@@ -648,12 +626,10 @@ export default function ShiftSyncAdminPanel() {
                       <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
                       {syncing ? "Processing..." : "Process now"}
                     </Button>
-                    {!isDefaultSection(section.id) && (
-                      <Button variant="outline" size="sm" onClick={() => void handleRemoveSection(section.id)} disabled={saving || syncing}>
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Remove
-                      </Button>
-                    )}
+                    <Button variant="outline" size="sm" onClick={() => void handleRemoveSection(section.id)} disabled={saving || syncing}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Remove
+                    </Button>
                     {section.lastSyncedAt && (
                       <Badge className="bg-emerald-100 text-emerald-700">
                         <CheckCircle2 className="mr-1 h-3 w-3" />

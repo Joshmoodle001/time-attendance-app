@@ -5,36 +5,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPA
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
 const SUPABASE_REST_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
-const DEFAULT_SHIFT_SYNC_SECTIONS = [
-  {
-    id: "checkers-local",
-    label: "Checkers Local",
-    url: "",
-    lastSyncedAt: "",
-    lastStatus: "Waiting for a Google document link.",
-  },
-  {
-    id: "checkers-country",
-    label: "Checkers Country",
-    url: "",
-    lastSyncedAt: "",
-    lastStatus: "Waiting for a Google document link.",
-  },
-  {
-    id: "shoprite-local",
-    label: "Shoprite Local",
-    url: "",
-    lastSyncedAt: "",
-    lastStatus: "Waiting for a Google document link.",
-  },
-  {
-    id: "shoprite-country",
-    label: "Shoprite Country",
-    url: "",
-    lastSyncedAt: "",
-    lastStatus: "Waiting for a Google document link.",
-  },
-];
+const DEFAULT_SHIFT_SYNC_SECTIONS = [];
 
 const DEFAULT_SHIFT_SYNC_SETTINGS = {
   autoSyncEnabled: false,
@@ -73,8 +44,9 @@ function randomId() {
 
 function mergeSections(sections) {
   const parsedMap = new Map((Array.isArray(sections) ? sections : []).map((item) => [item.id, item]));
-  return DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
+  const merged = DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
     const stored = parsedMap.get(section.id);
+    parsedMap.delete(section.id);
     return {
       ...section,
       ...(stored || {}),
@@ -85,6 +57,14 @@ function mergeSections(sections) {
       lastStatus: normalizeText(stored?.lastStatus || section.lastStatus),
     };
   });
+  const custom = Array.from(parsedMap.values()).map((section) => ({
+    id: section.id,
+    label: normalizeText(section.label) || section.id,
+    url: normalizeText(section.url),
+    lastSyncedAt: normalizeText(section.lastSyncedAt),
+    lastStatus: normalizeText(section.lastStatus) || "Waiting for a Google document link.",
+  }));
+  return [...merged, ...custom];
 }
 
 function normalizeSettings(value) {
