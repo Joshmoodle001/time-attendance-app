@@ -1,5 +1,20 @@
 import { supabase } from '@/lib/supabase'
 
+const EMPLOYEE_CACHE_KEY = 'employees-cache'
+const EMPLOYEE_CACHE_DURATION = 5 * 60 * 1000
+let employeeCache: { data: Employee[] | null; timestamp: number } = { data: null, timestamp: 0 }
+
+function getCachedEmployees(): Employee[] | null {
+  if (employeeCache.data && Date.now() - employeeCache.timestamp < EMPLOYEE_CACHE_DURATION) {
+    return employeeCache.data
+  }
+  return null
+}
+
+function setCachedEmployees(data: Employee[]) {
+  employeeCache = { data, timestamp: Date.now() }
+}
+
 export interface AttendanceRecord {
   id: string
   employee_code: string
@@ -1029,10 +1044,15 @@ export async function getEmployees(filters?: {
   store?: string
   status?: string
 }): Promise<Employee[]> {
+  if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
+    const cached = getCachedEmployees()
+    if (cached) return cached
+  }
+  
   const localEmployees = await loadStoredEmployees()
 
   try {
-    let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(5000)
+    let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(2000)
 
     if (filters?.search) {
       const search = filters.search.replace(/,/g, '')
@@ -1056,12 +1076,20 @@ export async function getEmployees(filters?: {
     }
 
     const remote = (data || []) as Employee[]
-    if (count && count > 5000) {
-      return filterEmployees(remote, filters)
+    if (count && count > 2000) {
+      const filtered = filterEmployees(remote, filters)
+      if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
+        setCachedEmployees(filtered)
+      }
+      return filtered
     }
     const merged = mergeEmployeeCollections(remote, localEmployees)
     if (merged.length > 0) await saveStoredEmployees(merged)
-    return filterEmployees(merged.length > 0 ? merged : localEmployees, filters)
+    const result = filterEmployees(merged.length > 0 ? merged : localEmployees, filters)
+    if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
+      setCachedEmployees(result)
+    }
+    return result
   } catch (err) {
     console.warn('Get employees warning:', getEmployeeStorageErrorMessage(err))
     return filterEmployees(localEmployees, filters)
@@ -1254,6 +1282,8 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
       })
     })
     await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
+    
+    employeeCache = { data: null, timestamp: 0 }
 
     const { data, error } = await supabase
       .from('employees')

@@ -2,6 +2,21 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { normalizeEmployeeCode, parseRegionStore, type Employee, type EmployeeInput } from "@/services/database";
 
+const CLOCK_CACHE_KEY = 'clock-events-cache'
+const CLOCK_CACHE_DURATION = 5 * 60 * 1000
+let clockCache: { data: BiometricClockEvent[] | null; timestamp: number } = { data: null, timestamp: 0 }
+
+function getCachedClockEvents(): BiometricClockEvent[] | null {
+  if (clockCache.data && Date.now() - clockCache.timestamp < CLOCK_CACHE_DURATION) {
+    return clockCache.data
+  }
+  return null
+}
+
+function setCachedClockEvents(data: BiometricClockEvent[]) {
+  clockCache = { data, timestamp: Date.now() }
+}
+
 export type BiometricClockEventInput = {
   employee_code: string;
   employee_number: string;
@@ -993,6 +1008,13 @@ export async function initializeClockDatabase() {
 }
 
 export async function getClockEvents(filters?: GetClockEventsFilters) {
+  const hasFilters = filters?.search || filters?.store || filters?.startDate || filters?.endDate || (filters as GetClockEventsFilters | undefined)?.employeeCodes?.length
+  
+  if (!hasFilters) {
+    const cached = getCachedClockEvents()
+    if (cached) return cached
+  }
+  
   const localEvents = await loadLocalClockEvents();
   const normalizedEmployeeCodes = (filters as GetClockEventsFilters | undefined)?.employeeCodes
     ?.map((code) => normalizeEmployeeCode(code))
@@ -1012,7 +1034,7 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
     });
 
   try {
-    let query = supabase.from("biometric_clock_events").select("*", { count: "exact" }).order("clocked_at", { ascending: false }).limit(50000);
+    let query = supabase.from("biometric_clock_events").select("*", { count: "exact" }).order("clocked_at", { ascending: false }).limit(10000);
     if (filters?.store) query = query.eq("store", filters.store);
     if ((filters as GetClockEventsFilters | undefined)?.startDate) query = query.gte("clock_date", (filters as GetClockEventsFilters).startDate!);
     if ((filters as GetClockEventsFilters | undefined)?.endDate) query = query.lte("clock_date", (filters as GetClockEventsFilters).endDate!);
@@ -1031,7 +1053,11 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
 
     const merged = mergeClockEvents(localEvents, (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent)));
     await saveLocalClockEvents(merged);
-    return applyFilters(merged);
+    const result = applyFilters(merged);
+    if (!hasFilters) {
+      setCachedClockEvents(result)
+    }
+    return result;
   } catch (error) {
     console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
     return applyFilters(localEvents);
@@ -1225,16 +1251,19 @@ export async function upsertClockEvents(
     }
     
     safeEmit("remote", payload.length, payload.length);
+    clockCache = { data: null, timestamp: 0 }
     return { success: true, count: payload.length, duplicatesRemoved };
   } catch (error) {
     const message = getClockStorageErrorMessage(error);
     console.warn("Upsert clock events warning:", message);
+    clockCache = { data: null, timestamp: 0 }
     return { success: true, error: message, count: uniqueEvents.length, duplicatesRemoved };
   }
 }
 
 export async function clearClockEvents() {
   await saveLocalClockEvents([]);
+  clockCache = { data: null, timestamp: 0 }
 
   try {
     const { error } = await supabase.from("biometric_clock_events").delete().neq("id", "");
