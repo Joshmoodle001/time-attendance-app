@@ -1052,7 +1052,7 @@ export async function getEmployees(filters?: {
   const localEmployees = await loadStoredEmployees()
 
   try {
-    let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(2000)
+    let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(1000)
 
     if (filters?.search) {
       const search = filters.search.replace(/,/g, '')
@@ -1076,7 +1076,7 @@ export async function getEmployees(filters?: {
     }
 
     const remote = (data || []) as Employee[]
-    if (count && count > 2000) {
+    if (count && count > 1000) {
       const filtered = filterEmployees(remote, filters)
       if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
         setCachedEmployees(filtered)
