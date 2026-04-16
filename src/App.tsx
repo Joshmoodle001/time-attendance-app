@@ -1838,7 +1838,7 @@ export default function App() {
     let alive = true;
 
     const hydrateSavedData = async () => {
-      const [dates] = await Promise.all([getAvailableDates(), loadClockEvents(), loadEmployees()]);
+      const [dates] = await Promise.all([getAvailableDates(), loadEmployees()]);
       if (!alive) return;
 
       setAvailableDates(dates);
@@ -1850,6 +1850,10 @@ export default function App() {
       if (dateToLoad) {
         await loadAttendanceForDate(dateToLoad, { silent: true });
       }
+      
+      setTimeout(() => {
+        if (alive) loadClockEvents();
+      }, 500);
     };
 
     void hydrateSavedData();
