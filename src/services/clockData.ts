@@ -1271,11 +1271,13 @@ export async function upsertClockEvents(
     
     safeEmit("remote", payload.length, payload.length);
     clockCache = { data: null, timestamp: 0 }
+    try { localStorage.removeItem(CLOCK_CACHE_KEY) } catch {}
     return { success: true, count: payload.length, duplicatesRemoved };
   } catch (error) {
     const message = getClockStorageErrorMessage(error);
     console.warn("Upsert clock events warning:", message);
     clockCache = { data: null, timestamp: 0 }
+    try { localStorage.removeItem(CLOCK_CACHE_KEY) } catch {}
     return { success: true, error: message, count: uniqueEvents.length, duplicatesRemoved };
   }
 }
