@@ -422,20 +422,22 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
   const firstRowText = textAt(headerRow, 0).toUpperCase();
   const isRawData = /^WEEK\s*\d+/i.test(firstRowText);
   
-  // For raw data format: 
-  // Column 0: WEEK | Column 1: NAME | Column 2: SHARED | Column 3: TYPE | Column 4: CODE | Column 5-11: MON-SUN | Column 12+: EXTRAS
+  // For raw data format:
+  // Column 0: WEEK | Column 1: NAME | Column 2: DEPT | Column 3: HR | Column 4: CODE | Column 5: TIME | Column 6-12: MON-SUN | Column 13+: EXTRAS
   const FIXED_RAW_COLUMNS = {
     week: 0,
     name: 1,
     department: 2,
+    hr: 3,
     code: 4,
-    monday: 5,
-    tuesday: 6,
-    wednesday: 7,
-    thursday: 8,
-    friday: 9,
-    saturday: 10,
-    sunday: 11,
+    time: 5,
+    monday: 6,
+    tuesday: 7,
+    wednesday: 8,
+    thursday: 9,
+    friday: 10,
+    saturday: 11,
+    sunday: 12,
   };
 
   const useFixedColumns = isRawData && header.weekIndex === 0 && header.nameIndex === 1;
@@ -451,10 +453,12 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
     let rawWeekLabel, employeeName, department, employeeCode;
     let monday, tuesday, wednesday, thursday, friday, saturday, sunday;
 
+    let hrValue = "";
     if (useFixedColumns) {
       rawWeekLabel = textAt(row, FIXED_RAW_COLUMNS.week);
       employeeName = textAt(row, FIXED_RAW_COLUMNS.name);
       department = textAt(row, FIXED_RAW_COLUMNS.department);
+      hrValue = textAt(row, FIXED_RAW_COLUMNS.hr);
       employeeCode = textAt(row, FIXED_RAW_COLUMNS.code);
       monday = textAt(row, FIXED_RAW_COLUMNS.monday);
       tuesday = textAt(row, FIXED_RAW_COLUMNS.tuesday);
@@ -467,6 +471,7 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
       rawWeekLabel = textAt(row, header.weekIndex >= 0 ? header.weekIndex : 0);
       employeeName = textAt(row, header.nameIndex);
       department = textAt(row, header.departmentIndex);
+      hrValue = header.hrIndex >= 0 ? textAt(row, header.hrIndex) : "";
       employeeCode = textAt(row, header.codeIndex);
       monday = textAt(row, header.dayIndexes.monday);
       tuesday = textAt(row, header.dayIndexes.tuesday);
@@ -495,13 +500,15 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
     }
 
     const weekNumber = currentWeekNumber;
-    const timeLabel = textAt(row, header.timeIndex >= 0 ? header.timeIndex : 12);
+    const timeLabel = useFixedColumns
+      ? textAt(row, FIXED_RAW_COLUMNS.time)
+      : textAt(row, header.timeIndex >= 0 ? header.timeIndex : 12);
     const notes = textAt(row, header.notesIndex);
     const expectedHours = buildExpectedHours(timeLabel || monday || "7-3");
 
     const extraColumns = {};
     if (useFixedColumns) {
-      for (let colIndex = 12; colIndex < row.length; colIndex++) {
+      for (let colIndex = 13; colIndex < row.length; colIndex++) {
         const value = textAt(row, colIndex);
         if (value) {
           const key = `extra_${colIndex}`;
@@ -532,7 +539,7 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
       employee_name: employeeName,
       employee_code: employeeCode,
       department,
-      hr: "",
+      hr: hrValue,
       time_label: timeLabel,
       monday,
       tuesday,
