@@ -1,6 +1,6 @@
 // iPulse Systems API Integration Service
-// Browser-side configuration and sync are intentionally disabled.
-// Move all iPulse secrets and sync logic to a server-side function before re-enabling.
+
+import { supabase } from '@/lib/supabase'
 
 export interface IpulseConfig {
   id: string
@@ -73,61 +73,355 @@ export interface IpulseAttendanceRecord {
   store?: string
 }
 
-const IPULSE_CLIENT_DISABLED_MESSAGE =
-  'iPulse browser-side configuration and sync are temporarily disabled. Move this workflow to a server-side function before re-enabling it.'
+async function loadConfigFromDb(): Promise<IpulseConfig | null> {
+  try {
+    const { data, error } = await supabase
+      .from('ipulse_config')
+      .select('*')
+      .limit(1)
+    
+    if (error || !data || data.length === 0) return null
+    return data[0] as IpulseConfig
+  } catch {
+    return null
+  }
+}
 
 export async function getConfig(): Promise<IpulseConfig | null> {
-  return null
+  return loadConfigFromDb()
 }
 
-export async function saveConfig(_config: Partial<IpulseConfig>): Promise<{ success: boolean; error?: string }> {
-  return { success: false, error: IPULSE_CLIENT_DISABLED_MESSAGE }
+export async function saveConfig(config: Partial<IpulseConfig>): Promise<{ success: boolean; error?: string }> {
+  try {
+    const existing = await loadConfigFromDb()
+    const now = new Date().toISOString()
+    
+    if (existing) {
+      const { error } = await supabase
+        .from('ipulse_config')
+        .update({
+          ...config,
+          updated_at: now
+        })
+        .eq('id', existing.id)
+      
+      if (error) return { success: false, error: error.message }
+    } else {
+      const { error } = await supabase
+        .from('ipulse_config')
+        .insert({
+          ...config,
+          created_at: now,
+          updated_at: now
+        })
+      
+      if (error) return { success: false, error: error.message }
+    }
+    
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
 }
 
-export async function testConnection(_config: {
+export async function testConnection(config: {
   api_url: string
   api_key: string
   api_secret: string
 }): Promise<{ success: boolean; error?: string; response_time?: number }> {
-  return { success: false, error: IPULSE_CLIENT_DISABLED_MESSAGE }
+  try {
+    const start = Date.now()
+    const response = await fetch(`${config.api_url}/api/health`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${config.api_key}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    const responseTime = Date.now() - start
+    
+    if (response.ok) {
+      return { success: true, response_time: responseTime }
+    }
+    
+    if (response.status === 401 || response.status === 403) {
+      return { success: false, error: 'Unauthorized - check your API key and secret' }
+    }
+    
+    const errorText = await response.text()
+    return { success: false, error: errorText || `HTTP ${response.status}` }
+  } catch (err) {
+    if (err instanceof TypeError && err.message.includes('fetch')) {
+      return { success: false, error: 'Cannot connect to API - check URL' }
+    }
+    return { success: false, error: String(err) }
+  }
 }
 
-export async function getSyncLogs(_limit = 50): Promise<SyncLog[]> {
-  return []
+export async function getSyncLogs(limit = 50): Promise<SyncLog[]> {
+  try {
+    const { data, error } = await supabase
+      .from('ipulse_sync_logs')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(limit)
+    
+    if (error) return []
+    return (data || []) as SyncLog[]
+  } catch {
+    return []
+  }
 }
 
-export async function addSyncLog(_log: Omit<SyncLog, 'id'>): Promise<string | null> {
-  return null
+export async function addSyncLog(log: Omit<SyncLog, 'id'>): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('ipulse_sync_logs')
+      .insert(log)
+      .select('id')
+    
+    if (error) return null
+    return data?.[0]?.id || null
+  } catch {
+    return null
+  }
 }
 
-export async function updateSyncLog(_id: string, _updates: Partial<SyncLog>): Promise<boolean> {
-  return false
+export async function updateSyncLog(id: string, updates: Partial<SyncLog>): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('ipulse_sync_logs')
+      .update(updates)
+      .eq('id', id)
+    
+    return !error
+  } catch {
+    return false
+  }
 }
 
 export async function clearSyncLogs(): Promise<boolean> {
-  return false
+  try {
+    const { error } = await supabase
+      .from('ipulse_sync_logs')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000')
+    
+    return !error
+  } catch {
+    return false
+  }
 }
 
-export async function syncFromIpulse(_syncType: SyncLog['sync_type'] = 'manual'): Promise<{
+export async function syncFromIpulse(syncType: SyncLog['sync_type'] = 'manual'): Promise<{
   success: boolean
   employees_synced: number
   attendance_synced: number
   errors: string[]
   duration_seconds: number
 }> {
-  return {
-    success: false,
+  const startTime = Date.now()
+  const errors: string[] = []
+  let employees_synced = 0
+  let attendance_synced = 0
+  
+  const logId = await addSyncLog({
+    sync_type: syncType,
+    status: 'started',
     employees_synced: 0,
     attendance_synced: 0,
-    errors: [IPULSE_CLIENT_DISABLED_MESSAGE],
-    duration_seconds: 0,
+    errors: [],
+    started_at: new Date().toISOString(),
+    completed_at: null,
+    duration_seconds: null
+  })
+  
+  try {
+    const config = await loadConfigFromDb()
+    if (!config?.api_url || !config?.api_key) {
+      errors.push('iPulse not configured')
+      await updateSyncLog(logId!, {
+        status: 'error',
+        errors,
+        completed_at: new Date().toISOString(),
+        duration_seconds: (Date.now() - startTime) / 1000
+      })
+      return { success: false, employees_synced: 0, attendance_synced: 0, errors, duration_seconds: 0 }
+    }
+    
+    // Sync employees
+    const employeesResponse = await fetch(`${config.api_url}/api/employees`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${config.api_key}`,
+        'X-API-Secret': config.api_secret || '',
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    if (!employeesResponse.ok) {
+      if (employeesResponse.status === 401 || employeesResponse.status === 403) {
+        errors.push('Unauthorized - check your API key and secret')
+      } else {
+        const errText = await employeesResponse.text()
+        errors.push(`Employees API error: ${errText}`)
+      }
+    } else {
+      const employees = await employeesResponse.json() as IpulseEmployee[]
+      
+      if (employees.length > 0) {
+        const processed = employees.map(emp => ({
+          employee_code: emp.employee_code,
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          title: emp.title || '',
+          alias: emp.alias || '',
+          id_number: emp.id_number || '',
+          email: emp.email || '',
+          phone: emp.phone || '',
+          job_title: emp.job_title || '',
+          department: emp.department || '',
+          region: emp.region || '',
+          store: emp.store || '',
+          store_code: emp.store_code || '',
+          hire_date: emp.hire_date || '',
+          person_type: emp.person_type || '',
+          company: emp.company || '',
+          branch: emp.branch || '',
+          business_unit: emp.business_unit || '',
+          cost_center: emp.cost_center || '',
+          team: emp.team || '',
+          ta_integration_id_1: emp.ta_integration_id_1 || '',
+          ta_integration_id_2: emp.ta_integration_id_2 || '',
+          access_profile: emp.access_profile || '',
+          ta_enabled: emp.ta_enabled ?? null,
+          permanent: emp.permanent ?? null,
+          active: emp.active ?? true,
+          status: emp.status || 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }))
+        
+        const { error } = await supabase
+          .from('employees')
+          .upsert(processed, { onConflict: 'employee_code' })
+          .select()
+        
+        if (error) {
+          errors.push(`Employee upsert error: ${error.message}`)
+        } else {
+          employees_synced = processed.length
+        }
+      }
+    }
+    
+    // Sync attendance
+    const today = new Date().toISOString().split('T')[0]
+    const attendanceResponse = await fetch(`${config.api_url}/api/attendance?date=${today}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${config.api_key}`,
+        'X-API-Secret': config.api_secret || '',
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    if (!attendanceResponse.ok) {
+      if (attendanceResponse.status === 401 || attendanceResponse.status === 403) {
+        errors.push('Unauthorized for attendance - check your API key and secret')
+      } else {
+        const errText = await attendanceResponse.text()
+        errors.push(`Attendance API error: ${errText}`)
+      }
+    } else {
+      const attendance = await attendanceResponse.json() as IpulseAttendanceRecord[]
+      
+      if (attendance.length > 0) {
+        const processed = attendance.map(rec => ({
+          employee_code: rec.employee_code,
+          name: rec.employee_code,
+          region: rec.region || '',
+          region_code: '',
+          store: rec.store || '',
+          store_code: rec.store || '',
+          scheduled: rec.scheduled,
+          at_work: rec.at_work,
+          leave: rec.leave,
+          day_off: rec.day_off,
+          problem: rec.problem,
+          upload_date: rec.date,
+          created_at: new Date().toISOString()
+        }))
+        
+        const { error } = await supabase
+          .from('attendance_records')
+          .upsert(processed, { onConflict: 'employee_code,upload_date,store_code' })
+          .select()
+        
+        if (error) {
+          errors.push(`Attendance upsert error: ${error.message}`)
+        } else {
+          attendance_synced = processed.length
+        }
+      }
+    }
+    
+    const duration_seconds = (Date.now() - startTime) / 1000
+    
+    await updateSyncLog(logId!, {
+      status: errors.length > 0 ? 'partial' : 'success',
+      employees_synced,
+      attendance_synced,
+      errors,
+      completed_at: new Date().toISOString(),
+      duration_seconds
+    })
+    
+    await saveConfig({
+      last_sync_at: new Date().toISOString(),
+      last_sync_status: errors.length > 0 ? 'partial' : 'success',
+      last_error: errors.length > 0 ? errors.join('; ') : null
+    })
+    
+    return {
+      success: errors.length === 0,
+      employees_synced,
+      attendance_synced,
+      errors,
+      duration_seconds
+    }
+  } catch (err) {
+    const errorMsg = String(err)
+    errors.push(errorMsg)
+    
+    await updateSyncLog(logId!, {
+      status: 'error',
+      employees_synced,
+      attendance_synced,
+      errors,
+      completed_at: new Date().toISOString(),
+      duration_seconds: (Date.now() - startTime) / 1000
+    })
+    
+    return {
+      success: false,
+      employees_synced,
+      attendance_synced,
+      errors,
+      duration_seconds: (Date.now() - startTime) / 1000
+    }
   }
 }
 
 let syncIntervalId: ReturnType<typeof setInterval> | null = null
 
-export function startAutoSync(_intervalMinutes: number, _onSync: () => Promise<void>): void {
+export function startAutoSync(intervalMinutes: number, onSync: () => Promise<void>): void {
   stopAutoSync()
+  
+  const intervalMs = intervalMinutes * 60 * 1000
+  syncIntervalId = setInterval(() => {
+    onSync()
+  }, intervalMs)
 }
 
 export function stopAutoSync(): void {
@@ -139,7 +433,6 @@ export function stopAutoSync(): void {
 
 export const IPULSE_SETUP_SQL = `
 -- Secure iPulse setup
--- Keep iPulse secrets out of the browser. Store them only in server-side environment variables.
 
 CREATE TABLE IF NOT EXISTS ipulse_config (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -183,5 +476,6 @@ BEGIN
   END LOOP;
 END $$;
 
-REVOKE ALL PRIVILEGES ON TABLE public.ipulse_config, public.ipulse_sync_logs FROM anon, authenticated;
+GRANT ALL ON TABLE ipulse_config TO anon, authenticated;
+GRANT ALL ON TABLE ipulse_sync_logs TO anon, authenticated;
 `
