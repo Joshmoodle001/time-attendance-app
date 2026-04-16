@@ -1116,7 +1116,8 @@ export async function getClockEventsForEmployeeProfile(
         .from("biometric_clock_events")
         .select("*")
         .eq("id_number", fallbackIdNumber)
-        .order("clocked_at", { ascending: false });
+        .order("clocked_at", { ascending: false })
+        .limit(500);
 
       if (error) {
         console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
@@ -1132,7 +1133,8 @@ export async function getClockEventsForEmployeeProfile(
         .select("*")
         .ilike("first_name", fallbackFirstName)
         .ilike("last_name", fallbackLastName)
-        .order("clocked_at", { ascending: false });
+        .order("clocked_at", { ascending: false })
+        .limit(500);
 
       if (error) {
         console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
@@ -1154,18 +1156,51 @@ export async function getClockEventsForEmployeeProfile(
 }
 
 export async function getClockOverview(filters?: GetClockEventsFilters): Promise<ClockOverview> {
-  const events = await getClockEvents(filters);
-  const summaries = buildClockEmployeeSummaries(events);
-  const processedDays = buildProcessedClockDays(events);
+  const hasFilters = filters?.search || filters?.store || filters?.startDate || filters?.endDate
+  
+  if (!hasFilters) {
+    const cached = getCachedClockEvents()
+    if (cached) {
+      const summaries = buildClockEmployeeSummaries(cached);
+      const processedDays = buildProcessedClockDays(cached);
+      return {
+        totalEvents: cached.length,
+        totalProcessedDays: processedDays.length,
+        employeesWithClocks: summaries.length,
+        verifiedEvents: cached.filter((event) => event.access_verified).length,
+        stores: Array.from(new Set(cached.map((event) => event.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+        summaries,
+      };
+    }
+  }
+  
+  try {
+    let query = supabase.from("biometric_clock_events").select("*", { count: "exact" }).order("clocked_at", { ascending: false }).limit(5000);
+    if (filters?.store) query = query.eq("store", filters.store);
+    if (filters?.startDate) query = query.gte("clock_date", filters.startDate);
+    if (filters?.endDate) query = query.lte("clock_date", filters.endDate);
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    const events = (data || []).map((e) => normalizeClockEvent(e as BiometricClockEvent));
+    const localEvents = await loadLocalClockEvents();
+    const merged = mergeClockEvents(localEvents, events);
+    const summaries = buildClockEmployeeSummaries(merged);
+    const processedDays = buildProcessedClockDays(merged);
 
-  return {
-    totalEvents: events.length,
-    totalProcessedDays: processedDays.length,
-    employeesWithClocks: summaries.length,
-    verifiedEvents: events.filter((event) => event.access_verified).length,
-    stores: Array.from(new Set(events.map((event) => event.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
-    summaries,
-  };
+    return {
+      totalEvents: merged.length,
+      totalProcessedDays: processedDays.length,
+      employeesWithClocks: summaries.length,
+      verifiedEvents: merged.filter((event) => event.access_verified).length,
+      stores: Array.from(new Set(merged.map((event) => event.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+      summaries,
+    };
+  } catch (err) {
+    console.warn("Clock overview error:", err);
+    return { totalEvents: 0, totalProcessedDays: 0, employeesWithClocks: 0, verifiedEvents: 0, stores: [], summaries: [] };
+  }
 }
 
 export async function getClockEventsPage(filters?: ClockPageFilters): Promise<ClockPageResult<BiometricClockEvent>> {
