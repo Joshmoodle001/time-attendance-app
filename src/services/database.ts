@@ -1032,7 +1032,7 @@ export async function getEmployees(filters?: {
   const localEmployees = await loadStoredEmployees()
 
   try {
-    let query = supabase.from('employees').select('*').order('last_name').order('first_name')
+    let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(5000)
 
     if (filters?.search) {
       const search = filters.search.replace(/,/g, '')
@@ -1048,7 +1048,7 @@ export async function getEmployees(filters?: {
       query = query.eq('status', filters.status)
     }
 
-    const { data, error } = await query
+    const { data, error, count } = await query
 
     if (error) {
       console.warn('Get employees warning:', getEmployeeStorageErrorMessage(error))
@@ -1056,6 +1056,9 @@ export async function getEmployees(filters?: {
     }
 
     const remote = (data || []) as Employee[]
+    if (count && count > 5000) {
+      return filterEmployees(remote, filters)
+    }
     const merged = mergeEmployeeCollections(remote, localEmployees)
     if (merged.length > 0) await saveStoredEmployees(merged)
     return filterEmployees(merged.length > 0 ? merged : localEmployees, filters)

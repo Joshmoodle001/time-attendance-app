@@ -1012,7 +1012,7 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
     });
 
   try {
-    let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false });
+    let query = supabase.from("biometric_clock_events").select("*", { count: "exact" }).order("clocked_at", { ascending: false }).limit(50000);
     if (filters?.store) query = query.eq("store", filters.store);
     if ((filters as GetClockEventsFilters | undefined)?.startDate) query = query.gte("clock_date", (filters as GetClockEventsFilters).startDate!);
     if ((filters as GetClockEventsFilters | undefined)?.endDate) query = query.lte("clock_date", (filters as GetClockEventsFilters).endDate!);
@@ -1023,7 +1023,7 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
       );
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) {
       console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
       return applyFilters(localEvents);
