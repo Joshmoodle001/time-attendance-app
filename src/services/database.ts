@@ -829,9 +829,10 @@ function normalizeEmployeeStatus(status?: string | null): 'active' | 'inactive' 
   return 'active'
 }
 
-function parseExcelDate(value: unknown): string {
-  if (!value) return "";
+function parseExcelDate(value: unknown): string | null {
+  if (!value) return null;
   const strValue = String(value).trim();
+  if (!strValue) return null;
   // Keep as-is - store raw Excel numeric date as text
   return strValue;
 }
