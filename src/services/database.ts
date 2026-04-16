@@ -1,18 +1,32 @@
 import { supabase } from '@/lib/supabase'
 
 const EMPLOYEE_CACHE_KEY = 'employees-cache'
-const EMPLOYEE_CACHE_DURATION = 5 * 60 * 1000
+const EMPLOYEE_CACHE_DURATION = 30 * 60 * 1000
 let employeeCache: { data: Employee[] | null; timestamp: number } = { data: null, timestamp: 0 }
 
 function getCachedEmployees(): Employee[] | null {
   if (employeeCache.data && Date.now() - employeeCache.timestamp < EMPLOYEE_CACHE_DURATION) {
     return employeeCache.data
   }
+  
+  try {
+    const stored = localStorage.getItem(EMPLOYEE_CACHE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (parsed.timestamp && Date.now() - parsed.timestamp < EMPLOYEE_CACHE_DURATION) {
+        employeeCache = parsed
+        return parsed.data
+      }
+    }
+  } catch {}
   return null
 }
 
 function setCachedEmployees(data: Employee[]) {
   employeeCache = { data, timestamp: Date.now() }
+  try {
+    localStorage.setItem(EMPLOYEE_CACHE_KEY, JSON.stringify(employeeCache))
+  } catch {}
 }
 
 export interface AttendanceRecord {
@@ -1044,12 +1058,14 @@ export async function getEmployees(filters?: {
   store?: string
   status?: string
 }): Promise<Employee[]> {
-  if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
-    const cached = getCachedEmployees()
-    if (cached) return cached
-  }
+  const cached = getCachedEmployees()
+  if (cached) return cached
   
   const localEmployees = await loadStoredEmployees()
+  if (localEmployees.length > 0) {
+    setCachedEmployees(localEmployees)
+    return localEmployees
+  }
 
   try {
     let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(1000)

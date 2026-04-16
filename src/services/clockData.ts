@@ -3,18 +3,32 @@ import { supabase } from "@/lib/supabase";
 import { normalizeEmployeeCode, parseRegionStore, type Employee, type EmployeeInput } from "@/services/database";
 
 const CLOCK_CACHE_KEY = 'clock-events-cache'
-const CLOCK_CACHE_DURATION = 5 * 60 * 1000
+const CLOCK_CACHE_DURATION = 30 * 60 * 1000
 let clockCache: { data: BiometricClockEvent[] | null; timestamp: number } = { data: null, timestamp: 0 }
 
 function getCachedClockEvents(): BiometricClockEvent[] | null {
   if (clockCache.data && Date.now() - clockCache.timestamp < CLOCK_CACHE_DURATION) {
     return clockCache.data
   }
+  
+  try {
+    const stored = localStorage.getItem(CLOCK_CACHE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (parsed.timestamp && Date.now() - parsed.timestamp < CLOCK_CACHE_DURATION) {
+        clockCache = parsed
+        return parsed.data
+      }
+    }
+  } catch {}
   return null
 }
 
 function setCachedClockEvents(data: BiometricClockEvent[]) {
   clockCache = { data, timestamp: Date.now() }
+  try {
+    localStorage.setItem(CLOCK_CACHE_KEY, JSON.stringify(clockCache))
+  } catch {}
 }
 
 export type BiometricClockEventInput = {
@@ -1016,6 +1030,11 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
   }
   
   const localEvents = await loadLocalClockEvents();
+  if (localEvents.length > 0 && !hasFilters) {
+    setCachedClockEvents(localEvents)
+    return localEvents
+  }
+  
   const normalizedEmployeeCodes = (filters as GetClockEventsFilters | undefined)?.employeeCodes
     ?.map((code) => normalizeEmployeeCode(code))
     .filter(Boolean);
