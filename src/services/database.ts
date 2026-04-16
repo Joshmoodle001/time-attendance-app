@@ -1300,10 +1300,15 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
     await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
     
     employeeCache = { data: null, timestamp: 0 }
+    try { localStorage.removeItem(EMPLOYEE_CACHE_KEY) } catch {}
+
+    const uniqueByCode = Array.from(
+      new Map(processedEmployees.map(e => [e.employee_code, e])).values()
+    )
 
     const { data, error } = await supabase
       .from('employees')
-      .upsert(processedEmployees, { onConflict: 'employee_code' })
+      .upsert(uniqueByCode, { onConflict: 'employee_code' })
       .select('id')
 
     if (error) {
