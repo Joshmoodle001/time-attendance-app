@@ -20,6 +20,43 @@ function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
 }
 
+function pickPreferredText(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+type ShiftSyncSection = {
+  id: string;
+  label: string;
+  url: string;
+  lastSyncedAt: string;
+  lastStatus: string;
+};
+
+function mergeSectionsWithLocal(remoteSections: ShiftSyncSection[], localSections: ShiftSyncSection[]): ShiftSyncSection[] {
+  const localMap = new Map(localSections.map((s) => [s.id, s]));
+  const remoteMap = new Map(remoteSections.map((s) => [s.id, s]));
+  const allIds = new Set([...remoteMap.keys(), ...localMap.keys()]);
+  return Array.from(allIds)
+    .filter((id) => !REMOVED_DEFAULT_IDS.has(id))
+    .map((id) => {
+      const remote = remoteMap.get(id);
+      const local = localMap.get(id);
+      if (!remote && local) return local;
+      if (remote && !local) return remote;
+      return {
+        id,
+        label: pickPreferredText(remote?.label, local?.label, id),
+        url: pickPreferredText(remote?.url, local?.url),
+        lastSyncedAt: pickPreferredText(remote?.lastSyncedAt, local?.lastSyncedAt),
+        lastStatus: pickPreferredText(remote?.lastStatus, local?.lastStatus, "Waiting for a Google document link."),
+      };
+    });
+}
+
 function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
   const raw = typeof value === "object" && value !== null ? (value as Partial<ShiftSyncSettings>) : {};
   const incomingSections = Array.isArray(raw.sections) ? raw.sections : [];
@@ -129,8 +166,14 @@ export default function ShiftSyncAdminPanel() {
         .then((next) => {
           if (!alive) return;
           try {
-            setSettings((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
-            savedSettingsRef.current = next;
+            setSettings((current) => {
+              const merged: ShiftSyncSettings = {
+                ...next,
+                sections: mergeSectionsWithLocal(next.sections, current.sections),
+              };
+              savedSettingsRef.current = merged;
+              return JSON.stringify(current) === JSON.stringify(merged) ? current : merged;
+            });
           } catch (e) {
             console.error("Error updating settings state:", e);
           }
@@ -170,8 +213,12 @@ export default function ShiftSyncAdminPanel() {
 
   const refreshFromServer = async () => {
     const next = await loadShiftSyncSettings();
-    setSettings(next);
-    savedSettingsRef.current = next;
+    const merged: ShiftSyncSettings = {
+      ...next,
+      sections: mergeSectionsWithLocal(next.sections, savedSettingsRef.current.sections),
+    };
+    setSettings(merged);
+    savedSettingsRef.current = merged;
   };
 
   const runProcess = async (sectionId?: string) => {
@@ -199,10 +246,15 @@ export default function ShiftSyncAdminPanel() {
         }
       } else {
         if (payload?.settings) {
-          const normalizedSettings = normalizeIncomingSettings(payload.settings);
-          setSettings(normalizedSettings);
-          savedSettingsRef.current = normalizedSettings;
-          void saveShiftSyncSettings(normalizedSettings);
+          const remoteSettings = normalizeIncomingSettings(payload.settings);
+          const currentSettings = savedSettingsRef.current;
+          const mergedSettings: ShiftSyncSettings = {
+            ...remoteSettings,
+            sections: mergeSectionsWithLocal(remoteSettings.sections, currentSettings.sections),
+          };
+          setSettings(mergedSettings);
+          savedSettingsRef.current = mergedSettings;
+          void saveShiftSyncSettings(mergedSettings);
         } else {
           try {
             await refreshFromServer();
