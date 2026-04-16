@@ -8,58 +8,43 @@ import {
   buildShiftLiveWebhookUrl,
   createShiftSyncSectionId,
   DEFAULT_SHIFT_SYNC_SETTINGS,
+  DEFAULT_SHIFT_SYNC_SECTIONS,
   loadShiftSyncSettings,
   saveShiftSyncSettings,
   type ShiftSyncSettings,
 } from "@/services/shiftSync";
 import { CheckCircle2, Copy, Link2, Plus, Radio, RefreshCw, Trash2, Waves } from "lucide-react";
 
-const REMOVED_DEFAULT_IDS = new Set(["checkers-local", "checkers-country", "shoprite-local", "shoprite-country"]);
-
 function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
-}
-
-function pickPreferredText(...values: unknown[]) {
-  for (const value of values) {
-    const normalized = normalizeText(value);
-    if (normalized) return normalized;
-  }
-  return "";
-}
-
-type ShiftSyncSection = {
-  id: string;
-  label: string;
-  url: string;
-  lastSyncedAt: string;
-  lastStatus: string;
-};
-
-function mergeSectionsWithLocal(remoteSections: ShiftSyncSection[], localSections: ShiftSyncSection[]): ShiftSyncSection[] {
-  const localMap = new Map(localSections.map((s) => [s.id, s]));
-  const remoteMap = new Map(remoteSections.map((s) => [s.id, s]));
-  const allIds = new Set([...remoteMap.keys(), ...localMap.keys()]);
-  return Array.from(allIds)
-    .filter((id) => !REMOVED_DEFAULT_IDS.has(id))
-    .map((id) => {
-      const remote = remoteMap.get(id);
-      const local = localMap.get(id);
-      if (!remote && local) return local;
-      if (remote && !local) return remote;
-      return {
-        id,
-        label: pickPreferredText(remote?.label, local?.label, id),
-        url: pickPreferredText(remote?.url, local?.url),
-        lastSyncedAt: pickPreferredText(remote?.lastSyncedAt, local?.lastSyncedAt),
-        lastStatus: pickPreferredText(remote?.lastStatus, local?.lastStatus, "Waiting for a Google document link."),
-      };
-    });
 }
 
 function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
   const raw = typeof value === "object" && value !== null ? (value as Partial<ShiftSyncSettings>) : {};
   const incomingSections = Array.isArray(raw.sections) ? raw.sections : [];
+  const mergedSections = [
+    ...DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
+      const incoming = incomingSections.find((item) => item?.id === section.id);
+      return {
+        ...section,
+        ...(incoming || {}),
+        id: section.id,
+        label: section.label,
+        url: normalizeText(incoming?.url || section.url),
+        lastSyncedAt: normalizeText(incoming?.lastSyncedAt || section.lastSyncedAt),
+        lastStatus: normalizeText(incoming?.lastStatus || section.lastStatus),
+      };
+    }),
+    ...incomingSections
+      .filter((section) => section?.id && !DEFAULT_SHIFT_SYNC_SECTIONS.some((defaultSection) => defaultSection.id === section.id))
+      .map((section) => ({
+        id: section.id!,
+        label: normalizeText(section.label) || section.id!,
+        url: normalizeText(section.url),
+        lastSyncedAt: normalizeText(section.lastSyncedAt),
+        lastStatus: normalizeText(section.lastStatus) || "Waiting for a Google document link.",
+      })),
+  ];
 
   return {
     autoSyncEnabled: Boolean(raw.autoSyncEnabled),
@@ -73,21 +58,13 @@ function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
     lastLiveSyncedAt: normalizeText(raw.lastLiveSyncedAt),
     lastLiveStatus: normalizeText(raw.lastLiveStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastLiveStatus,
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || DEFAULT_SHIFT_SYNC_SETTINGS.liveWebhookKey,
-    sections: incomingSections
-      .filter((section) => section?.id && !REMOVED_DEFAULT_IDS.has(section.id))
-      .map((section) => ({
-      id: section?.id || `sheet-${Date.now().toString(36)}`,
-      label: normalizeText(section?.label) || section?.id || "Unnamed",
-      url: normalizeText(section?.url),
-      lastSyncedAt: normalizeText(section?.lastSyncedAt),
-      lastStatus: normalizeText(section?.lastStatus) || "Waiting for a Google document link.",
-    })),
+    sections: mergedSections,
   };
 }
 
 async function postJson(url: string, body?: Record<string, unknown>) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
     const response = await fetch(url, {
@@ -139,6 +116,8 @@ export default function ShiftSyncAdminPanel() {
   const savedSettingsRef = useRef<ShiftSyncSettings>(DEFAULT_SHIFT_SYNC_SETTINGS);
   // Track the URL value when input was focused (to compare on blur)
   const focusedUrlRef = useRef<string>("");
+  // Track auto-save timer for section links
+  const linkSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -166,14 +145,8 @@ export default function ShiftSyncAdminPanel() {
         .then((next) => {
           if (!alive) return;
           try {
-            setSettings((current) => {
-              const merged: ShiftSyncSettings = {
-                ...next,
-                sections: mergeSectionsWithLocal(next.sections, current.sections),
-              };
-              savedSettingsRef.current = merged;
-              return JSON.stringify(current) === JSON.stringify(merged) ? current : merged;
-            });
+            setSettings((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+            savedSettingsRef.current = next;
           } catch (e) {
             console.error("Error updating settings state:", e);
           }
@@ -191,7 +164,10 @@ export default function ShiftSyncAdminPanel() {
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
-  const visibleSections = settings.sections;
+  const visibleSections = useMemo(
+    () => (settings.sections.length > 0 ? settings.sections : DEFAULT_SHIFT_SYNC_SECTIONS),
+    [settings.sections]
+  );
 
   const universalWebhookUrl = useMemo(
     () => buildShiftLiveWebhookUrl(origin, settings.liveWebhookKey),
@@ -211,14 +187,13 @@ export default function ShiftSyncAdminPanel() {
     return result;
   };
 
+  const isDefaultSection = (sectionId: string) =>
+    DEFAULT_SHIFT_SYNC_SECTIONS.some((section) => section.id === sectionId);
+
   const refreshFromServer = async () => {
     const next = await loadShiftSyncSettings();
-    const merged: ShiftSyncSettings = {
-      ...next,
-      sections: mergeSectionsWithLocal(next.sections, savedSettingsRef.current.sections),
-    };
-    setSettings(merged);
-    savedSettingsRef.current = merged;
+    setSettings(next);
+    savedSettingsRef.current = next;
   };
 
   const runProcess = async (sectionId?: string) => {
@@ -246,15 +221,10 @@ export default function ShiftSyncAdminPanel() {
         }
       } else {
         if (payload?.settings) {
-          const remoteSettings = normalizeIncomingSettings(payload.settings);
-          const currentSettings = savedSettingsRef.current;
-          const mergedSettings: ShiftSyncSettings = {
-            ...remoteSettings,
-            sections: mergeSectionsWithLocal(remoteSettings.sections, currentSettings.sections),
-          };
-          setSettings(mergedSettings);
-          savedSettingsRef.current = mergedSettings;
-          void saveShiftSyncSettings(mergedSettings);
+          const normalizedSettings = normalizeIncomingSettings(payload.settings);
+          setSettings(normalizedSettings);
+          savedSettingsRef.current = normalizedSettings;
+          void saveShiftSyncSettings(normalizedSettings);
         } else {
           try {
             await refreshFromServer();
@@ -307,14 +277,19 @@ export default function ShiftSyncAdminPanel() {
           ? {
               ...item,
               url: nextUrl,
-              lastStatus: nextUrl ? "Link saved. Click 'Process now' to sync." : "Waiting for a Google document link.",
+              lastStatus: nextUrl ? "Saving link..." : "Waiting for a Google document link.",
             }
           : item
       ),
     };
 
     setSettings(nextSettings);
-    await persistSettings(nextSettings, nextUrl ? "Link saved. Click 'Process now' to sync." : "Live Google Sheet removed.");
+    const result = await persistSettings(nextSettings, nextUrl ? "Link saved. Click 'Process now' to sync." : "Live Google Sheet removed.");
+    
+    // Show error if save failed
+    if (!result.success && result.error) {
+      setStatusMessage(`Save failed: ${result.error}`);
+    }
   };
 
   const handleToggle = async (field: "autoSyncEnabled" | "liveSyncEnabled", value: boolean) => {
@@ -412,6 +387,10 @@ export default function ShiftSyncAdminPanel() {
   };
 
   const handleRemoveSection = async (sectionId: string) => {
+    if (isDefaultSection(sectionId)) {
+      setStatusMessage("Default live sheets stay in place. You can clear their links if you do not need them.");
+      return;
+    }
 
     const nextSettings = {
       ...settings,
@@ -435,7 +414,7 @@ export default function ShiftSyncAdminPanel() {
               Live Shift Sheets
             </CardTitle>
             <CardDescription>
-              Manage live Google Sheets here. Add a sheet name and link, then click outside the field to save. Click "Process now" to sync shift data.
+              Manage live Google Sheets here. Paste a sheet link, click outside the field, and the app will save it and process it immediately while keeping the Shifts builder unchanged.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -544,7 +523,7 @@ export default function ShiftSyncAdminPanel() {
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Sheet name</div>
                 <Input
                   value={newSectionLabel}
-                  placeholder="Example: Weekly Roster"
+                  placeholder="Example: Checkers Specials"
                   onChange={(event) => setNewSectionLabel(event.target.value)}
                 />
               </div>
@@ -610,12 +589,6 @@ export default function ShiftSyncAdminPanel() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          {visibleSections.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <div className="text-sm font-medium text-slate-600">No live sheets added yet</div>
-              <div className="mt-1 text-xs text-slate-500">Add a live sheet above to connect a Google Sheet and start syncing shifts.</div>
-            </div>
-          )}
           {visibleSections.map((section) => {
             const listenerUrl = buildShiftLiveWebhookUrl(origin, settings.liveWebhookKey, section.id);
             const syncing = syncingIds.includes(section.id);
@@ -649,18 +622,29 @@ export default function ShiftSyncAdminPanel() {
                       onFocus={() => {
                         focusedUrlRef.current = section.url;
                       }}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const newUrl = event.target.value;
                         setSettings((current) => ({
                           ...current,
                           sections: current.sections.map((item) =>
-                            item.id === section.id ? { ...item, url: event.target.value } : item
+                            item.id === section.id ? { ...item, url: newUrl } : item
                           ),
-                        }))
-                      }
+                        }));
+                        // Auto-save after typing stops (500ms delay)
+                        if (linkSaveTimerRef.current) {
+                          clearTimeout(linkSaveTimerRef.current);
+                        }
+                        linkSaveTimerRef.current = setTimeout(() => {
+                          const current = settings.sections.find(s => s.id === section.id);
+                          if (current && current.url !== newUrl) {
+                            void handleSectionLinkCommit(section.id);
+                          }
+                        }, 500);
+                      }}
                       onBlur={() => void handleSectionLinkCommit(section.id)}
                     />
                     <div className="mt-1 text-xs text-slate-500">
-                      Paste the sheet link, click outside the field, then click "Process now" to sync.
+                      Paste the sheet link, wait 1 second, then click "Process now" to sync.
                     </div>
                   </div>
 
@@ -682,10 +666,12 @@ export default function ShiftSyncAdminPanel() {
                       <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
                       {syncing ? "Processing..." : "Process now"}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => void handleRemoveSection(section.id)} disabled={saving || syncing}>
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Remove
-                    </Button>
+                    {!isDefaultSection(section.id) && (
+                      <Button variant="outline" size="sm" onClick={() => void handleRemoveSection(section.id)} disabled={saving || syncing}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remove
+                      </Button>
+                    )}
                     {section.lastSyncedAt && (
                       <Badge className="bg-emerald-100 text-emerald-700">
                         <CheckCircle2 className="mr-1 h-3 w-3" />

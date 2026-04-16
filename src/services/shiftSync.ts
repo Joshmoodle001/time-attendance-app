@@ -3,8 +3,6 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 export const SHIFT_SYNC_STORAGE_KEY = "shift-sync-settings-v2";
 export const SHIFT_SYNC_UPDATED_EVENT = "shift-sync-settings-updated";
 const LEGACY_SHIFT_SYNC_STORAGE_KEY = "shift-sync-sections-v1";
-const REMOVED_DEFAULT_IDS = new Set(["checkers-local", "checkers-country", "shoprite-local", "shoprite-country"]);
-
 const SHIFT_SYNC_REMOTE_SETUP_HINT =
   "Background auto sync needs the remote shift sync table to be set up first. The links are still being stored in this browser for now.";
 
@@ -29,7 +27,36 @@ export type ShiftSyncSettings = {
   sections: ShiftSyncSection[];
 };
 
-export const DEFAULT_SHIFT_SYNC_SECTIONS: ShiftSyncSection[] = [];
+export const DEFAULT_SHIFT_SYNC_SECTIONS: ShiftSyncSection[] = [
+  {
+    id: "checkers-local",
+    label: "Checkers Local",
+    url: "",
+    lastSyncedAt: "",
+    lastStatus: "Waiting for a Google document link.",
+  },
+  {
+    id: "checkers-country",
+    label: "Checkers Country",
+    url: "",
+    lastSyncedAt: "",
+    lastStatus: "Waiting for a Google document link.",
+  },
+  {
+    id: "shoprite-local",
+    label: "Shoprite Local",
+    url: "",
+    lastSyncedAt: "",
+    lastStatus: "Waiting for a Google document link.",
+  },
+  {
+    id: "shoprite-country",
+    label: "Shoprite Country",
+    url: "",
+    lastSyncedAt: "",
+    lastStatus: "Waiting for a Google document link.",
+  },
+];
 
 export const DEFAULT_SHIFT_SYNC_SETTINGS: ShiftSyncSettings = {
   autoSyncEnabled: false,
@@ -79,7 +106,6 @@ function mergeSections(...sectionSets: Array<ShiftSyncSection[] | undefined>) {
 
   const mergedDefaults = DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
     const combined = parsedMap.get(section.id);
-    parsedMap.delete(section.id);
     return {
       ...section,
       ...(combined || {}),
@@ -91,10 +117,11 @@ function mergeSections(...sectionSets: Array<ShiftSyncSection[] | undefined>) {
     };
   });
 
+  const knownIds = new Set(mergedDefaults.map((section) => section.id));
   const customSections = Array.from(parsedMap.values())
-    .filter((section) => section.id && !REMOVED_DEFAULT_IDS.has(section.id))
+    .filter((section) => section.id && !knownIds.has(section.id))
     .map((section) => ({
-      id: section.id!,
+      id: section.id,
       label: pickPreferredText(section.label, section.id),
       url: pickPreferredText(section.url),
       lastSyncedAt: pickPreferredText(section.lastSyncedAt),
@@ -121,7 +148,7 @@ function normalizeSettings(value: unknown): ShiftSyncSettings {
     lastLiveSyncedAt: normalizeText(raw.lastLiveSyncedAt),
     lastLiveStatus: normalizeText(raw.lastLiveStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastLiveStatus,
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || createLiveWebhookKey(),
-    sections: (mergeSections(raw.sections || legacySections)).filter((s) => !REMOVED_DEFAULT_IDS.has(s.id)),
+    sections: mergeSections(raw.sections || legacySections),
   };
 }
 
@@ -226,24 +253,20 @@ export async function loadShiftSyncSettings() {
       lastLiveSyncedAt: pickPreferredText(remoteSettings.lastLiveSyncedAt, localSettings.lastLiveSyncedAt),
       lastLiveStatus: pickPreferredText(remoteSettings.lastLiveStatus, localSettings.lastLiveStatus),
       liveWebhookKey: pickPreferredText(remoteSettings.liveWebhookKey, localSettings.liveWebhookKey),
-      sections: (() => {
-        const localIds = new Set(localSettings.sections.map((s) => s.id));
-        const remoteIds = new Set(remoteSettings.sections.map((s) => s.id));
-        const allIds = new Set([...localIds, ...remoteIds]);
-        return Array.from(allIds)
-          .filter((id) => !REMOVED_DEFAULT_IDS.has(id))
-          .map((id) => {
-            const localSection = localSettings.sections.find((item) => item.id === id);
-            const remoteSection = remoteSettings.sections.find((item) => item.id === id);
-            return {
-              id: id,
-              label: pickPreferredText(remoteSection?.label, localSection?.label, id),
-              url: pickPreferredText(remoteSection?.url, localSection?.url),
-              lastSyncedAt: pickPreferredText(remoteSection?.lastSyncedAt, localSection?.lastSyncedAt),
-              lastStatus: pickPreferredText(remoteSection?.lastStatus, localSection?.lastStatus, "Waiting for a Google document link."),
-            };
-          });
-      })(),
+      sections: DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
+        const localSection = localSettings.sections.find((item) => item.id === section.id);
+        const remoteSection = remoteSettings.sections.find((item) => item.id === section.id);
+        return {
+          ...section,
+          ...(remoteSection || {}),
+          ...(localSection || {}),
+          id: section.id,
+          label: section.label,
+          url: pickPreferredText(remoteSection?.url, localSection?.url, section.url),
+          lastSyncedAt: pickPreferredText(remoteSection?.lastSyncedAt, localSection?.lastSyncedAt, section.lastSyncedAt),
+          lastStatus: pickPreferredText(remoteSection?.lastStatus, localSection?.lastStatus, section.lastStatus),
+        };
+      }),
     });
 
     saveLocalShiftSyncSettings(mergedSettings);
