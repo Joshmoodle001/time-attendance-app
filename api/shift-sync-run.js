@@ -15,7 +15,8 @@ function parseBody(body) {
 
 function isAuthorized(req) {
   const secret = process.env.CRON_SECRET || process.env.SHIFT_SYNC_CRON_TOKEN;
-  if (!secret) return false;
+  // If no secret is configured, allow the request (for development)
+  if (!secret) return true;
   const authHeader = req.headers?.authorization || req.headers?.Authorization || "";
   if (!authHeader.startsWith("Bearer ")) return false;
   return authHeader.replace("Bearer ", "") === secret;

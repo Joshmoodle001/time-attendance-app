@@ -3,6 +3,9 @@ import { runUniversalShiftSync } from "./_shift-sync-utils.js";
 function isValidCronRequest(req) {
   const cronSecret = process.env.CRON_SECRET || process.env.SHIFT_SYNC_CRON_TOKEN;
   
+  // If no secret configured, allow requests (for development)
+  if (!cronSecret) return true;
+  
   if (cronSecret) {
     const authHeader = req.headers?.authorization || req.headers?.Authorization || "";
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
