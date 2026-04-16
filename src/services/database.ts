@@ -466,7 +466,7 @@ export interface Employee {
   region: string
   store: string
   store_code: string
-  hire_date: string
+  hire_date: string | null
   person_type?: string
   fingerprints_enrolled?: number | null
   company?: string
@@ -481,7 +481,7 @@ export interface Employee {
   permanent?: boolean | null
   active?: boolean | null
   termination_reason?: string
-  termination_date?: string
+  termination_date: string | null
   status: 'active' | 'inactive' | 'terminated'
   created_at: string
   updated_at: string
@@ -502,7 +502,7 @@ export interface EmployeeInput {
   region?: string
   store?: string
   store_code?: string
-  hire_date?: string
+  hire_date?: string | null
   person_type?: string
   fingerprints_enrolled?: number | null
   company?: string
@@ -517,7 +517,7 @@ export interface EmployeeInput {
   permanent?: boolean | null
   active?: boolean | null
   termination_reason?: string
-  termination_date?: string
+  termination_date?: string | null
   status?: 'active' | 'inactive' | 'terminated'
 }
 
