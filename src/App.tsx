@@ -1552,79 +1552,29 @@ export default function App() {
     }
   }, []);
 
-  const loadOverviewDashboard = useCallback(async (options?: { force?: boolean }) => {
+  // Separate state for trend loading to allow pie chart to show first
+  const [trendLoading, setTrendLoading] = useState(false);
+
+  // Debounce timer ref for range changes
+  const trendRangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadOverviewDashboard = useCallback(async (options?: { force?: boolean; skipTrend?: boolean }) => {
     const overviewQueryKey = `${selectedOverviewDate || "none"}__${overviewStartDate || "none"}__${overviewEndDate || "none"}`;
     const now = Date.now();
     
-    // Check if we have valid cached data that covers the requested range
     const cache = overviewDataCacheRef.current;
     const cacheAge = cache ? now - cache.fetchedAt : Infinity;
     const isCacheValid = cache && cacheAge < OVERVIEW_REFRESH_TTL_MS;
     
-    // If same query, cache valid, and not forcing, skip
     if (
       !options?.force &&
       overviewRequestRef.current.key === overviewQueryKey &&
-      isCacheValid
+      isCacheValid &&
+      !options?.skipTrend
     ) {
-      // Still need to rebuild trend series for date range change but skip API calls
-      if (overviewStartDate && overviewEndDate && cache) {
-        const rangeStartDate = parseDateValue(overviewStartDate);
-        const rangeEndDate = parseDateValue(overviewEndDate);
-        if (rangeStartDate && rangeEndDate) {
-          const rangeClocksByDate = (() => {
-            const m = new Map<string, BiometricClockEvent[]>();
-            for (let i = 0; i < cache.rangeClockEvents.length; i++) {
-              const event = cache.rangeClockEvents[i];
-              const current = m.get(event.clock_date) || [];
-              current.push(event);
-              m.set(event.clock_date, current);
-            }
-            return m;
-          })();
-          const rangeLeaveCodesByDate = buildLeaveCodesByDate(cache.leaveApplicationsForRange);
-          const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(cache.shiftRosters, rangeStartDate, rangeEndDate);
-          
-          // Cache contains already-mapped AttendanceRecord, build IDs from the dates stored in id
-          const derivedTrendSeries = buildOverviewTrendSeriesFromSources({
-            startDateValue: overviewStartDate,
-            endDateValue: overviewEndDate,
-            existingRecords: cache.rangeAttendance.map((record) => ({
-              id: `${record.upload_date || record.id.split('__')[0] || ""}__${record.employee_code}`,
-              employeeCode: record.employee_code,
-              name: record.name,
-              region: record.region,
-              regionCode: record.region_code || "",
-              store: record.store,
-              storeCode: record.store_code || "",
-              scheduled: record.scheduled,
-              atWork: record.at_work,
-              leave: record.leave,
-              dayOff: record.day_off,
-              problem: record.problem,
-              clockCount: record.clock_count || 0,
-              firstClock: record.first_clock || "",
-              lastClock: record.last_clock || "",
-              clockings: record.clockings || [],
-              reportStatus: record.status_label || "",
-            })),
-            employeeProfiles: cache.employees,
-            shiftRosters: cache.shiftRosters,
-            clockEvents: cache.rangeClockEvents,
-            leaveApplications: cache.leaveApplicationsForRange,
-            precomputedLookups: {
-              rosterLookupsByDate: rangeRosterLookupsByDate,
-              clocksByDate: rangeClocksByDate,
-              leaveCodesByDate: rangeLeaveCodesByDate,
-            },
-          });
-          setOverviewTrendSeries(derivedTrendSeries);
-        }
-      }
       return;
     }
 
-    // Allow force refresh even if previous request is still in flight
     if (overviewRequestRef.current.inFlight && !options?.force) {
       return;
     }
@@ -1633,7 +1583,7 @@ export default function App() {
     setIsLoadingOverview(true);
 
     try {
-      // Use cached employees/shifts/leaves if available and not forcing
+      // Phase 1: Load essential data (pie chart needs)
       const shouldFetchEmployees = !cache || options?.force;
       const employeeProfiles = shouldFetchEmployees 
         ? (employees.length > 0 ? employees : await getEmployees())
@@ -1645,36 +1595,18 @@ export default function App() {
       const shouldFetchLeaveUploads = !cache || options?.force;
       const leaveUploads = shouldFetchLeaveUploads ? await getLeaveUploads() : cache.leaveUploads;
       
-      // Always fetch fresh attendance/clock/leave data for the date range
-      const [dayAttendance, rangeAttendance, leaveApplicationsForDate, leaveApplicationsForRange, latestSyncLogs, dayClockEvents, rangeClockEvents] =
+      // Load day-specific data for pie chart
+      const [dayAttendance, leaveApplicationsForDate, latestSyncLogs, dayClockEvents] =
         await Promise.all([
           selectedOverviewDate ? getAttendanceByDate(selectedOverviewDate) : Promise.resolve([]),
-          overviewStartDate && overviewEndDate ? getAttendanceByDateRange(overviewStartDate, overviewEndDate) : Promise.resolve([]),
           selectedOverviewDate
             ? getLeaveApplications({ startDate: selectedOverviewDate, endDate: selectedOverviewDate })
-            : Promise.resolve([]),
-          overviewStartDate && overviewEndDate
-            ? getLeaveApplications({ startDate: overviewStartDate, endDate: overviewEndDate })
             : Promise.resolve([]),
           getSyncLogs(10),
           selectedOverviewDate
             ? getClockEvents({ startDate: selectedOverviewDate, endDate: selectedOverviewDate })
             : Promise.resolve([]),
-          overviewStartDate && overviewEndDate
-            ? getClockEvents({ startDate: overviewStartDate, endDate: overviewEndDate })
-            : Promise.resolve([]),
         ]);
-
-      // Update cache
-      overviewDataCacheRef.current = {
-        employees: employeeProfiles,
-        shiftRosters,
-        leaveUploads,
-        rangeAttendance,
-        rangeClockEvents,
-        leaveApplicationsForRange,
-        fetchedAt: now,
-      };
 
       const customCalendarEvents = loadCalendarEvents();
       const selectedDate = parseDateValue(selectedOverviewDate) || new Date();
@@ -1689,28 +1621,10 @@ export default function App() {
       const shiftSyncSettings = await loadShiftSyncSettings();
       const latestConfig = await getConfig();
       const mappedDayAttendance = dayAttendance.map(mapDatabaseAttendanceRecord);
-      const mappedRangeAttendance = rangeAttendance.map(mapDatabaseAttendanceRecord);
 
       const dayRosterLookup = buildRosterStatusLookup(shiftRosters, selectedOverviewDate);
       const dayClockingsByEmployee = buildClockingsByEmployee(dayClockEvents);
       const dayLeaveCodes = buildLeaveCodesByDate(leaveApplicationsForDate).get(selectedOverviewDate) || new Set<string>();
-
-      const rangeStartDate = parseDateValue(overviewStartDate);
-      const rangeEndDate = parseDateValue(overviewEndDate);
-      const rangeClocksByDate = (() => {
-        const m = new Map<string, BiometricClockEvent[]>();
-        for (let i = 0; i < rangeClockEvents.length; i++) {
-          const event = rangeClockEvents[i];
-          const current = m.get(event.clock_date) || [];
-          current.push(event);
-          m.set(event.clock_date, current);
-        }
-        return m;
-      })();
-      const rangeLeaveCodesByDate = buildLeaveCodesByDate(leaveApplicationsForRange);
-      const rangeRosterLookupsByDate = rangeStartDate && rangeEndDate 
-        ? buildRosterStatusLookupsForRange(shiftRosters, rangeStartDate, rangeEndDate)
-        : new Map();
 
       const derivedOverviewRecords = selectedOverviewDate
         ? buildOverviewAttendanceRecordsFromSources({
@@ -1727,29 +1641,19 @@ export default function App() {
             },
           })
         : [];
-      const derivedTrendSeries =
-        overviewStartDate && overviewEndDate
-          ? buildOverviewTrendSeriesFromSources({
-              startDateValue: overviewStartDate,
-              endDateValue: overviewEndDate,
-              existingRecords: mappedRangeAttendance.map((record, index) => ({
-                ...record,
-                id: `${rangeAttendance[index]?.upload_date || ""}__${record.employeeCode}`,
-              })),
-              employeeProfiles,
-              shiftRosters,
-              clockEvents: rangeClockEvents,
-              leaveApplications: leaveApplicationsForRange,
-              precomputedLookups: {
-                rosterLookupsByDate: rangeRosterLookupsByDate,
-                clocksByDate: rangeClocksByDate,
-                leaveCodesByDate: rangeLeaveCodesByDate,
-              },
-            })
-          : [];
+
+      // Update cache with essential data
+      overviewDataCacheRef.current = {
+        employees: employeeProfiles,
+        shiftRosters,
+        leaveUploads,
+        rangeAttendance: cache?.rangeAttendance || [],
+        rangeClockEvents: cache?.rangeClockEvents || [],
+        leaveApplicationsForRange: cache?.leaveApplicationsForRange || [],
+        fetchedAt: now,
+      };
 
       setOverviewAttendanceRecords(derivedOverviewRecords);
-      setOverviewTrendSeries(derivedTrendSeries);
       setOverviewEmployeeProfiles(employeeProfiles);
       setOverviewModuleSnapshot({
         employeeProfiles: employeeProfiles.length,
@@ -1772,17 +1676,103 @@ export default function App() {
         syncErrorsOpen: latestSyncLogs.filter((log) => log.status === "error" || log.status === "partial").length,
       });
       setOverviewLastUpdatedAt(new Date().toISOString());
+      
+      // Show UI immediately with pie chart data
+      setIsLoadingOverview(false);
+      
+      // Phase 2: Load and compute trend data asynchronously (skip if requested)
+      if (options?.skipTrend) {
+        overviewRequestRef.current = {
+          key: overviewQueryKey,
+          fetchedAt: Date.now(),
+          inFlight: false,
+        };
+        return;
+      }
+
+      // Debounce trend computation
+      if (trendRangeTimeoutRef.current) {
+        clearTimeout(trendRangeTimeoutRef.current);
+      }
+      
+      trendRangeTimeoutRef.current = setTimeout(async () => {
+        setTrendLoading(true);
+        try {
+          const cache = overviewDataCacheRef.current;
+          if (!cache || !overviewStartDate || !overviewEndDate) {
+            setTrendLoading(false);
+            return;
+          }
+
+          const [rangeAttendance, leaveApplicationsForRange, rangeClockEvents] =
+            await Promise.all([
+              getAttendanceByDateRange(overviewStartDate, overviewEndDate),
+              getLeaveApplications({ startDate: overviewStartDate, endDate: overviewEndDate }),
+              getClockEvents({ startDate: overviewStartDate, endDate: overviewEndDate }),
+            ]);
+
+          // Update cache with range data
+          cache.rangeAttendance = rangeAttendance;
+          cache.rangeClockEvents = rangeClockEvents;
+          cache.leaveApplicationsForRange = leaveApplicationsForRange;
+          cache.fetchedAt = Date.now();
+
+          const mappedRangeAttendance = rangeAttendance.map(mapDatabaseAttendanceRecord);
+          const rangeStartDate = parseDateValue(overviewStartDate);
+          const rangeEndDate = parseDateValue(overviewEndDate);
+
+          if (rangeStartDate && rangeEndDate) {
+            const rangeClocksByDate = new Map<string, BiometricClockEvent[]>();
+            for (const event of rangeClockEvents) {
+              const current = rangeClocksByDate.get(event.clock_date) || [];
+              current.push(event);
+              rangeClocksByDate.set(event.clock_date, current);
+            }
+            const rangeLeaveCodesByDate = buildLeaveCodesByDate(leaveApplicationsForRange);
+            const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(cache.shiftRosters, rangeStartDate, rangeEndDate);
+
+            const derivedTrendSeries = buildOverviewTrendSeriesFromSources({
+              startDateValue: overviewStartDate,
+              endDateValue: overviewEndDate,
+              existingRecords: mappedRangeAttendance.map((record, index) => ({
+                ...record,
+                id: `${rangeAttendance[index]?.upload_date || ""}__${record.employeeCode}`,
+              })),
+              employeeProfiles: cache.employees,
+              shiftRosters: cache.shiftRosters,
+              clockEvents: rangeClockEvents,
+              leaveApplications: leaveApplicationsForRange,
+              precomputedLookups: {
+                rosterLookupsByDate: rangeRosterLookupsByDate,
+                clocksByDate: rangeClocksByDate,
+                leaveCodesByDate: rangeLeaveCodesByDate,
+              },
+            });
+            
+            setOverviewTrendSeries(derivedTrendSeries);
+          }
+        } catch (error) {
+          console.error("Error loading trend data:", error);
+        } finally {
+          setTrendLoading(false);
+        }
+      }, 300);
+
       overviewRequestRef.current = {
         key: overviewQueryKey,
         fetchedAt: Date.now(),
         inFlight: false,
       };
+    } catch (error) {
+      console.error("Error loading overview dashboard:", error);
     } finally {
+      if (!overviewRequestRef.current.inFlight || options?.force) {
+        setIsLoadingOverview(false);
+      }
       overviewRequestRef.current = {
         ...overviewRequestRef.current,
         inFlight: false,
       };
-      setIsLoadingOverview(false);
     }
   }, [employees, overviewEndDate, overviewStartDate, selectedOverviewDate]);
 
@@ -3781,7 +3771,12 @@ export default function App() {
           {isLoadingOverview ? (
             <Badge className="border-cyan-500/30 bg-cyan-500/20 text-cyan-300">
               <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-              Syncing overview
+              Loading overview
+            </Badge>
+          ) : trendLoading ? (
+            <Badge className="border-amber-500/30 bg-amber-500/20 text-amber-300">
+              <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+              Loading trend data
             </Badge>
           ) : null}
         </div>
@@ -4266,7 +4261,12 @@ export default function App() {
           </CardHeader>
 
           <CardContent>
-            {attendanceTrendSeries.length === 0 ? (
+            {trendLoading ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-12 flex flex-col items-center justify-center gap-3">
+                <RefreshCw className="h-8 w-8 animate-spin text-slate-400" />
+                <div className="text-sm text-slate-500">Computing trend data...</div>
+              </div>
+            ) : attendanceTrendSeries.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-12 text-center text-sm text-slate-500">
                 No saved attendance data exists in the selected date range yet.
               </div>
