@@ -910,20 +910,36 @@ function buildRosterStatusLookupsForRange(
 ) {
   const lookupsByDate = new Map<string, Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>>();
   
-  // Pre-process: index rows by week label to avoid repeated filtering
-  const rosterMapByWeek = new Map<string, { roster: typeof shiftRosters[0]; rows: typeof shiftRosters[0]['rows'] }[]>();
+  // Index roster rows by week label and day position
+  const weekDayRosters = new Map<string, Map<number, { roster: typeof shiftRosters[0]; row: typeof shiftRosters[0]['rows'][0] }[]>>();
+  
   for (let r = 0; r < shiftRosters.length; r++) {
     const roster = shiftRosters[r];
+    // Get week_label from first row (all rows in a roster have same week)
+    const weekLabel = roster.rows[0]?.week_label?.trim().toUpperCase() || "";
+    if (!weekLabel) continue;
+    
+    if (!weekDayRosters.has(weekLabel)) {
+      weekDayRosters.set(weekLabel, new Map());
+    }
+    const dayMap = weekDayRosters.get(weekLabel)!;
+    
     for (let rowIdx = 0; rowIdx < roster.rows.length; rowIdx++) {
       const row = roster.rows[rowIdx];
-      const weekLabel = String(row.week_label || "").trim().toUpperCase();
-      if (!weekLabel) continue;
-      const existing = rosterMapByWeek.get(weekLabel) || [];
-      // Avoid duplicate roster entries for same week
-      if (!existing.some(e => e.roster.sheet_name === roster.sheet_name)) {
-        existing.push({ roster, rows: roster.rows });
+      const employeeCode = normalizeEmployeeCode(row.employee_code);
+      if (!employeeCode) continue;
+      
+      // Check each day column (0=monday, 6=sunday)
+      for (let dayPos = 0; dayPos < 7; dayPos++) {
+        const dayKey = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][dayPos] as keyof typeof row;
+        const rawValue = String(row[dayKey] || "").trim();
+        if (!rawValue) continue;
+        
+        if (!dayMap.has(dayPos)) {
+          dayMap.set(dayPos, []);
+        }
+        dayMap.get(dayPos)!.push({ roster, row });
       }
-      rosterMapByWeek.set(weekLabel, existing);
     }
   }
 
@@ -931,51 +947,38 @@ function buildRosterStatusLookupsForRange(
   while (cursor <= endDate) {
     const dateKey = formatDateValue(cursor);
     const weekLabel = getWeekCycleLabel(cursor).toUpperCase();
-    const dayKey = getOverviewDayKey(cursor);
-    const rostersForWeek = rosterMapByWeek.get(weekLabel) || [];
     
-    const lookup = new Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>();
-    
-    for (let i = 0; i < rostersForWeek.length; i++) {
-      const { roster, rows } = rostersForWeek[i];
-      const storeName = roster.store_name || "";
-      const storeCode = roster.store_code || "";
+    const dayMap = weekDayRosters.get(weekLabel);
+    if (dayMap) {
+      const dayPos = (cursor.getDay() + 6) % 7; // Convert JS day (0=Sun) to our day (0=Mon)
+      const dayRosters = dayMap.get(dayPos) || [];
       
-      for (let j = 0; j < rows.length; j++) {
-        const row = rows[j];
+      const lookup = new Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>();
+      
+      for (let i = 0; i < dayRosters.length; i++) {
+        const { roster, row } = dayRosters[i];
         const employeeCode = normalizeEmployeeCode(row.employee_code);
-        if (!employeeCode) continue;
-
-        const rawValue = String(row[dayKey] || "").trim();
-        if (!rawValue) continue;
-
-        const normalizedValue = rawValue.toUpperCase();
-        const isDayOff = normalizedValue === "OFF" || normalizedValue === "OFF DAY";
-        const isLeave = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/.test(normalizedValue);
+        const dayKey = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][dayPos] as keyof typeof row;
+        const rawValue = String(row[dayKey] || "").trim().toUpperCase();
+        
+        const isDayOff = rawValue === "OFF" || rawValue === "OFF DAY";
+        const isLeave = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/.test(rawValue);
         const scheduled = !isDayOff && !isLeave;
         
-        const existing = lookup.get(employeeCode);
-        if (existing) {
-          existing.scheduled = existing.scheduled || scheduled;
-          existing.dayOff = existing.dayOff || isDayOff;
-          existing.leave = existing.leave || isLeave;
-          if (!existing.store && storeName) {
-            existing.store = storeName;
-            existing.storeCode = storeCode;
-          }
-        } else {
+        if (!lookup.has(employeeCode)) {
           lookup.set(employeeCode, {
             scheduled,
             dayOff: isDayOff,
             leave: isLeave,
-            store: storeName,
-            storeCode: storeCode,
+            store: roster.store_name || "",
+            storeCode: roster.store_code || "",
           });
         }
       }
+      
+      lookupsByDate.set(dateKey, lookup);
     }
     
-    lookupsByDate.set(dateKey, lookup);
     cursor.setDate(cursor.getDate() + 1);
   }
   
@@ -1167,7 +1170,7 @@ function buildOverviewTrendSeriesFromSources({
 
   const totalDays = Math.max(1, Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
 
-  // Pre-compute clocks by date (already done but ensure it's a Map)
+  // Pre-compute clocks by date
   const clocksByDate = precomputedLookups?.clocksByDate || (() => {
     const m = new Map<string, BiometricClockEvent[]>();
     for (let i = 0; i < clockEvents.length; i++) {
@@ -1180,7 +1183,7 @@ function buildOverviewTrendSeriesFromSources({
     return m;
   })();
 
-  // Pre-compute clockings by employee for each date (optimized)
+  // Pre-compute clockings by employee for each date
   const clockingsByDateEmployee = new Map<string, Map<string, string[]>>();
   clocksByDate.forEach((events, dateKey) => {
     const employeeClockings = new Map<string, string[]>();
@@ -1194,7 +1197,6 @@ function buildOverviewTrendSeriesFromSources({
       existing.push(timeValue);
       employeeClockings.set(code, existing);
     }
-    // Sort clockings for each employee
     employeeClockings.forEach((clockings, code) => {
       const unique = Array.from(new Set(clockings)).sort((a, b) => a.localeCompare(b));
       employeeClockings.set(code, unique);
@@ -1202,7 +1204,7 @@ function buildOverviewTrendSeriesFromSources({
     clockingsByDateEmployee.set(dateKey, employeeClockings);
   });
 
-  // Pre-compute attendance by date with normalized codes
+  // Pre-compute attendance by date
   const attendanceByDate = new Map<string, Map<string, AttendanceRecord>>();
   for (let i = 0; i < existingRecords.length; i++) {
     const record = existingRecords[i];
@@ -1216,15 +1218,18 @@ function buildOverviewTrendSeriesFromSources({
     attendanceByDate.get(dateKey)!.set(code, record);
   }
 
-  // Pre-compute active employee codes set
-  const activeEmployeeCodes = new Set(
-    employeeProfiles
-      .filter((employee) => employee.status === "active")
-      .map((employee) => normalizeEmployeeCode(employee.employee_code))
-  );
-
   const leaveCodesByDate = precomputedLookups?.leaveCodesByDate || buildLeaveCodesByDate(leaveApplications);
   const rosterLookupsByDate = precomputedLookups?.rosterLookupsByDate || buildRosterStatusLookupsForRange(shiftRosters, startDate, endDate);
+
+  // Collect ALL unique employee codes across all data sources (one-time cost)
+  const allUniqueCodes = new Set<string>();
+  existingRecords.forEach(r => allUniqueCodes.add(normalizeEmployeeCode(r.employeeCode)));
+  clockEvents.forEach(e => allUniqueCodes.add(normalizeEmployeeCode(e.employee_code)));
+  leaveApplications.forEach(l => {
+    if (l.apply_status === "applied" && l.matched_employee_code) {
+      allUniqueCodes.add(normalizeEmployeeCode(l.matched_employee_code));
+    }
+  });
 
   const series: Array<Record<string, number | string>> = [];
   const cursor = new Date(startDate);
@@ -1236,28 +1241,29 @@ function buildOverviewTrendSeriesFromSources({
     const dayLeaveCodes = leaveCodesByDate.get(dateKey) || new Set<string>();
     const rosterLookup = rosterLookupsByDate.get(dateKey) || new Map();
 
-    // Collect all employee codes that have any data for this day
-    const allCodes = new Set<string>();
-    activeEmployeeCodes.forEach(code => allCodes.add(code));
-    dayAttendanceMap.forEach((_, code) => allCodes.add(code));
-    dayClockings.forEach((_, code) => allCodes.add(code));
-    rosterLookup.forEach((_, code) => allCodes.add(code));
-    dayLeaveCodes.forEach(code => allCodes.add(code));
-
     let atWork = 0, awol = 0, scheduled = 0, leave = 0, dayOff = 0, other = 0;
 
-    allCodes.forEach((employeeCode) => {
+    // Only iterate over employees that have ANY data for this day
+    allUniqueCodes.forEach((employeeCode) => {
       if (!employeeCode) return;
+      
       const existing = dayAttendanceMap.get(employeeCode);
-      const roster = rosterLookup.get(employeeCode);
+      const hasExistingData = existing !== undefined;
+      const hasClocks = dayClockings.has(employeeCode);
+      const hasRoster = rosterLookup.has(employeeCode);
+      const hasLeave = dayLeaveCodes.has(employeeCode);
+      
+      // Skip if no data for this day
+      if (!hasExistingData && !hasClocks && !hasRoster && !hasLeave) return;
+
       const incomingClockings = dayClockings.get(employeeCode) || [];
       const hasExistingClocks = (existing?.clockings || []).length > 0;
       const totalClockings = hasExistingClocks || incomingClockings.length > 0;
 
-      const recScheduled = Boolean(existing?.scheduled || roster?.scheduled || existing?.atWork || existing?.leave || existing?.dayOff || existing?.problem);
+      const recScheduled = Boolean(existing?.scheduled || rosterLookup.get(employeeCode)?.scheduled || existing?.atWork || existing?.leave || existing?.dayOff || existing?.problem);
       const recAtWork = Boolean(existing?.atWork || totalClockings);
-      let recLeave = Boolean(existing?.leave || roster?.leave || dayLeaveCodes.has(employeeCode));
-      let recDayOff = Boolean(existing?.dayOff || roster?.dayOff);
+      let recLeave = Boolean(existing?.leave || rosterLookup.get(employeeCode)?.leave || hasLeave);
+      let recDayOff = Boolean(existing?.dayOff || rosterLookup.get(employeeCode)?.dayOff);
       let recProblem = Boolean(existing?.problem);
 
       if (recAtWork) {
