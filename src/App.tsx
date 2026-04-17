@@ -1360,6 +1360,18 @@ export default function App() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (!Array.isArray(parsed)) return [];
+        const hasTypedRows = parsed.some((row) => {
+          if (!row || typeof row !== "object") return false;
+          const record = row as Record<string, unknown>;
+          return typeof record.deviceType === "string" || typeof record["device_type"] === "string";
+        });
+        if (!hasTypedRows) {
+          try {
+            localStorage.removeItem(DEVICES_STORAGE_KEY);
+            localStorage.removeItem(`${DEVICES_STORAGE_KEY}_date`);
+          } catch {}
+          return [];
+        }
         return parsed.map((row, index) => {
           const record = row as Partial<DeviceRecord> & Record<string, unknown>;
           const statusValue = normalizeOverviewCompare(record.status);
@@ -4887,7 +4899,7 @@ export default function App() {
           <CardContent>
             <div className="rounded-xl border overflow-hidden">
               <table className="w-full">
-                <thead className="bg-slate-100">
+                <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
                     <th className="px-4 py-3 text-center text-sm font-medium">Type</th>
@@ -4896,8 +4908,8 @@ export default function App() {
                     <th className="px-4 py-3 text-center text-sm font-medium">Offline</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {physicalStores.map(store => {
+                <tbody className="text-slate-700">
+                  {physicalStores.map((store) => {
                     const storeDevices = deviceStoresMap.get(store) || [];
                     const online = storeDevices.filter(d => d.status === "online").length;
                     const offline = storeDevices.filter(d => d.status === "offline" || d.status === "warning").length;
@@ -4915,6 +4927,13 @@ export default function App() {
                       </tr>
                     );
                   })}
+                  {physicalStores.length === 0 && (
+                    <tr className="border-t">
+                      <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">
+                        No physical stores detected in the current device import. If this looks wrong, click `Clear Devices` and import the latest sheet again.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -4930,7 +4949,7 @@ export default function App() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {logicalStores.sort().map(store => (
-                <div key={store} className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
+                <div key={store} className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-200 text-sm text-slate-700">
                   <Badge className="bg-amber-100 text-amber-700 text-xs mr-2">Logical</Badge>
                   {store}
                 </div>
@@ -4948,7 +4967,7 @@ export default function App() {
           <CardContent>
             <div className="rounded-xl border overflow-hidden">
               <table className="w-full">
-                <thead className="bg-slate-100">
+                <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-medium">Device Name</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
@@ -4956,7 +4975,7 @@ export default function App() {
                     <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-slate-700">
                   {deviceRecords.map((device) => (
                     <tr key={device.id} className="border-t hover:bg-slate-50">
                       <td className="px-4 py-3 font-medium">{device.name}</td>
