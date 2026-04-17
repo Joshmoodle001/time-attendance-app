@@ -208,6 +208,7 @@ type DeviceRecord = {
   deviceName: string;
   region: string;
   store: string;
+  deviceType: "physical" | "logical";
   status: "online" | "offline" | "warning";
   lastSeen: string;
   lastSeenDate?: string;
@@ -846,6 +847,15 @@ function normalizeOverviewCompare(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeStoreLookupKey(value: unknown) {
+  return normalizeOverviewCompare(value).replace(/\s+/g, " ");
+}
+
+function normalizeDeviceType(value: unknown): "physical" | "logical" {
+  const normalized = normalizeOverviewCompare(value);
+  return normalized.includes("physical") ? "physical" : "logical";
+}
+
 function isOverviewEmployeeReportable(employee: Employee | undefined | null) {
   if (!employee) return false;
   if (employee.active === false) return false;
@@ -1348,7 +1358,28 @@ export default function App() {
     try {
       const stored = localStorage.getItem(DEVICES_STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map((row, index) => {
+          const record = row as Partial<DeviceRecord> & Record<string, unknown>;
+          const statusValue = normalizeOverviewCompare(record.status);
+          const status: "online" | "offline" | "warning" =
+            statusValue === "offline" || statusValue === "warning"
+              ? (statusValue as "offline" | "warning")
+              : "online";
+          const name = String(record.name || record.deviceName || `Device ${index + 1}`).trim();
+          return {
+            id: String(record.id || `DEV-${index + 1}`),
+            name,
+            deviceName: String(record.deviceName || name).trim(),
+            region: String(record.region || "Unassigned Region").trim(),
+            store: String(record.store || "Unassigned Store").trim(),
+            deviceType: normalizeDeviceType(record.deviceType || record["device_type"] || record.type),
+            status,
+            lastSeen: String(record.lastSeen || new Date().toISOString()),
+            lastSeenDate: record.lastSeenDate ? String(record.lastSeenDate) : undefined,
+          };
+        });
       }
     } catch {}
     return [];
@@ -3201,6 +3232,24 @@ export default function App() {
     return entries.map(([store, data]) => ({ store, count: data.count, employees: data.employees }));
   }, [selectedSlice, filteredOverviewAttendanceRecords]);
 
+  const storeDeviceTypeLookup = useMemo(() => {
+    const lookup = new Map<string, "physical" | "logical">();
+    deviceRecords.forEach((device) => {
+      const key = normalizeStoreLookupKey(device.store);
+      if (!key) return;
+      const current = lookup.get(key);
+      if (device.deviceType === "physical" || !current) {
+        lookup.set(key, device.deviceType);
+      }
+    });
+    return lookup;
+  }, [deviceRecords]);
+
+  const getStoreDeviceType = useCallback((store: string) => {
+    const type = storeDeviceTypeLookup.get(normalizeStoreLookupKey(store));
+    return type || "logical";
+  }, [storeDeviceTypeLookup]);
+
   // Export store breakdown as PDF
   const exportStoreBreakdownPDF = async () => {
     if (!selectedSlice || filteredStoreBreakdown.length === 0) return;
@@ -3224,13 +3273,14 @@ export default function App() {
     const tableData = filteredStoreBreakdown.map((item, index) => [
       index + 1,
       item.store,
+      getStoreDeviceType(item.store) === "physical" ? "Physical" : "Logical",
       item.count,
       `${Math.round((item.count / storeBreakdown[0].count) * 100)}%`
     ]);
     
     autoTable(doc, {
       startY: 40,
-      head: [['#', 'Store Name', 'Count', 'Percentage']],
+      head: [['#', 'Store Name', 'Type', 'Count', 'Percentage']],
       body: tableData,
       headStyles: { 
         fillColor: [30, 41, 59],
@@ -3241,9 +3291,10 @@ export default function App() {
       styles: { fontSize: 10 },
       columnStyles: {
         0: { cellWidth: 15, halign: 'center' },
-        1: { cellWidth: 100 },
-        2: { cellWidth: 30, halign: 'center' },
-        3: { cellWidth: 30, halign: 'right' }
+        1: { cellWidth: 78 },
+        2: { cellWidth: 28, halign: 'center' },
+        3: { cellWidth: 28, halign: 'center' },
+        4: { cellWidth: 28, halign: 'right' }
       }
     });
     
@@ -3293,8 +3344,12 @@ export default function App() {
   }, [attendanceRecords, searchTerm, selectedRegion, selectedStore]);
 
   const deviceStats = useMemo(() => {
-    const uniqueStores = new Set(deviceRecords.map(d => d.store).filter(Boolean));
-    const physicalStores = uniqueStores.size;
+    const physicalStores = new Set(
+      deviceRecords
+        .filter((d) => d.deviceType === "physical")
+        .map((d) => normalizeStoreLookupKey(d.store))
+        .filter(Boolean)
+    ).size;
     return {
       total: deviceRecords.length,
       online: deviceRecords.filter(d => d.status === "online").length,
@@ -3528,11 +3583,13 @@ export default function App() {
     const rawRows = xlsx.utils.sheet_to_json<unknown[]>(sheet, { defval: "", header: 1 });
     const rows = rawRows as unknown[][];
 
-    // Skip first 4 rows (rows 0-3) and start from row 5 (index 4)
-    const dataRows = rows.slice(4);
-
-    // Get headers from first row (row 0)
-    const headers = rows[0] || [];
+    const headerRowIndex = rows.findIndex((row) => {
+      const normalized = row.map((cell) => normalizeOverviewCompare(cell));
+      return normalized.some((cell) => cell.includes("device name") || cell === "device" || cell === "device_name");
+    });
+    if (headerRowIndex === -1) return [];
+    const headers = rows[headerRowIndex] || [];
+    const dataRows = rows.slice(headerRowIndex + 1);
 
     // Find column indices helper
     const findColumn = (names: string[]): number => {
@@ -3544,28 +3601,61 @@ export default function App() {
     };
 
     const deviceNameIdx = findColumn(["device name", "device", "name", "device_name"]);
+    const displayNameIdx = findColumn(["display name", "display_name"]);
+    const descriptionIdx = findColumn(["description"]);
     const storeIdx = findColumn(["store", "store name", "store_name"]);
     const regionIdx = findColumn(["region", "territory"]);
+    const deviceTypeIdx = findColumn(["device type", "type"]);
     const statusIdx = findColumn(["status", "device status", "device_status"]);
+    const connectedIdx = findColumn(["connected", "connection"]);
     const lastSeenIdx = findColumn(["last seen", "last_seen", "lastseen", "last activity"]);
 
     return dataRows
       .map((row) => {
         if (deviceNameIdx === -1) return null;
 
-        const deviceName = String(row[deviceNameIdx] || "").trim();
+        const deviceName = String(
+          row[deviceNameIdx] ||
+          row[displayNameIdx] ||
+          row[descriptionIdx] ||
+          ""
+        ).trim();
         if (!deviceName) return null;
 
-        const store = String(row[storeIdx] || "Unassigned Store").trim();
-        const region = String(row[regionIdx] || "Unassigned Region").trim();
+        const storeSource = String(row[storeIdx] || deviceName).trim();
+        const parsedStore = parseRegionStore(storeSource);
+        const store = (
+          parsedStore.store && parsedStore.store !== "Unknown Store"
+            ? parsedStore.store
+            : storeSource
+        )
+          .replace(/\s*\(\d+\)\s*$/, "")
+          .trim() || "Unassigned Store";
+        const region = String(row[regionIdx] || parsedStore.region || "Unassigned Region").trim();
+        const deviceType = normalizeDeviceType(row[deviceTypeIdx]);
 
         let status: "online" | "offline" | "warning" = "online";
+        if (connectedIdx !== -1) {
+          const connectedVal = normalizeOverviewCompare(row[connectedIdx]);
+          if (connectedVal.includes("offline") || connectedVal === "n/a" || connectedVal === "na") {
+            status = "offline";
+          } else if (connectedVal.includes("online")) {
+            status = "online";
+          }
+        }
         if (statusIdx !== -1) {
-          const statusVal = String(row[statusIdx] || "").toLowerCase().trim();
-          if (statusVal.includes("offline") || statusVal === "0" || statusVal === "false") {
+          const statusVal = normalizeOverviewCompare(row[statusIdx]);
+          if (
+            statusVal.includes("offline") ||
+            statusVal.includes("inactive") ||
+            statusVal === "0" ||
+            statusVal === "false"
+          ) {
             status = "offline";
           } else if (statusVal.includes("warning") || statusVal === "warning") {
             status = "warning";
+          } else if (statusVal.includes("active")) {
+            status = "online";
           }
         }
 
@@ -3596,6 +3686,7 @@ export default function App() {
           deviceName: deviceName,
           region,
           store,
+          deviceType,
           status,
           lastSeen: lastSeen || new Date().toISOString(),
           lastSeenDate,
@@ -3699,12 +3790,24 @@ export default function App() {
 
       setDeviceRecords(parsed);
       setDeviceImportDate(new Date().toLocaleDateString());
-      setSaveMessage(`Imported ${parsed.length} device records from ${file.name}`);
+      setSaveMessage(`Replaced devices with ${parsed.length} records from ${file.name}`);
     } catch (error) {
       setSaveMessage(`Device upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       event.target.value = "";
     }
+  };
+
+  const handleClearDevices = () => {
+    const shouldClear = window.confirm("Clear all imported device records?");
+    if (!shouldClear) return;
+    try {
+      localStorage.removeItem(DEVICES_STORAGE_KEY);
+      localStorage.removeItem(`${DEVICES_STORAGE_KEY}_date`);
+    } catch {}
+    setDeviceRecords([]);
+    setDeviceImportDate("");
+    setSaveMessage("Cleared all imported device records.");
   };
 
   const exportAttendance = () => {
@@ -4214,6 +4317,13 @@ export default function App() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-white">{item.store}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide ${
+                                getStoreDeviceType(item.store) === "physical"
+                                  ? "bg-green-900/50 text-green-300 border border-green-700/40"
+                                  : "bg-amber-900/50 text-amber-300 border border-amber-700/40"
+                              }`}>
+                                {getStoreDeviceType(item.store) === "physical" ? "Physical" : "Logical"}
+                              </span>
                               <span className="px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-300">{item.count}</span>
                             </div>
                             <div className="flex items-center gap-2 mt-1.5">
@@ -4679,9 +4789,20 @@ export default function App() {
       ...employees.map(e => e.store).filter(Boolean),
       ...overviewEmployeeProfiles.map(e => e.store).filter(Boolean),
     ]);
-    const storesWithDevices = new Set(deviceStoresMap.keys());
-    const physicalStores = Array.from(storesWithDevices);
-    const logicalStores = Array.from(allEmployeeStores).filter(s => !storesWithDevices.has(s));
+    const normalizedEmployeeStores = new Map<string, string>();
+    Array.from(allEmployeeStores).forEach((store) => {
+      const key = normalizeStoreLookupKey(store);
+      if (key && !normalizedEmployeeStores.has(key)) normalizedEmployeeStores.set(key, store);
+    });
+
+    const physicalStores = Array.from(deviceStoresMap.keys())
+      .filter((store) => getStoreDeviceType(store) === "physical");
+    const logicalFromDeviceSheet = Array.from(deviceStoresMap.keys())
+      .filter((store) => getStoreDeviceType(store) === "logical");
+    const logicalWithoutDeviceRows = Array.from(normalizedEmployeeStores.entries())
+      .filter(([key]) => !storeDeviceTypeLookup.has(key))
+      .map(([, store]) => store);
+    const logicalStores = Array.from(new Set([...logicalFromDeviceSheet, ...logicalWithoutDeviceRows]));
 
     return (
     <div className="space-y-6">
@@ -4694,13 +4815,23 @@ export default function App() {
                 {deviceImportDate ? `Last import: ${deviceImportDate}` : "Upload device data to see status"}
               </CardDescription>
             </div>
-            <button
-              onClick={() => deviceUploadInputRef.current?.click()}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 flex items-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Import Devices
-            </button>
+            <div className="flex items-center gap-2">
+              {deviceRecords.length > 0 && (
+                <button
+                  onClick={handleClearDevices}
+                  className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300"
+                >
+                  Clear Devices
+                </button>
+              )}
+              <button
+                onClick={() => deviceUploadInputRef.current?.click()}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Import Devices
+              </button>
+            </div>
           </div>
           <input
             ref={deviceUploadInputRef}
@@ -4821,6 +4952,7 @@ export default function App() {
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-medium">Device Name</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">Type</th>
                     <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
                   </tr>
                 </thead>
@@ -4829,6 +4961,13 @@ export default function App() {
                     <tr key={device.id} className="border-t hover:bg-slate-50">
                       <td className="px-4 py-3 font-medium">{device.name}</td>
                       <td className="px-4 py-3 text-sm">{device.store}</td>
+                      <td className="px-4 py-3 text-center">
+                        {device.deviceType === "physical" ? (
+                          <Badge className="bg-green-100 text-green-700">Physical</Badge>
+                        ) : (
+                          <Badge className="bg-amber-100 text-amber-700">Logical</Badge>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         {device.status === "online" && (
                           <Badge className="bg-green-100 text-green-700">
@@ -5622,6 +5761,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
