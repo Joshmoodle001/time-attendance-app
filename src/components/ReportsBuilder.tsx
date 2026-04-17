@@ -67,6 +67,7 @@ type ReportsBuilderProps = {
   records: AttendanceRecordLike[];
   employees: Employee[];
   reportDateRangeLabel: string;
+  employeesReady?: boolean;
 };
 
 type SelectionMode = "store" | "employees";
@@ -587,6 +588,7 @@ export default function ReportsBuilder({
   records,
   employees,
   reportDateRangeLabel,
+  employeesReady = true,
 }: ReportsBuilderProps) {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [shiftRosters, setShiftRosters] = useState<ShiftRoster[]>([]);
@@ -734,6 +736,8 @@ export default function ReportsBuilder({
         ),
     [employees, includeInactiveProfiles]
   );
+
+  const selectorDataReady = employeesReady && !isLoading && storeOptions.length > 0 && employeeOptions.length > 0;
 
   const selectedStoreOptions = useMemo(
     () =>
@@ -1868,6 +1872,18 @@ export default function ReportsBuilder({
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Building2 className="h-4 w-4 text-cyan-400" />
                 Step 3: Select Report Target
+              </div>
+              <div className="mt-2">
+                {selectorDataReady ? (
+                  <Badge className="border-emerald-500/30 bg-emerald-950/30 text-emerald-300">
+                    Data loaded - you can search now
+                  </Badge>
+                ) : (
+                  <Badge className="border-amber-500/30 bg-amber-950/30 text-amber-300">
+                    <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                    Loading employees and store indexes...
+                  </Badge>
+                )}
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button variant={selectionMode === "store" ? "default" : "outline"} size="sm" onClick={() => setSelectionMode("store")}>By Store</Button>

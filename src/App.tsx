@@ -144,8 +144,9 @@ const COMMUNICATION_PROFILES_STORAGE_KEY = "communication-profiles-v1";
 const COMMUNICATION_AUTOMATIONS_STORAGE_KEY = "communication-automations-v1";
 const LAST_ATTENDANCE_DATE_STORAGE_KEY = "last-attendance-date-v1";
 const DEVICES_STORAGE_KEY = "devices-v1";
-  const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
-  const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
+const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
+const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
+const CLOCK_REFRESH_TTL_MS = 30 * 1000;
 
 type XlsxRuntime = typeof import("xlsx");
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
@@ -1477,11 +1478,19 @@ export default function App() {
   const [employeeClockSummaryMap, setEmployeeClockSummaryMap] = useState<
     Map<string, { totalEvents: number; verifiedEvents: number; lastClockedAt: string; stores: string[] }>
   >(new Map());
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   const [isLoadingClockEvents, setIsLoadingClockEvents] = useState(false);
   const employeeRequestRef = useRef<{ fetchedAt: number; inFlight: boolean }>({
     fetchedAt: 0,
     inFlight: false,
   });
+  const employeeLoadPromiseRef = useRef<Promise<Employee[]> | null>(null);
+  const clockRequestRef = useRef<{ fetchedAt: number; inFlight: boolean }>({
+    fetchedAt: 0,
+    inFlight: false,
+  });
+  const clockLoadPromiseRef = useRef<Promise<Awaited<ReturnType<typeof getClockOverview>>> | null>(null);
+  const hasInitializedOverviewRangeRef = useRef(false);
   const overviewRequestRef = useRef<{ key: string; fetchedAt: number; inFlight: boolean }>({
     key: "",
     fetchedAt: 0,
@@ -1576,28 +1585,35 @@ export default function App() {
       return employees;
     }
 
-    if (employeeRequestRef.current.inFlight) {
-      return employees;
+    if (employeeRequestRef.current.inFlight && employeeLoadPromiseRef.current) {
+      return employeeLoadPromiseRef.current;
     }
 
     employeeRequestRef.current.inFlight = true;
+    setIsLoadingEmployees(true);
 
-    try {
-      await initializeEmployeeDatabase();
-      const data = await getEmployees();
-      setEmployees(data);
-      setEmployeeLocations(deriveEmployeeLocationsFromProfiles(data));
-      employeeRequestRef.current = {
-        fetchedAt: Date.now(),
-        inFlight: false,
-      };
-      return data;
-    } finally {
-      employeeRequestRef.current = {
-        ...employeeRequestRef.current,
-        inFlight: false,
-      };
-    }
+    employeeLoadPromiseRef.current = (async () => {
+      try {
+        await initializeEmployeeDatabase();
+        const data = await getEmployees();
+        setEmployees(data);
+        setEmployeeLocations(deriveEmployeeLocationsFromProfiles(data));
+        employeeRequestRef.current = {
+          fetchedAt: Date.now(),
+          inFlight: false,
+        };
+        return data;
+      } finally {
+        employeeRequestRef.current = {
+          ...employeeRequestRef.current,
+          inFlight: false,
+        };
+        employeeLoadPromiseRef.current = null;
+        setIsLoadingEmployees(false);
+      }
+    })();
+
+    return employeeLoadPromiseRef.current;
   }, [employees]);
 
   const loadEmployeeUpdateLogs = async () => {
@@ -1626,34 +1642,62 @@ export default function App() {
     }
   };
 
-  const loadClockEvents = useCallback(async () => {
-    setIsLoadingClockEvents(true);
-    try {
-      await initializeClockDatabase();
-      const overview = await getClockOverview();
-      setClockOverview({
-        totalEvents: overview.totalEvents,
-        employeesWithClocks: overview.employeesWithClocks,
-        verifiedEvents: overview.verifiedEvents,
-      });
-      setEmployeeClockSummaryMap(
-        new Map(
-          overview.summaries.map((summary) => [
-            normalizeEmployeeCode(summary.employee_code),
-            {
-              totalEvents: summary.total_events,
-              verifiedEvents: summary.verified_events,
-              lastClockedAt: summary.last_clocked_at,
-              stores: summary.store ? [summary.store] : [],
-            },
-          ])
-        )
-      );
-      return overview;
-    } finally {
-      setIsLoadingClockEvents(false);
+  const loadClockEvents = useCallback(async (options?: { force?: boolean }) => {
+    const now = Date.now();
+    if (!options?.force && now - clockRequestRef.current.fetchedAt < CLOCK_REFRESH_TTL_MS) {
+      return {
+        totalEvents: clockOverview.totalEvents,
+        employeesWithClocks: clockOverview.employeesWithClocks,
+        verifiedEvents: clockOverview.verifiedEvents,
+        summaries: [],
+      };
     }
-  }, []);
+
+    if (clockRequestRef.current.inFlight && clockLoadPromiseRef.current) {
+      return clockLoadPromiseRef.current;
+    }
+
+    clockRequestRef.current.inFlight = true;
+    setIsLoadingClockEvents(true);
+    clockLoadPromiseRef.current = (async () => {
+      try {
+        await initializeClockDatabase();
+        const overview = await getClockOverview();
+        setClockOverview({
+          totalEvents: overview.totalEvents,
+          employeesWithClocks: overview.employeesWithClocks,
+          verifiedEvents: overview.verifiedEvents,
+        });
+        setEmployeeClockSummaryMap(
+          new Map(
+            overview.summaries.map((summary) => [
+              normalizeEmployeeCode(summary.employee_code),
+              {
+                totalEvents: summary.total_events,
+                verifiedEvents: summary.verified_events,
+                lastClockedAt: summary.last_clocked_at,
+                stores: summary.store ? [summary.store] : [],
+              },
+            ])
+          )
+        );
+        clockRequestRef.current = {
+          fetchedAt: Date.now(),
+          inFlight: false,
+        };
+        return overview;
+      } finally {
+        clockRequestRef.current = {
+          ...clockRequestRef.current,
+          inFlight: false,
+        };
+        clockLoadPromiseRef.current = null;
+        setIsLoadingClockEvents(false);
+      }
+    })();
+
+    return clockLoadPromiseRef.current;
+  }, [clockOverview.employeesWithClocks, clockOverview.totalEvents, clockOverview.verifiedEvents]);
 
   // Separate state for trend loading to allow pie chart to show first
   const [trendLoading, setTrendLoading] = useState(false);
@@ -1688,8 +1732,8 @@ export default function App() {
     try {
       // Phase 1: Load essential data (pie chart needs)
       const shouldFetchEmployees = !cache || options?.force;
-      const employeeProfiles = shouldFetchEmployees 
-        ? (employees.length > 0 ? employees : await getEmployees())
+      const employeeProfiles = shouldFetchEmployees
+        ? await loadEmployees({ force: options?.force })
         : cache.employees;
       
       const shouldFetchShifts = !cache || options?.force;
@@ -1877,7 +1921,7 @@ export default function App() {
         inFlight: false,
       };
     }
-  }, [employees, overviewEndDate, overviewStartDate, selectedOverviewDate]);
+  }, [loadEmployees, overviewEndDate, overviewStartDate, selectedOverviewDate]);
 
   const loadAttendanceForDate = async (date: string, options?: { silent?: boolean }) => {
     if (!date) return [];
@@ -1931,7 +1975,7 @@ export default function App() {
     let alive = true;
 
     const hydrateSavedData = async () => {
-      const [dates] = await Promise.all([getAvailableDates(), loadEmployees()]);
+      const [dates] = await Promise.all([getAvailableDates(), loadEmployees(), loadClockEvents()]);
       if (!alive) return;
 
       setAvailableDates(dates);
@@ -1943,10 +1987,6 @@ export default function App() {
       if (dateToLoad) {
         await loadAttendanceForDate(dateToLoad, { silent: true });
       }
-      
-      setTimeout(() => {
-        if (alive) loadClockEvents();
-      }, 500);
     };
 
     void hydrateSavedData();
@@ -2002,6 +2042,10 @@ export default function App() {
   useEffect(() => {
     if (!trialResetReady) return;
     if (activeNav !== "overview") return;
+    if (!hasInitializedOverviewRangeRef.current) {
+      hasInitializedOverviewRangeRef.current = true;
+      return;
+    }
     loadOverviewDashboard({ force: true });
   }, [overviewStartDate, overviewEndDate, trialResetReady, activeNav, loadOverviewDashboard]);
 
@@ -4775,6 +4819,7 @@ export default function App() {
         records={filteredRecords}
         employees={employees}
         reportDateRangeLabel={reportDateRangeLabel}
+        employeesReady={!isLoadingEmployees && employees.length > 0}
       />
     </Suspense>
   );
