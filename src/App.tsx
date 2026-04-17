@@ -143,6 +143,7 @@ const REPORT_TEMPLATES_STORAGE_KEY = "report-templates-v1";
 const COMMUNICATION_PROFILES_STORAGE_KEY = "communication-profiles-v1";
 const COMMUNICATION_AUTOMATIONS_STORAGE_KEY = "communication-automations-v1";
 const LAST_ATTENDANCE_DATE_STORAGE_KEY = "last-attendance-date-v1";
+const DEVICES_STORAGE_KEY = "devices-v1";
   const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
   const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
 
@@ -204,10 +205,12 @@ type AttendanceRecord = {
 type DeviceRecord = {
   id: string;
   name: string;
+  deviceName: string;
   region: string;
   store: string;
   status: "online" | "offline" | "warning";
   lastSeen: string;
+  lastSeenDate?: string;
 };
 
 type OverviewDatum = {
@@ -1341,14 +1344,30 @@ export default function App() {
   const ipulseAutoSyncRunningRef = useRef(false);
 
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-  const [deviceRecords, setDeviceRecords] = useState<DeviceRecord[]>([]);
+  const [deviceRecords, setDeviceRecords] = useState<DeviceRecord[]>(() => {
+    try {
+      const stored = localStorage.getItem(DEVICES_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch {}
+    return [];
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [selectedStore, setSelectedStore] = useState("all");
   const [activeNav, setActiveNav] = useState<(typeof sidebarItems)[number]["key"]>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
-  const [deviceImportDate, setDeviceImportDate] = useState("");
+  const [deviceImportDate, setDeviceImportDate] = useState(() => {
+    try {
+      const stored = localStorage.getItem(`${DEVICES_STORAGE_KEY}_date`);
+      if (stored) {
+        return new Date(stored).toLocaleDateString();
+      }
+    } catch {}
+    return "";
+  });
   const [saveMessage, setSaveMessage] = useState("");
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
@@ -3274,12 +3293,28 @@ export default function App() {
   }, [attendanceRecords, searchTerm, selectedRegion, selectedStore]);
 
   const deviceStats = useMemo(() => {
+    const uniqueStores = new Set(deviceRecords.map(d => d.store).filter(Boolean));
+    const physicalStores = uniqueStores.size;
     return {
       total: deviceRecords.length,
       online: deviceRecords.filter(d => d.status === "online").length,
       offline: deviceRecords.filter(d => d.status === "offline").length,
       warning: deviceRecords.filter(d => d.status === "warning").length,
+      physicalStores,
     };
+  }, [deviceRecords]);
+
+  // Get all unique stores from devices
+  const deviceStoresMap = useMemo(() => {
+    const map = new Map<string, DeviceRecord[]>();
+    deviceRecords.forEach(device => {
+      if (device.store) {
+        const existing = map.get(device.store) || [];
+        existing.push(device);
+        map.set(device.store, existing);
+      }
+    });
+    return map;
   }, [deviceRecords]);
 
   const reportDateRangeLabel = useMemo(() => {
@@ -3490,29 +3525,80 @@ export default function App() {
     const firstSheetName = workbook.SheetNames[0];
     if (!firstSheetName) return [];
     const sheet = workbook.Sheets[firstSheetName];
-    const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+    const rawRows = xlsx.utils.sheet_to_json<unknown[]>(sheet, { defval: "", header: 1 });
+    const rows = rawRows as unknown[][];
 
-    return rows
-      .map((row, index) => {
-        const entries = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
-          acc[String(key).trim().toLowerCase()] = value;
-          return acc;
-        }, {});
+    // Skip first 4 rows (rows 0-3) and start from row 5 (index 4)
+    const dataRows = rows.slice(4);
 
-        const name = entries.name || entries.device || entries["device name"] || "";
-        if (!name) return null;
+    // Get headers from first row (row 0)
+    const headers = rows[0] || [];
 
-        const offline = Number(entries.offline || 0) === 1;
-        const warning = Number(entries.warning || 0) === 1;
-        const status: "online" | "offline" | "warning" = offline ? "offline" : warning ? "warning" : "online";
+    // Find column indices helper
+    const findColumn = (names: string[]): number => {
+      for (const name of names) {
+        const idx = headers.findIndex(h => String(h || "").toLowerCase().trim().includes(name.toLowerCase()));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+
+    const deviceNameIdx = findColumn(["device name", "device", "name", "device_name"]);
+    const storeIdx = findColumn(["store", "store name", "store_name"]);
+    const regionIdx = findColumn(["region", "territory"]);
+    const statusIdx = findColumn(["status", "device status", "device_status"]);
+    const lastSeenIdx = findColumn(["last seen", "last_seen", "lastseen", "last activity"]);
+
+    return dataRows
+      .map((row) => {
+        if (deviceNameIdx === -1) return null;
+
+        const deviceName = String(row[deviceNameIdx] || "").trim();
+        if (!deviceName) return null;
+
+        const store = String(row[storeIdx] || "Unassigned Store").trim();
+        const region = String(row[regionIdx] || "Unassigned Region").trim();
+
+        let status: "online" | "offline" | "warning" = "online";
+        if (statusIdx !== -1) {
+          const statusVal = String(row[statusIdx] || "").toLowerCase().trim();
+          if (statusVal.includes("offline") || statusVal === "0" || statusVal === "false") {
+            status = "offline";
+          } else if (statusVal.includes("warning") || statusVal === "warning") {
+            status = "warning";
+          }
+        }
+
+        let lastSeen = "";
+        let lastSeenDate = "";
+        if (lastSeenIdx !== -1) {
+          const dateVal = row[lastSeenIdx];
+          if (dateVal) {
+            lastSeen = String(dateVal);
+            const parsed = new Date(String(dateVal));
+            if (!isNaN(parsed.getTime())) {
+              lastSeenDate = parsed.toISOString().split('T')[0];
+              const hoursDiff = (Date.now() - parsed.getTime()) / (1000 * 60 * 60);
+              if (hoursDiff > 24) {
+                status = "offline";
+              } else if (hoursDiff > 12) {
+                status = "warning";
+              }
+            }
+          }
+        }
+
+        const normalizedName = deviceName.toLowerCase().trim().replace(/\s+/g, '-');
 
         return {
-          id: String(entries.id || entries.deviceid || `DEV-${String(index + 1).padStart(4, "0")}`),
-          name: String(name),
-          region: String(entries.region || "Unassigned Region"),
-          store: String(entries.store || "Unassigned Store"),
+          id: `DEV-${normalizedName}`,
+          name: deviceName,
+          deviceName: deviceName,
+          region,
+          store,
           status,
-          lastSeen: String(entries.lastseen || entries["last seen"] || new Date().toISOString()),
+          lastSeen: lastSeen || new Date().toISOString(),
+          lastSeenDate,
         } satisfies DeviceRecord;
       })
       .filter(Boolean) as DeviceRecord[];
@@ -3601,6 +3687,14 @@ export default function App() {
       if (!parsed.length) {
         setSaveMessage(`No device records found in ${file.name}`);
         return;
+      }
+
+      // Save to localStorage for persistence
+      try {
+        localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(parsed));
+        localStorage.setItem(`${DEVICES_STORAGE_KEY}_date`, new Date().toISOString());
+      } catch (e) {
+        console.error("Failed to save devices to localStorage:", e);
       }
 
       setDeviceRecords(parsed);
@@ -4579,17 +4673,45 @@ export default function App() {
   );
 
   // ==================== RENDER DEVICES ====================
-  const renderDevices = () => (
+  const renderDevices = () => {
+    // Get all unique stores from attendance/employees for logical stores
+    const allEmployeeStores = new Set([
+      ...employees.map(e => e.store).filter(Boolean),
+      ...overviewEmployeeProfiles.map(e => e.store).filter(Boolean),
+    ]);
+    const storesWithDevices = new Set(deviceStoresMap.keys());
+    const physicalStores = Array.from(storesWithDevices);
+    const logicalStores = Array.from(allEmployeeStores).filter(s => !storesWithDevices.has(s));
+
+    return (
     <div className="space-y-6">
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Device Status</CardTitle>
-          <CardDescription>
-            {deviceImportDate ? `Last import: ${deviceImportDate}` : "Upload device data to see status"}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Device Management</CardTitle>
+              <CardDescription>
+                {deviceImportDate ? `Last import: ${deviceImportDate}` : "Upload device data to see status"}
+              </CardDescription>
+            </div>
+            <button
+              onClick={() => deviceUploadInputRef.current?.click()}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 flex items-center gap-2"
+            >
+              <Upload className="w-4 h-4" />
+              Import Devices
+            </button>
+          </div>
+          <input
+            ref={deviceUploadInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={handleDeviceUpload}
+          />
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <div className="p-4 bg-slate-100 rounded-xl text-center">
               <div className="text-2xl font-bold">{deviceStats.total}</div>
               <div className="text-sm text-slate-600">Total Devices</div>
@@ -4600,28 +4722,104 @@ export default function App() {
             </div>
             <div className="p-4 bg-yellow-50 rounded-xl text-center">
               <div className="text-2xl font-bold text-yellow-700">{deviceStats.warning}</div>
-              <div className="text-sm text-yellow-600">Warning (&lt;24h)</div>
+              <div className="text-sm text-yellow-600">Warning</div>
             </div>
             <div className="p-4 bg-red-50 rounded-xl text-center">
               <div className="text-2xl font-bold text-red-700">{deviceStats.offline}</div>
-              <div className="text-sm text-red-600">Offline (&gt;24h)</div>
+              <div className="text-sm text-red-600">Offline</div>
+            </div>
+            <div className="p-4 bg-cyan-50 rounded-xl text-center">
+              <div className="text-2xl font-bold text-cyan-700">{deviceStats.physicalStores}</div>
+              <div className="text-sm text-cyan-600">Physical Stores</div>
             </div>
           </div>
+          
+          {logicalStores.length > 0 && (
+            <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-200">
+              <div className="text-sm font-medium text-amber-800">
+                {logicalStores.length} Logical Store{logicalStores.length !== 1 ? "s" : ""} (No Devices)
+              </div>
+              <div className="text-xs text-amber-600 mt-1">
+                {logicalStores.slice(0, 5).join(", ")}
+                {logicalStores.length > 5 && ` and ${logicalStores.length - 5} more`}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       {deviceRecords.length > 0 && (
         <Card className="rounded-2xl">
           <CardHeader>
-            <CardTitle>Device List</CardTitle>
+            <CardTitle>Stores with Devices (Physical)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="rounded-xl border overflow-hidden">
               <table className="w-full">
                 <thead className="bg-slate-100">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Device</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Region</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">Type</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">Devices</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">Online</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">Offline</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {physicalStores.map(store => {
+                    const storeDevices = deviceStoresMap.get(store) || [];
+                    const online = storeDevices.filter(d => d.status === "online").length;
+                    const offline = storeDevices.filter(d => d.status === "offline" || d.status === "warning").length;
+                    return (
+                      <tr key={store} className="border-t hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{store}</div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge className="bg-green-100 text-green-700">Physical</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center font-medium">{storeDevices.length}</td>
+                        <td className="px-4 py-3 text-center text-green-600">{online}</td>
+                        <td className="px-4 py-3 text-center text-red-600">{offline}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {logicalStores.length > 0 && (
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>Stores without Devices (Logical)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {logicalStores.sort().map(store => (
+                <div key={store} className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
+                  <Badge className="bg-amber-100 text-amber-700 text-xs mr-2">Logical</Badge>
+                  {store}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {deviceRecords.length > 0 && (
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>All Devices</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-xl border overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium">Device Name</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
                     <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
                   </tr>
@@ -4629,11 +4827,7 @@ export default function App() {
                 <tbody>
                   {deviceRecords.map((device) => (
                     <tr key={device.id} className="border-t hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{device.name}</div>
-                        <div className="text-xs text-slate-500">{device.id}</div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">{device.region}</td>
+                      <td className="px-4 py-3 font-medium">{device.name}</td>
                       <td className="px-4 py-3 text-sm">{device.store}</td>
                       <td className="px-4 py-3 text-center">
                         {device.status === "online" && (
@@ -4660,8 +4854,27 @@ export default function App() {
           </CardContent>
         </Card>
       )}
+
+      {deviceRecords.length === 0 && (
+        <Card className="rounded-2xl">
+          <CardContent className="py-12 text-center">
+            <Server className="w-12 h-12 mx-auto text-slate-300 mb-4" />
+            <div className="text-lg font-medium text-slate-600">No devices imported</div>
+            <div className="text-sm text-slate-400 mt-1">
+              Upload a device Excel file to get started
+            </div>
+            <button
+              onClick={() => deviceUploadInputRef.current?.click()}
+              className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500"
+            >
+              Import Devices
+            </button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
+  };
 
   const renderEmployees = () => {
     return (
