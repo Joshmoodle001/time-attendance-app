@@ -1,159 +1,74 @@
-# Time Attendance App - Deployment Guide
+# Time Attendance App
 
-## Quick Deploy Commands
+React 19 + TypeScript + Vite app with Supabase backend for employee attendance management.
 
-### Prerequisites
-- Node.js 18+
-- GitHub account
-- Vercel account
-- Supabase account
-
----
-
-## Step 1: Supabase Setup
-
-### 1.1 Create Supabase Project
-1. Go to https://supabase.com
-2. Click "New Project"
-3. Enter:
-   - Name: `time-attendance-app`
-   - Database Password: [create strong password]
-   - Region: [closest to your users]
-4. Click "Create new project"
-5. Wait 2-3 minutes for setup
-
-### 1.2 Get Credentials
-1. Go to Settings (⚙️) → API
-2. Copy:
-   - **Project URL** (格式: `https://xxxxx.supabase.co`)
-   - **anon public** key (under "Project API keys")
-
-### 1.3 Initialize Database
-**Option A: Using Supabase CLI (Recommended)**
-```bash
-# Install CLI
-npm install -g supabase
-
-# Login
-supabase login
-
-# Link project (get project-ref from Supabase dashboard URL)
-supabase link --project-ref YOUR_PROJECT_REF
-
-# Push schema
-supabase db push
-```
-
-**Option B: Via Dashboard SQL Editor**
-1. Go to SQL Editor in Supabase dashboard
-2. Copy contents of `supabase-setup.sql`
-3. Run (click "Run" or Ctrl+Enter)
-
----
-
-## Step 2: GitHub Setup
-
-### 2.1 Push Code to GitHub
-```bash
-# If not initialized
-git init
-git add .
-git commit -m "Initial commit"
-
-# Create repo on github.com, then:
-git remote add origin https://github.com/YOUR_USERNAME/time-attendance-app.git
-git push -u origin main
-```
-
----
-
-## Step 3: Vercel Deployment
-
-### 3.1 Connect GitHub to Vercel
-1. Go to https://vercel.com
-2. Click "Add New" → Project
-3. Import from GitHub: select your repo
-
-### 3.2 Configure Environment Variables
-In Vercel project settings → Environment Variables:
-
-| Key | Value |
-|-----|-------|
-| `VITE_SUPABASE_URL` | `https://YOUR_PROJECT.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | Your anon key |
-
-### 3.3 Deploy
-- Click "Deploy"
-- Wait ~2 minutes for build
-- Get your live URL!
-
----
-
-## Step 4: Post-Deploy (Optional)
-
-### 4.1 Connect Supabase-Vercel Integration
-1. Supabase Dashboard → Settings → Integrations
-2. Find Vercel → Connect
-3. This auto-syncs env vars
-
-### 4.2 Custom Domain (Optional)
-1. Vercel → Settings → Domains
-2. Add your domain
-3. Follow DNS instructions
-
----
-
-## Development Commands
+## Commands
 
 ```bash
-# Local development
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build locally
-npm run preview
-
-# Lint code
-npm run lint
+npm run dev      # Dev server (localhost:5173)
+npm run build    # TypeScript check + production build
+npm run lint     # ESLint
+npm run preview  # Preview production build locally
 ```
 
----
+**No test suite exists.** CI only runs `npm run build`.
 
-## Troubleshooting
+## Architecture
 
-### Build Fails
-- Check: Node version in Vercel (use Node 18)
-- Clear: Vercel project → Deployments → "Redeploy"
+| Layer | Tech |
+|-------|------|
+| Frontend | React 19 + TypeScript + Vite + Tailwind CSS |
+| Backend | Supabase (Postgres + Storage) |
+| Deployment | Vercel (SSR with `/api` serverless functions) |
+| CI/CD | GitHub Actions |
 
-### Supabase Connection Error
-- Verify env vars are set in Vercel
-- Check Supabase project is active (not paused)
-- Test URL format: `https://xxxxx.supabase.co` (no trailing slash)
+### Key Files
 
-### Database Tables Missing
-- Re-run `supabase db push`
-- Or paste `supabase-setup.sql` in SQL Editor again
+| Path | Purpose |
+|------|---------|
+| `src/App.tsx` | Main SPA with lazy-loaded feature hubs |
+| `src/lib/supabase.ts` | Supabase client (checks env vars at runtime) |
+| `src/services/` | Data access layer (database, storage, shifts, ipulse, etc.) |
+| `api/*.js` | Vercel serverless functions (shift sync, health) |
+| `supabase-setup.sql` | Complete database schema (tables, RLS, indexes) |
+| `vite.config.ts` | Build config + **dev-only Google Sheets proxy plugin** |
 
----
+### Dev Proxy (Important)
 
-## Performance Optimization
+`vite.config.ts` has a custom plugin that proxies `/api/download-shift` requests to Google Sheets/Drive. This enables local shift sync without CORS issues. The same logic runs in the Vercel serverless function in production.
 
-### Vercel
-- ✅ Already configured with caching headers
-- ✅ Using Vite with optimized chunking
+## Environment Variables
 
-### Supabase
-- ✅ Indexes already added for fast queries
-- ✅ RLS policies for security
-- Tip: Enable connection pooling (default in Supabase)
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
 
----
+Required in `.env.local` (local dev) and Vercel environment variables (production).
 
-## Files Reference
+## Database Setup
 
-- `supabase-setup.sql` - Database schema
-- `vercel.json` - Vercel configuration
-- `vite.config.ts` - Build optimization
-- `.env.example` - Environment template
+Run `supabase-setup.sql` via Supabase SQL Editor, or trigger the `Supabase Schema Sync` GitHub Actions workflow manually.
+
+## Deployment
+
+1. Push to GitHub
+2. Import project in Vercel
+3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+4. Deploy
+
+Supabase storage requires a public bucket named `attendance-files` with read/insert policies.
+
+## GitHub Actions Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `SHIFT_SYNC_URL` | Production cron trigger URL |
+| `SHIFT_SYNC_CRON_TOKEN` | Auth token for cron endpoint |
+| `SUPABASE_ACCESS_TOKEN` | Schema sync workflow |
+| `SUPABASE_PROJECT_REF` | Supabase project ID |
+
+## Additional Docs
+
+- `docs/github-actions-shift-sync.md` - Automated shift sync setup
+- `CREDENTIALS.md` - Credential handling notes
