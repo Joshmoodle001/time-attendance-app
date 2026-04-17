@@ -823,6 +823,22 @@ export default function ReportsBuilder({
     return map;
   }, [generatedRecords]);
 
+  const attendanceByEmployeeDateAndStore = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+    generatedRecords.forEach((record) => {
+      const baseKey = getAttendanceKey(record.upload_date, record.employee_code);
+      const normalizedStoreCode = normalizeCompare(record.store_code);
+      const normalizedStore = normalizeCompare(record.store);
+      if (normalizedStoreCode) {
+        map.set(`${baseKey}::code::${normalizedStoreCode}`, record);
+      }
+      if (normalizedStore) {
+        map.set(`${baseKey}::store::${normalizedStore}`, record);
+      }
+    });
+    return map;
+  }, [generatedRecords]);
+
   const rosterSourcesByEmployee = useMemo(() => buildRosterSources(shiftRosters), [shiftRosters]);
   const leaveLookup = useMemo(() => buildAppliedLeaveLookup(leaveApplications), [leaveApplications]);
   const employeeMap = useMemo(
@@ -849,6 +865,25 @@ export default function ReportsBuilder({
     return getCombinedCalendarEvents(years);
   }, [generatedCriteria, generatedDateKeys]);
 
+  const weekLabelByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!generatedCriteria) return map;
+    generatedDateKeys.forEach((dateKey) => {
+      map.set(dateKey, getWeekEventForDate(generatedCalendarEvents, dateKey));
+    });
+    return map;
+  }, [generatedCalendarEvents, generatedCriteria, generatedDateKeys]);
+
+  const holidayTitleByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    generatedCalendarEvents.forEach((event) => {
+      if (event.type === "holiday" && event.date && !map.has(event.date)) {
+        map.set(event.date, event.title || "");
+      }
+    });
+    return map;
+  }, [generatedCalendarEvents]);
+
   const generatedSections = useMemo<StoreSection[]>(() => {
     if (!generatedCriteria) return [];
     const sections = new Map<string, StoreSection>();
@@ -871,14 +906,20 @@ export default function ReportsBuilder({
         normalizedEmployeeCode;
 
       const rows = generatedDateKeys.map((dateKey) => {
-        const attendanceMatches = attendanceByEmployeeAndDate.get(getAttendanceKey(dateKey, normalizedEmployeeCode)) || [];
+        const attendanceKey = getAttendanceKey(dateKey, normalizedEmployeeCode);
+        const normalizedStoreCode = normalizeCompare(storeCode);
+        const normalizedStore = normalizeCompare(store);
+        const indexedAttendance =
+          (normalizedStoreCode
+            ? attendanceByEmployeeDateAndStore.get(`${attendanceKey}::code::${normalizedStoreCode}`)
+            : undefined) ||
+          (normalizedStore
+            ? attendanceByEmployeeDateAndStore.get(`${attendanceKey}::store::${normalizedStore}`)
+            : undefined);
+        const attendanceMatches = indexedAttendance ? [indexedAttendance] : (attendanceByEmployeeAndDate.get(attendanceKey) || []);
         const attendance =
-          attendanceMatches.find(
-            (record) =>
-              (storeCode && normalizeCompare(record.store_code) === normalizeCompare(storeCode)) ||
-              normalizeCompare(record.store) === normalizeCompare(store)
-          ) || attendanceMatches[0];
-        const weekLabel = getWeekEventForDate(generatedCalendarEvents, dateKey);
+          attendanceMatches[0];
+        const weekLabel = weekLabelByDate.get(dateKey) || "WEEK 1";
         const weekNumber = parseWeekNumber(weekLabel);
         const dayKey = getDateWeekdayKey(dateKey);
         const shiftRow = rosterSource?.weekRows.get(weekNumber);
@@ -887,8 +928,7 @@ export default function ReportsBuilder({
           (rosterSource
             ? leaveLookup.get(getSheetScopedLeaveLookupKey(rosterSource.sheetName, normalizedEmployeeCode, dateKey))
             : null) || leaveLookup.get(getFallbackLeaveLookupKey(normalizedEmployeeCode, dateKey));
-        const holidayTitle =
-          generatedCalendarEvents.find((event) => event.date === dateKey && event.type === "holiday")?.title || "";
+        const holidayTitle = holidayTitleByDate.get(dateKey) || "";
         const isPublicHoliday = !!holidayTitle;
         const clockings = Array.isArray(attendance?.clockings) ? attendance!.clockings.filter(Boolean) : [];
         const clockCount = clockings.length || Number(attendance?.clock_count || 0);
@@ -946,7 +986,7 @@ export default function ReportsBuilder({
         ),
       }))
       .sort((a, b) => a.store.localeCompare(b.store));
-  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, employeeMap, generatedCalendarEvents, generatedCriteria, generatedDateKeys, leaveLookup, rosterSourcesByEmployee]);
+  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, attendanceByEmployeeDateAndStore, employeeMap, generatedCriteria, generatedDateKeys, holidayTitleByDate, leaveLookup, rosterSourcesByEmployee, weekLabelByDate]);
 
   const generatedTotals = useMemo(() => {
     return generatedSections.reduce(
@@ -1080,6 +1120,7 @@ export default function ReportsBuilder({
             .filter((code) => isEmployeeIncludedInBuilder(employeeMap.get(code), includeInactiveProfiles))
         )
       );
+      const normalizedEmployeeCodeSet = new Set(normalizedEmployeeCodes);
       if (normalizedEmployeeCodes.length === 0) {
         setStatusMessage(
           includeInactiveProfiles
@@ -1095,7 +1136,7 @@ export default function ReportsBuilder({
           endDate: trimmedEnd,
         }),
       ]);
-      const filteredAttendance = rangeRecords.filter((record) => normalizedEmployeeCodes.includes(normalizeEmployeeCode(record.employee_code)));
+      const filteredAttendance = rangeRecords.filter((record) => normalizedEmployeeCodeSet.has(normalizeEmployeeCode(record.employee_code)));
       const mergedRecords = mergeAttendanceWithClockEvents(filteredAttendance, rawClockEvents, employeeMap, rosterSourcesByEmployee);
 
       setGeneratedRecords(mergedRecords);
@@ -2166,7 +2207,11 @@ export default function ReportsBuilder({
                             const workedHours = calculateWorkedHoursForEmployee(employee.rows);
 
                             return (
-                              <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-6 py-6 first:border-t-0">
+                              <div
+                                key={`${section.key}-${employee.employeeCode}`}
+                                className="border-t border-white/10 px-6 py-6 first:border-t-0"
+                                style={{ contentVisibility: "auto", containIntrinsicSize: "900px" }}
+                              >
                                 <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                                   <div>
                                     <div className="text-lg font-semibold text-white">
