@@ -910,16 +910,22 @@ function buildRosterStatusLookupsForRange(
 ) {
   const lookupsByDate = new Map<string, Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>>();
   
+  // Pre-process: index rows by week label to avoid repeated filtering
   const rosterMapByWeek = new Map<string, { roster: typeof shiftRosters[0]; rows: typeof shiftRosters[0]['rows'] }[]>();
-  shiftRosters.forEach((roster) => {
-    roster.rows.forEach((row) => {
+  for (let r = 0; r < shiftRosters.length; r++) {
+    const roster = shiftRosters[r];
+    for (let rowIdx = 0; rowIdx < roster.rows.length; rowIdx++) {
+      const row = roster.rows[rowIdx];
       const weekLabel = String(row.week_label || "").trim().toUpperCase();
-      if (!weekLabel) return;
+      if (!weekLabel) continue;
       const existing = rosterMapByWeek.get(weekLabel) || [];
-      existing.push({ roster, rows: roster.rows });
+      // Avoid duplicate roster entries for same week
+      if (!existing.some(e => e.roster.sheet_name === roster.sheet_name)) {
+        existing.push({ roster, rows: roster.rows });
+      }
       rosterMapByWeek.set(weekLabel, existing);
-    });
-  });
+    }
+  }
 
   const cursor = new Date(startDate);
   while (cursor <= endDate) {
@@ -932,6 +938,9 @@ function buildRosterStatusLookupsForRange(
     
     for (let i = 0; i < rostersForWeek.length; i++) {
       const { roster, rows } = rostersForWeek[i];
+      const storeName = roster.store_name || "";
+      const storeCode = roster.store_code || "";
+      
       for (let j = 0; j < rows.length; j++) {
         const row = rows[j];
         const employeeCode = normalizeEmployeeCode(row.employee_code);
@@ -950,17 +959,17 @@ function buildRosterStatusLookupsForRange(
           existing.scheduled = existing.scheduled || scheduled;
           existing.dayOff = existing.dayOff || isDayOff;
           existing.leave = existing.leave || isLeave;
-          if (!existing.store && roster.store_name) {
-            existing.store = roster.store_name;
-            existing.storeCode = roster.store_code || "";
+          if (!existing.store && storeName) {
+            existing.store = storeName;
+            existing.storeCode = storeCode;
           }
         } else {
           lookup.set(employeeCode, {
             scheduled,
             dayOff: isDayOff,
             leave: isLeave,
-            store: roster.store_name || "",
-            storeCode: roster.store_code || "",
+            store: storeName,
+            storeCode: storeCode,
           });
         }
       }
@@ -1158,6 +1167,7 @@ function buildOverviewTrendSeriesFromSources({
 
   const totalDays = Math.max(1, Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
 
+  // Pre-compute clocks by date (already done but ensure it's a Map)
   const clocksByDate = precomputedLookups?.clocksByDate || (() => {
     const m = new Map<string, BiometricClockEvent[]>();
     for (let i = 0; i < clockEvents.length; i++) {
@@ -1170,18 +1180,43 @@ function buildOverviewTrendSeriesFromSources({
     return m;
   })();
 
-  const attendanceByDate = new Map<string, AttendanceRecord[]>();
+  // Pre-compute clockings by employee for each date (optimized)
+  const clockingsByDateEmployee = new Map<string, Map<string, string[]>>();
+  clocksByDate.forEach((events, dateKey) => {
+    const employeeClockings = new Map<string, string[]>();
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      const code = normalizeEmployeeCode(event.employee_code);
+      if (!code) continue;
+      const timeValue = event.clock_time || formatClockTime(new Date(event.clocked_at));
+      if (!timeValue) continue;
+      const existing = employeeClockings.get(code) || [];
+      existing.push(timeValue);
+      employeeClockings.set(code, existing);
+    }
+    // Sort clockings for each employee
+    employeeClockings.forEach((clockings, code) => {
+      const unique = Array.from(new Set(clockings)).sort((a, b) => a.localeCompare(b));
+      employeeClockings.set(code, unique);
+    });
+    clockingsByDateEmployee.set(dateKey, employeeClockings);
+  });
+
+  // Pre-compute attendance by date with normalized codes
+  const attendanceByDate = new Map<string, Map<string, AttendanceRecord>>();
   for (let i = 0; i < existingRecords.length; i++) {
     const record = existingRecords[i];
     const uploadDateMatch = record.id.match(/^(\d{4}-\d{2}-\d{2})__/);
     const dateKey = uploadDateMatch?.[1] || "";
     if (!dateKey) continue;
-    const current = attendanceByDate.get(dateKey) || [];
-    current.push(record);
-    attendanceByDate.set(dateKey, current);
+    if (!attendanceByDate.has(dateKey)) {
+      attendanceByDate.set(dateKey, new Map());
+    }
+    const code = normalizeEmployeeCode(record.employeeCode);
+    attendanceByDate.get(dateKey)!.set(code, record);
   }
 
-  const employeeMap = new Map(employeeProfiles.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]));
+  // Pre-compute active employee codes set
   const activeEmployeeCodes = new Set(
     employeeProfiles
       .filter((employee) => employee.status === "active")
@@ -1193,62 +1228,56 @@ function buildOverviewTrendSeriesFromSources({
 
   const series: Array<Record<string, number | string>> = [];
   const cursor = new Date(startDate);
+  
   while (cursor <= endDate) {
     const dateKey = formatDateValue(cursor);
-    const dayRecords = attendanceByDate.get(dateKey) || [];
-    const dayClockEvents = clocksByDate.get(dateKey) || [];
+    const dayAttendanceMap = attendanceByDate.get(dateKey) || new Map();
+    const dayClockings = clockingsByDateEmployee.get(dateKey) || new Map();
     const dayLeaveCodes = leaveCodesByDate.get(dateKey) || new Set<string>();
     const rosterLookup = rosterLookupsByDate.get(dateKey) || new Map();
 
-    const existingMap = new Map(dayRecords.map((record) => [normalizeEmployeeCode(record.employeeCode), record]));
-    const clockingsByEmployee = buildClockingsByEmployee(dayClockEvents);
+    // Collect all employee codes that have any data for this day
+    const allCodes = new Set<string>();
+    activeEmployeeCodes.forEach(code => allCodes.add(code));
+    dayAttendanceMap.forEach((_, code) => allCodes.add(code));
+    dayClockings.forEach((_, code) => allCodes.add(code));
+    rosterLookup.forEach((_, code) => allCodes.add(code));
+    dayLeaveCodes.forEach(code => allCodes.add(code));
 
-    const allCodes = new Set<string>([
-      ...activeEmployeeCodes,
-      ...dayRecords.map((record) => normalizeEmployeeCode(record.employeeCode)),
-      ...clockingsByEmployee.keys(),
-      ...rosterLookup.keys(),
-      ...dayLeaveCodes,
-    ]);
+    let atWork = 0, awol = 0, scheduled = 0, leave = 0, dayOff = 0, other = 0;
 
-      let atWork = 0, awol = 0, scheduled = 0, leave = 0, dayOff = 0, other = 0;
+    allCodes.forEach((employeeCode) => {
+      if (!employeeCode) return;
+      const existing = dayAttendanceMap.get(employeeCode);
+      const roster = rosterLookup.get(employeeCode);
+      const incomingClockings = dayClockings.get(employeeCode) || [];
+      const hasExistingClocks = (existing?.clockings || []).length > 0;
+      const totalClockings = hasExistingClocks || incomingClockings.length > 0;
 
-      for (const employeeCode of allCodes) {
-        if (!employeeCode) continue;
-        const existing = existingMap.get(employeeCode);
-        const roster = rosterLookup.get(employeeCode);
-        const incomingClockings = clockingsByEmployee.get(employeeCode) || [];
-        const clockings = Array.from(new Set([...(existing?.clockings || []), ...incomingClockings])).sort((a, b) => a.localeCompare(b));
+      const recScheduled = Boolean(existing?.scheduled || roster?.scheduled || existing?.atWork || existing?.leave || existing?.dayOff || existing?.problem);
+      const recAtWork = Boolean(existing?.atWork || totalClockings);
+      let recLeave = Boolean(existing?.leave || roster?.leave || dayLeaveCodes.has(employeeCode));
+      let recDayOff = Boolean(existing?.dayOff || roster?.dayOff);
+      let recProblem = Boolean(existing?.problem);
 
-        const recScheduled = Boolean(existing?.scheduled || roster?.scheduled || existing?.atWork || existing?.leave || existing?.dayOff || existing?.problem);
-        const recAtWork = Boolean(existing?.atWork || clockings.length > 0);
-        let recLeave = Boolean(existing?.leave || roster?.leave || dayLeaveCodes.has(employeeCode));
-        let recDayOff = Boolean(existing?.dayOff || roster?.dayOff);
-        let recProblem = Boolean(existing?.problem);
-
-        if (recAtWork) {
-          recLeave = false;
-          recDayOff = false;
-          recProblem = false;
-        } else if (recLeave) {
-          recDayOff = false;
-          recProblem = false;
-        } else if (recDayOff) {
-          recProblem = false;
-        } else if (recScheduled) {
-          // Keep existing logic but don't double count
-        } else {
-          // Handle unscheduled cases
-        }
-
-        // Final counting logic - only count once per employee
-        if (recAtWork) atWork++;
-        else if (recProblem) awol++;
-        else if (recLeave) leave++;
-        else if (recDayOff) dayOff++;
-        else if (recScheduled) scheduled++;
-        else other++;
+      if (recAtWork) {
+        recLeave = false;
+        recDayOff = false;
+        recProblem = false;
+      } else if (recLeave) {
+        recDayOff = false;
+        recProblem = false;
+      } else if (recDayOff) {
+        recProblem = false;
       }
+
+      if (recAtWork) atWork++;
+      else if (recProblem) awol++;
+      else if (recLeave) leave++;
+      else if (recDayOff) dayOff++;
+      else if (recScheduled) scheduled++;
+      else other++;
+    });
 
     series.push({
       label: formatTrendLabel(new Date(cursor), totalDays),
