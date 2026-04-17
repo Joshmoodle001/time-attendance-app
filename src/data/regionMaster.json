@@ -1,0 +1,2927 @@
+[
+  {
+    "store": "017039 - CHECKERS CX - WILKOPPIES (017039)",
+    "rep": "C204 - NW_RYNO",
+    "region": "NW"
+  },
+  {
+    "store": "018611 - SHOPRITE - SCF NELSPRUIT BESTER ST (018611)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "018637 - SHOPRITE - SCF WITBANK (018637)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "060422 - SHOPRITE - LAKEVIEW (060422)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "066850 - SHOPRITE MINI - FERNIE VILLAGE (066850)",
+    "rep": "C401 - HV_LEE-ANNE",
+    "region": "HV"
+  },
+  {
+    "store": "070182 - CHECKERS - RIDGEWAY (070182)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "070190 - CHECKERS - WELTEVREDEN (070190)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "071471 - CHECKERS - MOOKGOPONG (071471)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "07468 - SHOPRITE - COMMISSIONER ST (07468)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "079835 - SHOPRITE - MARCEL WALK (079835)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "083387 - SHOPRITE - NABOOMSPRUIT (083387)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "090764 - SHOPRITE - JAKARANDA MALL (090764)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "092059 - SHOPRITE - SM LETHLABILE (092059)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "0953 - SHOPRITE - MAFIKENG (0953)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "099367 - SHOPRITE - PLATINUM SQUARE (099367)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "099645 - SHOPRITE - SJW ROCKLANDS (099645)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "099661 - SHOPRITE - SJW VAALWATER (099661)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "1006 - SHOPRITE - FLORIDA (1006)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "10100 - CHECKERS - BARLOW PARK (10100)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1030 - CHECKERS - MOKOPANE POTGIETERS (1030)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "107 - SHOPRITE - KWAGGAFONTEIN (107)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "1072 - SHOPRITE - EVANDER (1072)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "1080 - SHOPRITE - NEWLANDS (1080)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1098 - SHOPRITE - HEIDELBERG (1098)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1111 - SHOPRITE - BETHAL (1111)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "1145 - SHOPRITE - YEOVILLE (1145)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1195 - SHOPRITE - RUSTENBURG (1195)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "1268 - SHOPRITE - KRIEL (1268)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "1284 - SHOPRITE - SOPHIATOWN (1284)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1323 - SHOPRITE - RANDFONTEIN (1323)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1357 - SHOPRITE - SIBASA (1357)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "1420 - SHOPRITE - MEYERTON (1420)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1446 - SHOPRITE - ZEERUST (1446)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "1462 - SHOPRITE - NIGEL (1462)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "14992 - SHOPRITE - JUBILEE CROSSING (14992)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "14992 - SHOPRITE - JUBILEE CROSSING (14992)",
+    "rep": "L347 - PTA_SR07 - MOSES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1585 - SHOPRITE - VALHALLA (1585)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "160547 - SHOPRITE - MADIBENG MALL (160547)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "160555 - SHOPRITE - CHUMA MALL (160555)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "160563 - CHECKERS - SANDHURST (160563)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "161080 - CHECKERS CX - EAST RAND MALL (161080)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "162256 - SHOPRITE - DUNDONALD (162256)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "162264 - SHOPRITE - MORATIWA CROSSING (162264)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "162272 - SHOPRITE - MIDDELBURG ROCKDALE (162272)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "162280 - SHOPRITE - SOSHANGUVE VALUE (162280)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "162298 - SHOPRITE - TSHAKUMA CORNER (162298)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "162303 - SHOPRITE - WALTER SISULU (162303)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "1624 - SHOPRITE - LICHTENBURG (1624)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "162468 - SHOPRITE - THABONG MALL (162468)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "162484 - SHOPRITE - MALL OF THE SOUTH (162484)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "162913 - CHECKERS - MAHIKENG MALL (162913)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "1632 - SHOPRITE - GEZINA (1632)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "163529 - CHECKERS CX - CLEARVIEW SQUARE (163529)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "163537 - CHECKERS - LINTONS CORNER (163537)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "164096 - SHOPRITE - SEBOKENG CONVENIENCE CENTRE (164096)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "164119 - CHECKERS CX - LAMBTON (164119)",
+    "rep": "L103 - EAST_CH - BOITUMELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "16465 - SHOPRITE - BALFOUR MALL (16465)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "164957 - CHECKERS CX - NEW MARKET LIFESTYLE CENTRE (164957)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165 - SHOPRITE - DOBSONVILLE (165)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165050 - CHECKERS - BRENTWOOD (165050)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165068 - CHECKERS - GLEN BALAD (165068)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165076 - CHECKERS - STONEHILL (165076)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165084 - CHECKERS - EDENVALE (165084)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165092 - CHECKERS - EDEN TERRACE (165092)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165115 - SHOPRITE - BIRCHLEIGH (165115)",
+    "rep": "L341 - PTA_SR02 - BENJAMIN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165123 - CHECKERS - ELGIN (165123)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165131 - CHECKERS - KEMPTON GATE (165131)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165220 - CHECKERS CX - BEDFORD CROSSING (165220)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165254 - SHOPRITE - KAMAGUGU (165254)",
+    "rep": "C509 - LV_CHARITY",
+    "region": "LV"
+  },
+  {
+    "store": "165262 - SHOPRITE - MEHLARENG (165262)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "165270 - SHOPRITE - LEEUWFONTEIN (165270)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "16546 - CHECKERS - THATCHFIELD (16546)",
+    "rep": "L303 - PTA_CH - DORAH",
+    "region": "LOCAL"
+  },
+  {
+    "store": "16554 - CHECKERS - MOUNTAIN VIEW (WILD FIG) (16554)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "165759 - CHECKERS CX - LAVENDER SQUARE (165759)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165767 - CHECKERS - VAN RIEBEECK PARK (165767)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165822 - SHOPRITE - MORGAN SQUARE (165822)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "16588 - SHOPRITE - ELSBURG COURT (16588)",
+    "rep": "L141 - EAST_SR02 - FRANK",
+    "region": "LOCAL"
+  },
+  {
+    "store": "165953 - CHECKERS CX - BRONKHORSTSPRUIT MALL (165953)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "16596 - CHECKERS - THE GROVE MALL (16596)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "166161 - CHECKERS FX - MATUMI MALL (166161)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "166187 - CHECKERS CX - MEYERTON MALL (166187)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "166543 - SHOPRITE - KWA THEMA CENTRE (166543)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1666 - CHECKERS - SASOLBURG (1666)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "166658 - CHECKERS CX - DAINFERN (166658)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "166705 - SHOPRITE - MERINO MALL (166705)",
+    "rep": "C401 - HV_LEE-ANNE",
+    "region": "HV"
+  },
+  {
+    "store": "166894 - SHOPRITE - CALTON CENTRE (166894)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "166909 - SHOPRITE - BONAERO PARK (166909)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "167256 - SHOPRITE - SHARON PARK (167256)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "167303 - CHECKERS FX - LYNNRIDGE MALL (167303)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1674 - SHOPRITE - ENNERDALE (1674)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "16742 - SHOPRITE - COSMO CITY",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "167492 - SHOPRITE - CAROLINA (167492)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "167654 - CHECKERS CX - MONTANA CROSSING (167654)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "167696 - CHECKERS HYPER - THE PRECINCT (167696)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "167701 - CHECKERS - THE SQUARE (167701)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "167751 - SHOPRITE - SJW ZANDPRUIT (167751)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "167874 - SHOPRITE - SJW DELAREYVILLE (167874)",
+    "rep": "C208 - NW_FRANCOIS",
+    "region": "NW"
+  },
+  {
+    "store": "167882 - SHOPRITE - SJW ZEERUST (167882)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "167913 - SHOPRITE - SJW KOSTER (167913)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "167921 - SHOPRITE - SJW NORTHAM (167921)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "167955 - SHOPRITE - SJW ESCOMBE (167955)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "167989 - CHECKERS CX - SANDTON GATE (167989)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168016 - SHOPRITE - SJW SESHEGO (168016)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "168024 - SHOPRITE - SJW MODIMOLE (168024)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "168066 - CHECKERS CX - SILVERWATER CROSSING (168066)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168228 - CHECKERS FX - HYDE PARK CORNER (168228)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168367 - CHECKERS CX - TUBATSE MALL (168367)",
+    "rep": "C305 - LV_VACANT",
+    "region": "LV"
+  },
+  {
+    "store": "168406 - CHECKERS CX - FITZSIMONS SQUARE (168406)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "16855 - CHECKERS - 90 ON RIVONIA (16855)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168553 - CHECKERS CX - LENZ QUARTER (168553)",
+    "rep": "L401 - SOUTH_CH - SITHEMBISO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168618 - SHOPRITE - BELA MALL (168618)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "168838 - SHOPRITE - MIDDELBURG MALL (168838)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "168888 - SHOPRITE - BRONKHORSTPRUIT MALL (168888)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "168896 - SHOPRITE - JUMBO MALL (168896)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "168901 - SHOPRITE - LION PRIDE (168901)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168919 - SHOPRITE - NORTHGATE MALL (168919)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168927 - SHOPRITE - ALEXANDRA CENTRE (168927)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168969 - SHOPRITE - ALBERTON CITY (168969)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168977 - SHOPRITE - TRADE ROUTE MALL (168977)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "168985 - SHOPRITE - MINI MIDRAND CENTRE (168985)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "169606 - CHECKERS CX - GROBLERSDAL (169606)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "169868 - CHECKERS CX - OMNI SQUARE (169868)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "17013 - CHECKERS - THABAZIMBI (17013)",
+    "rep": "C501 - FNW_STEVEN",
+    "region": "FNW"
+  },
+  {
+    "store": "17021 - CHECKERS - THE GREENERY (17021)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "170435 - SHOPRITE - GIYANI PLAZA (170435)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "170451 - SHOPRITE - THULAMAHASHE PLAZA (170451)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "170605 - SHOPRITE - HEIDELBERG MALL (170605)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "170689 - SHOPRITE - DARRAS CENTRE (170689)",
+    "rep": "L141 - EAST_SR02 - FRANK",
+    "region": "LOCAL"
+  },
+  {
+    "store": "170697 - SHOPRITE - XIMHUNGWE (170697)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "1713 - CHECKERS - MONUMENT PARK (1713)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "171465 - SHOPRITE - DELAREY (171465)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1721 - CHECKERS HYPER - KLIPFONTEIN (1721)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "1743 - SHOPRITE MINI - HENDRINA (42834)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "1771 - CHECKERS - LYNWOOD (1771)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1802 - SHOPRITE - THREE RIVERS (1802)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "181 - SHOPRITE - SILVERTON (181)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1828 - SHOPRITE - TZANEEN (1828)",
+    "rep": "C109 - LIM_09_MAGGIE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "18310 - SHOPRITE - SCF BARAGWANATH (18310)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "18328 - SHOPRITE - SCF COSMO CITY (18328)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "18352 - SHOPRITE - SCF HILLBROW (18352)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "18360 - SHOPRITE - NEWGATE (18360)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "18378 - SHOPRITE - SCF RANDBURG (18378)",
+    "rep": "L241 - NORTH_SR02 - EMMANUEL",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1849 - SHOPRITE - SWARTRUGGENS",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "1852 - CHECKERS - BROOKLYN (1852)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "18598 - SHOPRITE - CARLETONVILLE 2 (18598)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "18603 - SHOPRITE - SCF BURGERSFORT KRUIS ST (18603)",
+    "rep": "C305 - LV_VACANT",
+    "region": "LV"
+  },
+  {
+    "store": "18611 - SHOPRITE - WHOLESALE NELSPRUIT CASH AND CARRY (18611)",
+    "rep": "C304 - LV_IAN",
+    "region": "LV"
+  },
+  {
+    "store": "18629 - SHOPRITE - SCF SESHEGO CORNER (18629)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "18645 - SHOPRITE - SCF KLERKSDORP (18645)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "18653 - SHOPRITE - BLOED ST (18653)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1925 - CHECKERS HYPER - ARCON PARK (1925)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1941 - CHECKERS - BRYANSTON (1941)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1967 - SHOPRITE - WESTONARIA (1967)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "1975 - SHOPRITE - BRONKHORSTSPRUIT (1975)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "2002 - SHOPRITE - TEMBA (2002)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2086 - CHECKERS - EMMARENTIA (2086)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2159 - SHOPRITE - BARBERTON (2159)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "2206 - CHECKERS HYPER - VAN DER BIJL (2206)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2214 - CHECKERS - POLOKWANE PIETERSBURG (2214)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "2264 - SHOPRITE - WARMBAD (2264)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "2303 - CHECKERS HYPER - KLERKSDORP (2303)",
+    "rep": "C204 - NW_RYNO",
+    "region": "NW"
+  },
+  {
+    "store": "2329 - SHOPRITE - BRAKPAN (2329)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2337 - SHOPRITE - PRETORIA NORTH (2337)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2353 - SHOPRITE - NELSPRUIT SANLAM (2353)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "2395 - SHOPRITE - THABAZIMBI (2395)",
+    "rep": "C501 - FNW_STEVEN",
+    "region": "FNW"
+  },
+  {
+    "store": "2426 - SHOPRITE - LYDENBURG (2426)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "2468 - SHOPRITE - PHALABORWA (2468)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "2484 - SHOPRITE - ALBERTON (2484)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2492 - CHECKERS - BRACKENHURST (2492)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2515 - CHECKERS - GLENVISTA (2515)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "254 - SHOPRITE - WITBANK EADIE STR (254)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "2696 - SHOPRITE - CARLETONVILLE S/S (2696)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "2727 - SHOPRITE - MIDRAND (2727)",
+    "rep": "L348 - PTA_SR03 - THABO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2751 - SHOPRITE - GROBLERSDAL (2751)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "2769 - SHOPRITE - WIERDAPARK (2769)",
+    "rep": "L348 - PTA_SR03 - THABO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "2785 - SHOPRITE - JAN SMUTS (2785)",
+    "rep": "L341 - PTA_SR02 - BENJAMIN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "30017 - SHOPRITE - HAMMANSKRAAL (30017)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "301 - CHECKERS HYPER - MONTANA (301)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "3021 - SHOPRITE - TEMBISA PLAZA",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "30326 - CHECKERS HYPER - CARNIVAL MALL (30326)",
+    "rep": "L107 - EAST_CH - NHLANHLA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "30334 - CHECKERS - BEN FLEUR (30334)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "30342 - CHECKERS - MIDDELBURG MALL (30342)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "30350 - CHECKERS - PARKVIEW (30350)",
+    "rep": "L306 - PTA_CH - SIMON",
+    "region": "LOCAL"
+  },
+  {
+    "store": "30368 - CHECKERS - SILVERLAKE (30368)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "30376 - CHECKERS - NICOLWAY (30376)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "3058 - CHECKERS - VOLKSRUS",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "30740 - SHOPRITE - END STREET (30740)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "3117 - SHOPRITE - BOSHOEK 3117",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "31372 - SHOPRITE - SHARPVILLE (31372)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "31479 - SHOPRITE - ATTERIDEVILLE STADIUM (31479)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "31568 - CHECKERS - TZANEEN LIFESTYLE (31568)",
+    "rep": "C109 - LIM_09_MAGGIE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "31877 - SHOPRITE - BOITEKONG (31877)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "31885 - SHOPRITE - MAHWELERENG (31885)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "31982 - SHOPRITE - IKAGENG (31982)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "32954 - SHOPRITE - JANE FURSE CROSSING (32954)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "32962 - SHOPRITE - BURGERSFORT MALL (32962)",
+    "rep": "C305 - LV_VACANT",
+    "region": "LV"
+  },
+  {
+    "store": "32970 - SHOPRITE - MARIKANA (32970)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "33196 - SHOPRITE - PROTEA GLEN (33196)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "33196 - SHOPRITE - PROTEA GLEN (33196)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "33984 - SHOPRITE - MOHLAKENG (33984)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "34427 - SHOPRITE - SHONGOANE (34427)",
+    "rep": "C501 - FNW_STEVEN",
+    "region": "FNW"
+  },
+  {
+    "store": "34621 - SHOPRITE - KOMATIPOORT (34621)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "34867 - SHOPRITE - PIET RETIEF (34867)",
+    "rep": "C401 - HV_LEE-ANNE",
+    "region": "HV"
+  },
+  {
+    "store": "34948 - SHOPRITE - MOUTSIYA MALL (34948)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "34956 - SHOPRITE - KANANA (34956)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "34964 - SHOPRITE - TIBANEFONTEIN (34964)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "34972 - SHOPRITE - ALEX EAST BANK (34972)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "35732 - SHOPRITE - SM KATLEHONG (35732)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "35758 - SHOPRITE - CLOVERDENE (35758)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "35847 - SHOPRITE - RATANDA (35847)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36110 - CHECKERS - OLYMPUS VILLAGE (36110)",
+    "rep": "L306 - PTA_CH - SIMON",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36128 - CHECKERS - ATTERBURY (36128)",
+    "rep": "L306 - PTA_CH - SIMON",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36136 - CHECKERS - SUNWARD PARK (36136)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36144 - CHECKERS - CRADLE STONE (36144)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36495 - SHOPRITE - OLIEVENHOUTBOSCH (36495)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36500 - SHOPRITE - GLEN RIDGE MALL (36500)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "36526 - CHECKERS - LEPHALALE (36526)",
+    "rep": "C501 - FNW_STEVEN",
+    "region": "FNW"
+  },
+  {
+    "store": "37297 - SHOPRITE - ELIM (37297)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "37491 - SHOPRITE - SABIE (37491)",
+    "rep": "C509 - LV_CHARITY",
+    "region": "LV"
+  },
+  {
+    "store": "37522 - SHOPRITE - BAPONG (37522)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "37873 - SHOPRITE - ELUKWATINI (37873)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "37881 - SHOPRITE - TUBATSE MALL (37881)",
+    "rep": "C305 - LV_VACANT",
+    "region": "LV"
+  },
+  {
+    "store": "38227 - CHECKERS - PINESLOPES (38227)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38235 - CHECKERS HYPER - SECUNDA MALL (38235)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "38243 - CHECKERS - RIVONIA VILLAGE (38243)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38251 - CHECKERS - KOSMOSDAL (38251)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38269 - CHECKERS - MODIMOLLE (38269)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "38277 - CHECKERS - SPRINGS MALL (38277)",
+    "rep": "L107 - EAST_CH - NHLANHLA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38374 - SHOPRITE - NAMAKGALE (38374)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "38382 - SHOPRITE - KWA GUQA (38382)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "38439 - SHOPRITE - ACORNHOEK PLAZA (38439)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "38447 - SHOPRITE - SESHEGO (38447)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "38578 - SHOPRITE - MEADOWLANDS (38578)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38586 - SHOPRITE - NOORDGESIG (38586)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38594 - SHOPRITE - CLAYVILLE (38594)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38609 - SHOPRITE - TSAKANE CORNER (38609)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38667 - SHOPRITE - DEVLAND (38667)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38714 - CHECKERS - BLUBIRD MELROSE (38714)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38722 - CHECKERS - MAXIWELL/WATERFALL CORNER (38722)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "38900 - SHOPRITE - NEWTOWN (38900)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "39176 - SHOPRITE - JOUBERTON (39176)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "39184 - SHOPRITE - MORULENG (39184)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "39192 - SHOPRITE - ZEBEDIELA (39192)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "39207 - SHOPRITE - SOSHANGUVE CROSSING (39207)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "39215 - SHOPRITE - EMOYENI (39215)",
+    "rep": "C509 - LV_CHARITY",
+    "region": "LV"
+  },
+  {
+    "store": "39223 - SHOPRITE - MHLUZI (39223)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "39249 - CHECKERS - BRYAN PARK (39249)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40248 - CHECKERS - NORTHGATE (40248)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40549 - SHOPRITE - DUBE (40549)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40549 - SHOPRITE - DUBE (40549)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40638 - SHOPRITE - ANNAN DRIVE (40638)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "408 - SHOPRITE - ROSETTENVILLE (408)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40947 - SHOPRITE - NALEDI (40947)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40955 - SHOPRITE - VENDA PLAZA (40955)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "40971 - SHOPRITE - ZOLA (40971)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "40989 - CHECKERS - JEAN AVENUE (40989)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "41121 - SHOPRITE - KANYAMAZANE (41121)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "41367 - SHOPRITE - PIMVILLE (41367)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "41579 - SHOPRITE - MAMELODI (41579)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "416 - SHOPRITE - ELDORADO PARK (416)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "41723 - SHOPRITE - KWAMHLANGA (41723)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "41731 - SHOPRITE - LEBOWAKGOMO (41731)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "41749 - SHOPRITE - PARYS (41749)",
+    "rep": "C204 - NW_RYNO",
+    "region": "NW"
+  },
+  {
+    "store": "41749 - SHOPRITE - PARYS (41749)",
+    "rep": "C206 - NW_06_MARIKA",
+    "region": "NW"
+  },
+  {
+    "store": "41757 - SHOPRITE - BURGERSFORT (41757)",
+    "rep": "C305 - LV_VACANT",
+    "region": "LV"
+  },
+  {
+    "store": "42208 - SHOPRITE - MALAMULELE (42208)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "42339 - SHOPRITE - MKHUHLU (42339)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "42541 - CHECKERS - SUNNINGHILL (42541)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "42559 - CHECKERS - LEAPING FROG (42559)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "42575 - SHOPRITE - JANE FURSE (42575)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "42737 - SHOPRITE - LENASIA (42737)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "43856 - SHOPRITE - VOSLOORUS (43856)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "440 - SHOPRITE - MIDDELBURG (440)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "44438 - SHOPRITE - THOKOZA 2 -  KHUMALO (44438)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "44658 - SHOPRITE - BUSHBUCKRIDGE (44658)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "44721 - SHOPRITE - PROTEA GARDENS (44721)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "44797 - SHOPRITE - WOLMARANSTAD (44797)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "44925 - SHOPRITE - BARA MALL (44925)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "44925 - SHOPRITE - BARA MALL (44925)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "44933 - SHOPRITE - BROWN STR - NELSPRUIT (44933)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "45010 - CHECKERS - GREEN VALLEY (45010)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "45028 - CHECKERS - EMFULENI (45028)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "45036 - CHECKERS - RIVERSIDE MALL (45036)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "45044 - CHECKERS - SAVEWAYS (45044)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "45052 - SHOPRITE - ALEXANDRA (45052)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "46503 - SHOPRITE - KEMPTON PARK (46503)",
+    "rep": "L341 - PTA_SR02 - BENJAMIN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "46561 - CHECKERS - ECO BOULEVARD (46561)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "466 - SHOPRITE - MALVERN (466)",
+    "rep": "L141 - EAST_SR02 - FRANK",
+    "region": "LOCAL"
+  },
+  {
+    "store": "47541 - SHOPRITE - ORANGE FARM (47541)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "47614 - SHOPRITE - KATLEHONG (47614)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "47892 - SHOPRITE - ATTERIDGEVILLE (47892)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "47907 - SHOPRITE - MODJADI (47907)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "47915 - SHOPRITE - SOSHANGUVE (47915)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "47923 - SHOPRITE - MANKWENG (47923)",
+    "rep": "C109 - LIM_09_MAGGIE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "48220 - SHOPRITE - NORTHAM (48220)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "48246 - SHOPRITE - SEBOKENG PLAZA (48246)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48296 - CHECKERS - COLUMBINE SQUARE (48296)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48301 - CHECKERS - VILLAGE MORELETTA (48301)",
+    "rep": "L306 - PTA_CH - SIMON",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48319 - CHECKERS - NORTHRIDING (48319)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48327 - CHECKERS - RASLOUW (48327)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48539 - SHOPRITE - JABULANI (48539)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48547 - SHOPRITE - EVATON PLAZA (48547)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48814 - SHOPRITE - KABOKWENI (48814)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "48822 - CHECKERS - GLEN MARAIS (48822)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48830 - SHOPRITE - SONTONGA MALL (48830)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "48872 - SHOPRITE - RANDFONTEIN STN (48872)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "490 - CHECKERS - QUEENSWOOD (490)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "49137 - CHECKERS - ERMELO (49137)",
+    "rep": "C401 - HV_LEE-ANNE",
+    "region": "HV"
+  },
+  {
+    "store": "49933 - SHOPRITE - EMBALENHLE (49933)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "50348 - SHOPRITE - DENNILTON (50348)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "50518 - CHECKERS - POTCHEFSTROOM (50518)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "50526 - CHECKERS - LYDENBURG (50526)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "50534 - CHECKERS HYPER - RUSTENBURG (50534)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "51019 - SHOPRITE - DIEPSLOOT (51019)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "51019 - SHOPRITE - DIEPSLOOT (51019)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "51263 - SHOPRITE - VOLKSRUST (51263)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "51459 - SHOPRITE - TSAKANE (51459)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "52023 - SHOPRITE - NORTHCLIFF (52023)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "521 - CHECKERS - MORELETA (521)",
+    "rep": "L306 - PTA_CH - SIMON",
+    "region": "LOCAL"
+  },
+  {
+    "store": "52201 - CHECKERS - HARTEBEESPOORT (52201)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "52316 - CHECKERS - SELCOURT (52316)",
+    "rep": "L107 - EAST_CH - NHLANHLA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "5238 - SHOPRITE - GIYANI (5238)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "52683 - SHOPRITE - THORNTREE (52683)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "52691 - SHOPRITE - MAAKE (52691)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "52714 - SHOPRITE - PHANGAMI MALL (52714)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "52722 - SHOPRITE - BATHO PLAZA (52722)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "52730 - SHOPRITE - MUSSINA (52730)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "52748 - SHOPRITE - TONGA (52748)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "52756 - SHOPRITE - LOTUS GARDENS (52756)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "52772 - CHECKERS - LIGHTENBURG (52772)",
+    "rep": "C208 - NW_FRANCOIS",
+    "region": "NW"
+  },
+  {
+    "store": "52845 - SHOPRITE - MORENA MALL (52845)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "52853 - SHOPRITE - MAHIKENG MALL (52853)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "53029 - SHOPRITE - SIYABUSWA (53029)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "53037 - SHOPRITE - HAZYVIEW (53037)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "53087 - SHOPRITE - PHUMALANI MALL (53087)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "53257 - SHOPRITE - DAVEYTON (53257)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "53736 - SHOPRITE - WILLOW CORNER (53736)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "54041 - SHOPRITE - SCHWEIZER REYNEKE (54041)",
+    "rep": "C208 - NW_FRANCOIS",
+    "region": "NW"
+  },
+  {
+    "store": "54300 - SHOPRITE - MAHIKENG STATION (54300)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "54570 - CHECKERS - GREY OWL VILLAGE MIDSTREAM (54570)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "54596 - CHECKERS - HORIZON (54596)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "54944 - SHOPRITE - EBONY PARK (54944)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55013 - CHECKERS - CENTURION LIFESTYLE (55013)",
+    "rep": "L305 - PTA_CH - PULE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55021 - CHECKERS - FLAMWOOD (55021)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "55039 - CHECKERS - BONAERO PARK (55039)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55047 - CHECKERS - RIVERWALK (55047)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55071 - CHECKERS - BRAM FISCHER (55071)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55089 - CHECKERS - BARTLETT (55089)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55144 - SHOPRITE - CHRIS HANI CROSSING (55144)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "55152 - SHOPRITE - VAALGATE (55152)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "571 - SHOPRITE - POTCHEFSTROOM (571)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "57861 - CHECKERS - MALL OF THE NORTH (57861)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "58029 - CHECKERS - LOUIS TRICHARDT (58029)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "58037 - SHOPRITE - KLERKSDORP TERMINUS (58037)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "58118 - CHECKERS - BRACKEN GARDENS (58118)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58118 - CHECKERS - BRACKEN GARDENS (58118)",
+    "rep": "L406 - SOUTH_CH - PRUDENCE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58134 - CHECKERS - ALLENS NEK (58134)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58142 - CHECKERS - LOFTUS (58142)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58150 - CHECKERS - KYALAMI (58150)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58168 - CHECKERS - BRITS MALL (58168)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "58231 - SHOPRITE - SOUTHGATE (58231)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58451 - CHECKERS - TAMBOTIE MALL (58451)",
+    "rep": "L604 - WEST_CH - CINDY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58469 - CHECKERS - EAST RAND RETAIL (58469)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58477 - CHECKERS - WINGTIP (58477)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "58574 - SHOPRITE - COSMOS CITY (58574)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "59033 - SHOPRITE - VREDE (59033)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "59180 - CHECKERS - NOORDHEUWEL (59180)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "59774 - CHECKERS - ROCK COTTAGE (59774)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "59782 - CHECKERS HYPER - NEW MARKET (59782)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "60375 - SHOPRITE - JOHANNESBURG CBD (63075)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "60391 - SHOPRITE - ALBERTON NORTH (60391)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "60406 - SHOPRITE - BOTLENG (60406)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "60414 - SHOPRITE - BRIXTON (60414)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "6103 - CHECKERS - WILROWGATE (6103)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "6111 - CHECKERS - NORTHMEAD SQUARE (6111)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "628 - SHOPRITE - RIDGEWAY (628)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "63145 - SHOPRITE - BOCHUM (63145)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "6400 - SHOPRITE - MOHLAKENG SQUARE (6400)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64044 - SHOPRITE - GOLDEN HIGHWAY (64044)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64086 - SHOPRITE - HINTERLAND (64086)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64434 - SHOPRITE - ACTONVILLE (64434)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64492 - CHECKERS - MATLOSANA (64492)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "64573 - CHECKERS - MUSINA MALL (64573)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "64581 - CHECKERS - HEIDELBERG (64581)",
+    "rep": "L107 - EAST_CH - NHLANHLA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64599 - CHECKERS - SAVANNAH MALL (64599)",
+    "rep": "C109 - LIM_09_MAGGIE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "64604 - CHECKERS - WONDERPARK (64604)",
+    "rep": "L303 - PTA_CH - DORAH",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64612 - CHECKERS - BELA BELA (64612)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "64638 - SHOPRITE - MTHEMBU VILLAGE (64638)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "64874 - SHOPRITE - CHAMDOR (64874)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "660 - SHOPRITE - KAGISO (660)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "66436 - SHOPRITE - MAYFIELD SQUARE (66436)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "66892 - SHOPRITE - LETHABILE (66892)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "67539 - SHOPRITE - BRAAMFISCHERVILLE (67539)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "67628 - SHOPRITE - MARBLE HALL (67628)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "67652 - SHOPRITE - STEILLOOP (67652)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "68056 - CHECKERS - HAZYVIEW JUNCTION (68056)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "686 - CHECKERS - NORKEM PARK (686)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "6860 - SHOPRITE - MMABATHO (6860)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "6878 - SHOPRITE - MOGWASE (6878)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "6886 - SHOPRITE - MORULA (6886)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "69303 - SHOPRITE - BELLE OMBRE PLAZA (69303)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "69599 - SHOPRITE - CENTRE FORUM (69599)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "69604 - SHOPRITE - MALELANE (69604)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "6967 - SHOPRITE - SASOLBURG (6967)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7002 - SHOPRITE - ESSELEN STR (7002)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7010 - SHOPRITE - VAN DER WALT (7010)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "70132 - CHECKERS - OLIVEWOOD (70132)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "70140 - CHECKERS - KWENA MALL (70140)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "70166 - CHECKERS - CHARTWELL (70166)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "70174 - CHECKERS - ZAMBEZI JUNCTION (70174)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "70271 - SHOPRITE - CENTURION MALL (70271)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7028 - CHECKERS - WAVERLEY (7028)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "70297 - SHOPRITE - MAMAILA MALL (70297)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "70302 - SHOPRITE - NKUNA KRAAL (70302)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "7036 - SHOPRITE - MIDDELBURG CBD (7036)",
+    "rep": "C407 - HV_JOE_JVN",
+    "region": "HV"
+  },
+  {
+    "store": "70514 - SHOPRITE - MORONE (70514)",
+    "rep": "C305 - LV_VACANT",
+    "region": "LV"
+  },
+  {
+    "store": "7052 - SHOPRITE - WHITE RIVER (7052)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "7060 - SHOPRITE - METROPOLITAN (7060)",
+    "rep": "C400 - HV_VACANT",
+    "region": "HV"
+  },
+  {
+    "store": "7078 - SHOPRITE - SCHOEMAN STR (7078)",
+    "rep": "C109 - LIM_09_MAGGIE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "7086 - SHOPRITE - POTGIETERSRUS (7086)",
+    "rep": "C104 - LIM_04_KARABO",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "709 - SHOPRITE - ARCADIA (709)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7094 - SHOPRITE - QUAGGA CENTRE (7094)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7109 - SHOPRITE - BRITS (7109)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "7117 - SHOPRITE - GARANKUWA (7117)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7125 - SHOPRITE - MABOPANE (7125)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7133 - CHECKERS - PRETORIA NORTH (7133)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7141 - SHOPRITE - RUSTENBURG (7141)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "71489 - CHECKERS - MERINO MALL (71489)",
+    "rep": "C401 - HV_LEE-ANNE",
+    "region": "HV"
+  },
+  {
+    "store": "7159 - CHECKERS HYPER - CENTURION (7159)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7167 - SHOPRITE - DASPOORT (7167)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "717 - SHOPRITE - HILLBROW (717)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7175 - CHECKERS - GEZINA (7175)",
+    "rep": "L304 - PTA_CH - BENJAMIN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7183 - SHOPRITE - ELLISRAS (7183)",
+    "rep": "C501 - FNW_STEVEN",
+    "region": "FNW"
+  },
+  {
+    "store": "7191 - SHOPRITE - LOUIS TRICHARDT (7191)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "7206 - CHECKERS - PHALABORWA (7206)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "7214 - SHOPRITE - THOYANDOU (7214)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "7272 - SHOPRITE - SPRINGS PALM (7272)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7298 - CHECKERS - SOUTHGATE (7298)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7303 - CHECKERS HYPER - EASTGATE (7303)",
+    "rep": "L105 - EAST_CH - PULANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7311 - CHECKERS HYPER - FOURWAYS (7311)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7311 - CHECKERS HYPER - FOURWAYS (7311)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7329 - CHECKERS HYPER - SANDTON (7329)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7345 - SHOPRITE - ERMELO (7345)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "7353 - SHOPRITE - SECUNDA PLAZA (7353)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "7361 - SHOPRITE - STANDERTON (7361)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "7387 - SHOPRITE - ORKNEY (7387)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "7400 - SHOPRITE - RANDFONTEIN VILLAGE (7400)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "741 - SHOPRITE - LYTTLETON (741)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7426 - SHOPRITE - WESTONARIA (7426)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7450 - CHECKERS HYPER - PARKLANDS/BOKSBURG (7450)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7476 - SHOPRITE - GOLDEN WALK (7476)",
+    "rep": "L141 - EAST_SR02 - FRANK",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7507 - SHOPRITE - MARKS PARK (7507)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7549 - SHOPRITE - LEHURUTSE (7549)",
+    "rep": "C202 - NW_WILLIAM",
+    "region": "NW"
+  },
+  {
+    "store": "7581 - CHECKERS - CRESTA (7581)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7612 - SHOPRITE - RANDBURG (7612)",
+    "rep": "L241 - NORTH_SR02 - EMMANUEL",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7620 - CHECKERS HYPER - ROODEPOORT (7620)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7638 - SHOPRITE - ROODEPOORT (7638)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7646 - CHECKERS HYPER - WESTGATE (7646)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7654 - CHECKERS HYPER - KEMPTON PARK (7654)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7735 - CHECKERS HYPER - EDENVALE (7735)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7743 - CHECKERS HYPER - MAYVILLE (7743)",
+    "rep": "L304 - PTA_CH - BENJAMIN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "78253 - SHOPRITE - COSMO CITY MALL (78253)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "78261 - SHOPRITE - KATLEHONG CROSSING (78261)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "78432 - SHOPRITE - EYETHU LIFESTYLE CENTRE (78423)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "78643 - CHECKERS - OLIVEDALE (78643)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "7865 - CHECKERS - BLUE CRANE (7865)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "78677 - CHECKERS - LAKEFIELD (78677)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "78724 - SHOPRITE - KHUTSONG (78724)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "791 - SHOPRITE - SOUTHDALE (791)",
+    "rep": "L440 - SOUTH_SR01 - DANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "79259 - CHECKERS - SUNHILL (79259)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "79461 - CHECKERS - DESIGN QUARTER (79461)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "79495 - CHECKERS - THE COLONY/WOODS (79495)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "79526 - CHECKERS - MONAVONI (79526)",
+    "rep": "L303 - PTA_CH - DORAH",
+    "region": "LOCAL"
+  },
+  {
+    "store": "79665 - CHECKERS - FOOD PARYS (79665)",
+    "rep": "C204 - NW_RYNO",
+    "region": "NW"
+  },
+  {
+    "store": "79673 - CHECKERS - ZEERUST (79673)",
+    "rep": "C208 - NW_FRANCOIS",
+    "region": "NW"
+  },
+  {
+    "store": "79770 - SHOPRITE - LEPHALALE MALL (79770)",
+    "rep": "C501 - FNW_STEVEN",
+    "region": "FNW"
+  },
+  {
+    "store": "79788 - SHOPRITE - MAMELODI SQUARE (79788)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "79796 - SHOPRITE - MATSAMO MALL (79796)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "79801 - SHOPRITE - NKOMO CENTRE (79801)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "8024 - SHOPRITE - BENONI LAKE (8024)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "80258 - SHOPRITE - STRETFORD STATION (80258)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "80779 - SHOPRITE - NUMBI (80779)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "81076 - SHOPRITE - SAVOY (81076)",
+    "rep": "L243 - NORTH _SR03 - EVANS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "81157 - SHOPRITE - VOSLOORUS 2 (81157)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "81173 - CHECKERS - FLAMINGO CC (81173)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "814 - SHOPRITE - MAYFAIR (814)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "81563 - CHECKERS - THE REEF (81563)",
+    "rep": "L103 - EAST_CH - BOITUMELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "81806 - SHOPRITE - BOKSBURG NORTH 2 (81806)",
+    "rep": "L143 - EAST_SR04 - JABULANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "81814 - SHOPRITE - ROODEKOP (81814)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "82064 - SHOPRITE - LULEKANI (82064)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "82072 - SHOPRITE - KLIP STREET GROBLERSDAL (82072)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "82739 - SHOPRITE - HEBRON (82739)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "82763 - SHOPRITE - MADOMBIDZHA (82763)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "82836 - SHOPRITE - KWA THEMA SQUARE (82836)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "82860 - SHOPRITE - KWA THEMA JUNCTION (82860)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "830 - SHOPRITE - PRIMROSE (830)",
+    "rep": "L141 - EAST_SR02 - FRANK",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83044 - CHECKERS - PARYS (83044)",
+    "rep": "C204 - NW_RYNO",
+    "region": "NW"
+  },
+  {
+    "store": "83329 - SHOPRITE - MPHEPHU (83329)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "83345 - SHOPRITE - BAFOKENG PLAZA (83345)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "83353 - SHOPRITE - CANARY WALK (83353)",
+    "rep": "C507 - LV_PIETER",
+    "region": "LV"
+  },
+  {
+    "store": "83361 - SHOPRITE - PALEDI (83361)",
+    "rep": "C109 - LIM_09_MAGGIE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "83379 - SHOPRITE - TAFELKOP (83379)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "83599 - SHOPRITE - MARAPYANE (83599)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "83638 - SHOPRITE - SKY CITY (83638)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83646 - SHOPRITE - WINDSOR GLEN (83646)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83719 - CHECKERS - NEIGHBOURHOOD (83719)",
+    "rep": "L105 - EAST_CH - PULANE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83751 - CHECKERS - MALL @ 55 (83751)",
+    "rep": "L303 - PTA_CH - DORAH",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83751 - CHECKERS - MALL @ 55 (83751)",
+    "rep": "PTA - GIVEN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83777 - CHECKERS - FOREST WALK (83777)",
+    "rep": "L308 - PTA_CH - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83785 - CHECKERS - CLUBVIEW (83785)",
+    "rep": "L303 - PTA_CH - DORAH",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83793 - CHECKERS - ROSEBANK MALL (83793)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83808 - SHOPRITE - MIDDESTAD MALL (83808)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83840 - SHOPRITE - MABOPANE SQUARE (83840)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "83913 - SHOPRITE - SECUNDA SQUARE (83913)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "83939 - SHOPRITE - SUNRISE PARK (83939)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "84008 - CHECKERS - MOOI RIVIER JUNCTION (84008)",
+    "rep": "C205 - NW_TAZMIN",
+    "region": "NW"
+  },
+  {
+    "store": "85193 - SHOPRITE - PRITCHARD STREET (85193)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85216 - SHOPRITE - KRUGERSDORP WEST (85216)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85224 - SHOPRITE - SAM NTULI MALL (85224)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85232 - SHOPRITE - WITPOORTJIE (85232)",
+    "rep": "L640 - WEST_SR01 - RUMANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85266 - CHECKERS - FAIRLANDS (85266)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85274 - CHECKERS - THE GLEN (85274)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85282 - CHECKERS CX - WHITE RIVER (85282)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "85290 - CHECKERS - GREENSTONE  (85290)",
+    "rep": "L104 - EAST_CH - ZANDILE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85313 - CHECKERS - CASTLE GATE (85313)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85355 - CHECKERS - IRENE BLVD (85355)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85363 - CHECKERS - MAKHADO CROSSING (85363)",
+    "rep": "C105 - LIM_05_LUCKY R",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "85371 - CHECKERS - FERNDALE (85371)",
+    "rep": "L201 - NORTH_CH - NHLONIPHO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85444 - CHECKERS - VILLAGE VIEW (85444)",
+    "rep": "L101 - EAST_CH - TEBOGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85452 - CHECKERS - MAGALIES (85452)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "85460 - CHECKERS - RUSTENBURG MALL (85460)",
+    "rep": "C505 - FNW_CHRISTELLE",
+    "region": "FNW"
+  },
+  {
+    "store": "85486 - CHECKERS - WOODLANDS (85486)",
+    "rep": "L306 - PTA_CH - SIMON",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85745 - SHOPRITE - MABONENG (85745)",
+    "rep": "L643 - WEST_SR02 - PHUMLANI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "85999 - SHOPRITE - DAWN PARK (85999)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "864 - SHOPRITE - PIETERSBURG (864)",
+    "rep": "C110 - LIM_10_CLARENCE",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "87268 - CHECKERS - MALL OF THE SOUTH (87268)",
+    "rep": "L405 - SOUTH_CH - ZWELAKHE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "87276 - CHECKERS HYPER - MALL OF AFRICA (87276)",
+    "rep": "L204 - NORTH_CH - BERNARD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "87810 - SHOPRITE - RUSTENBURG MALL (87810)",
+    "rep": "C502 - FNW_CAROLINE",
+    "region": "FNW"
+  },
+  {
+    "store": "8787 - SHOPRITE - SIYABUSWA LIFESTYLE CENTRE (8787)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "89236 - SHOPRITE - RIVERSIDE SQUARE (89236)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "90706 - SHOPRITE - METZ (90706)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "90714 - SHOPRITE - MODIMOLLE (90714)",
+    "rep": "C406 - HV_TUMELO",
+    "region": "HV"
+  },
+  {
+    "store": "90722 - SHOPRITE - MASINGITA MALL (90722)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "90730 - SHOPRITE - STIMELA BARBERTON (90730)",
+    "rep": "C301 - LV_LUCKY",
+    "region": "LV"
+  },
+  {
+    "store": "90748 - SHOPRITE - SHAYANDIMA (90748)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "90756 - SHOPRITE - THULAMAHASHE (90756)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "90772 - SHOPRITE - MAGNET HEIGHTS (90772)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "91118 - CHECKERS HYPER - NEW MENLYN PARK (91118)",
+    "rep": "L307 - PTA_CH - GERT",
+    "region": "LOCAL"
+  },
+  {
+    "store": "91118 - CHECKERS HYPER - NEW MENLYN PARK (91118)",
+    "rep": "PTA - GIVEN",
+    "region": "LOCAL"
+  },
+  {
+    "store": "91249 - SHOPRITE - NAFCOC SOSHANGUVE (91249)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "91833 - SHOPRITE - SOSHANGUVE SOUTH VIEW (91833)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "91883 - SHOPRITE - MAMS MALL MAMELODI (91883)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "91891 - SHOPRITE - DWARSLOOP (91891)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "91906 - SHOPRITE - MUTALE (91906)",
+    "rep": "C107 - LIM_07_THOMAS",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "92067 - SHOPRITE - ACORNHOEK MALL (92067)",
+    "rep": "C303 - LV_GIVEN_M",
+    "region": "LV"
+  },
+  {
+    "store": "93110 - SHOPRITE - MALAMULELE CROSSING (93110)",
+    "rep": "C108 - LIM_08_MICHAEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "93178 - CHECKERS HYPER - NELSPRUIT (THE ORCHARDS) (93178)",
+    "rep": "C300 - LV_PETRUS",
+    "region": "LV"
+  },
+  {
+    "store": "93306 - SHOPRITE - EKHAYA MALL (93306)",
+    "rep": "C402 - HV_KIAN",
+    "region": "HV"
+  },
+  {
+    "store": "93403 - SHOPRITE - DLAMINI (93403)",
+    "rep": "L240 - WEST_SR01 - MMONA",
+    "region": "LOCAL"
+  },
+  {
+    "store": "93479 - SHOPRITE - TSAKANE CENTRE (93479)",
+    "rep": "L140 - EAST_SR01 - MAURICE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "937 - SHOPRITE - EAST LYNNE (937)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "937 - SHOPRITE - EAST LYNNE (937)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "945 - SHOPRITE - SUNNYPARK (945)",
+    "rep": "L345 - PTA_SR06 - LESEGO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "961 - SHOPRITE - BRITS (961)",
+    "rep": "C500 - FNW_TALITHA",
+    "region": "FNW"
+  },
+  {
+    "store": "96338 - SHOPRITE - KAALFONTEIN (96338)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "96558 - SHOPRITE - DIEPSLOOT WEST (96558)",
+    "rep": "L642 - WEST_SR02 - CHEGOFATJO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "96605 - SHOPRITE - PHOLA PARK (96605)",
+    "rep": "C403 - HV_THABO_R",
+    "region": "HV"
+  },
+  {
+    "store": "99247 - CHECKERS - BLUEBERRY SQUARE (99247)",
+    "rep": "L605 - WEST_CH - GLAD",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99255 - SHOPRITE - MALL OF TEMBISA (99255)",
+    "rep": "L344 - PTA_SR05 - ERIC",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99263 - SHOPRITE - VENTERSDORP (99263)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "99344 - SHOPRITE - RONDEBULT (99344)",
+    "rep": "L641 - EAST_SR02 - NYIKO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99360 - CHECKERS - JUKSKEI PARK (99360)",
+    "rep": "L203 - NORTH_CH - CONNIE",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99409 - SHOPRITE - OLIEVENHOUTBOSCH CORNER (99409)",
+    "rep": "L343 - PTA_SR04 - JOHANNES",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99417 - SHOPRITE - ROSETTENVILLE JUNCTION (99417)",
+    "rep": "L441 - SOUTH_SR02 - MORRIS",
+    "region": "LOCAL"
+  },
+  {
+    "store": "9948 - CHECKERS - HARVEST SQUARE (9948)",
+    "rep": "L106 - EAST_CH - PHILLIP",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99653 - SHOPRITE - MABOPANE RAILWAY (99653)",
+    "rep": "L340 - PTA_SR01 - KABELO",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99679 - SHOPRITE - TSHWANE MALL (99679)",
+    "rep": "L342 - PTA_SR03 - GREGORY",
+    "region": "LOCAL"
+  },
+  {
+    "store": "99750 - SHOPRITE - BETHAL CENTRE (99750)",
+    "rep": "C404 - HV_MICHAEL_NK",
+    "region": "HV"
+  },
+  {
+    "store": "99807 - SHOPRITE - AMSTERDAM (99807)",
+    "rep": "C401 - HV_LEE-ANNE",
+    "region": "HV"
+  },
+  {
+    "store": "99815 - SHOPRITE - TSHEPISO CENTRE (99815)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "G292 - CHECKERS CX - DADA CENTRE (G292)",
+    "rep": "C208 - NW_FRANCOIS",
+    "region": "NW"
+  },
+  {
+    "store": "G581 - SHOPRITE - BEDWORTH CENTRE (G581)",
+    "rep": "L540 - VAAL_SR01 - TAKI",
+    "region": "LOCAL"
+  },
+  {
+    "store": "G653 - SHOPRITE - THE OAKS (G653)",
+    "rep": "C106 - LIM_06_NOEL",
+    "region": "LIMPOPO"
+  },
+  {
+    "store": "G675 - SHOPRITE - STILFONTEIN (G675)",
+    "rep": "C207 - NW_07_MPHO",
+    "region": "NW"
+  },
+  {
+    "store": "G887 - SHOPRITE - ATOK (G887)",
+    "rep": "C103 - LIM_03_MANAKA",
+    "region": "LIMPOPO"
+  }
+]

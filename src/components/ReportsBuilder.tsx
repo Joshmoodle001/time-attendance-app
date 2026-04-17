@@ -28,6 +28,7 @@ import {
   initializeLeaveDatabase,
   type LeaveApplication,
 } from "@/services/leave";
+import { getStoreGrouping } from "@/services/regionMaster";
 
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
 type AutoTableFn = (typeof import("jspdf-autotable"))["default"];
@@ -77,6 +78,9 @@ type StoreOption = {
   store: string;
   storeCode: string;
   displayName: string;
+  region: string;
+  groupKey: string;
+  groupLabel: string;
   employeeCount: number;
   employeeCodes: string[];
 };
@@ -666,15 +670,19 @@ export default function ReportsBuilder({
       const store = normalizeText(employee.store);
       const storeCode = normalizeText(employee.store_code);
       if (!store && !storeCode) return;
+      const grouping = getStoreGrouping(store, storeCode, employee.region);
 
       const key = buildStoreKey(store, storeCode);
       const existing =
         values.get(key) ||
         {
           key,
-          store: store || "Unassigned store",
+          store: grouping.store || store || "Unassigned store",
           storeCode,
-          displayName: buildStoreDisplayName(store, storeCode),
+          displayName: buildStoreDisplayName(grouping.store || store, storeCode),
+          region: grouping.region,
+          groupKey: grouping.groupKey,
+          groupLabel: grouping.groupLabel,
           employeeCount: 0,
           employeeCodes: [],
         };
@@ -697,16 +705,42 @@ export default function ReportsBuilder({
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [employees, includeInactiveProfiles]);
 
-  const storeBrandGroups = useMemo(() => {
-    const brands = ["Shoprite", "Checkers"];
-    return brands
-      .map((brand) => ({
-        label: brand,
-        count: storeOptions.filter((opt) =>
-          normalizeCompare(opt.displayName).includes(normalizeCompare(brand))
-        ).length,
+  const storeSelectionGroups = useMemo(() => {
+    const counts = new Map<string, { key: string; label: string; count: number }>();
+    storeOptions.forEach((option) => {
+      const existing = counts.get(option.groupKey) || { key: option.groupKey, label: option.groupLabel, count: 0 };
+      existing.count += 1;
+      counts.set(option.groupKey, existing);
+    });
+    return Array.from(counts.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [storeOptions]);
+
+  const storeRegionGroups = useMemo(() => {
+    const byRegion = new Map<string, { region: string; groups: Map<string, { key: string; label: string; stores: StoreOption[] }> }>();
+
+    storeOptions.forEach((option) => {
+      const region = option.region || "UNASSIGNED";
+      if (!byRegion.has(region)) {
+        byRegion.set(region, { region, groups: new Map() });
+      }
+      const entry = byRegion.get(region)!;
+      if (!entry.groups.has(option.groupKey)) {
+        entry.groups.set(option.groupKey, { key: option.groupKey, label: option.groupLabel, stores: [] });
+      }
+      entry.groups.get(option.groupKey)!.stores.push(option);
+    });
+
+    return Array.from(byRegion.values())
+      .map((entry) => ({
+        region: entry.region,
+        groups: Array.from(entry.groups.values())
+          .map((group) => ({
+            ...group,
+            stores: group.stores.sort((a, b) => a.displayName.localeCompare(b.displayName)),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
       }))
-      .filter((group) => group.count > 0);
+      .sort((a, b) => a.region.localeCompare(b.region));
   }, [storeOptions]);
 
   // Store search with partial matching - shows full store name + employee count
@@ -785,9 +819,9 @@ export default function ReportsBuilder({
     setSelectedStores((current) => current.filter((value) => value !== storeKey));
   };
 
-  const addStoresByBrand = (brandKeyword: string) => {
+  const addStoresByGroup = (groupKey: string) => {
     const matching = storeOptions
-      .filter((opt) => normalizeCompare(opt.displayName).includes(normalizeCompare(brandKeyword)))
+      .filter((opt) => opt.groupKey === groupKey)
       .map((opt) => opt.key);
     setSelectedStores((current) => {
       const currentSet = new Set(current);
@@ -1910,14 +1944,14 @@ export default function ReportsBuilder({
                 <div className="mt-4 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-slate-500">Quick select:</span>
-                    {storeBrandGroups.map((group) => (
+                    {storeSelectionGroups.map((group) => (
                       <button
-                        key={group.label}
+                        key={group.key}
                         type="button"
-                        onClick={() => addStoresByBrand(group.label)}
+                        onClick={() => addStoresByGroup(group.key)}
                         className="rounded-full border border-cyan-500/30 bg-cyan-950/20 px-3 py-1 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-900/40"
                       >
-                        All {group.label} ({group.count})
+                        {group.label} ({group.count})
                       </button>
                     ))}
                     <button
@@ -1954,7 +1988,7 @@ export default function ReportsBuilder({
                           <div>
                             <div className="text-sm font-medium text-white">{result.displayName}</div>
                             <div className="text-xs text-slate-500">
-                              {result.employeeCount} {result.employeeCount === 1 ? "employee" : "employees"} ready for grouping
+                              {result.region} - {result.groupLabel} - {result.employeeCount} {result.employeeCount === 1 ? "employee" : "employees"} ready for grouping
                             </div>
                           </div>
                           <span className="text-xs font-semibold text-cyan-400">+ Add</span>
@@ -1969,6 +2003,31 @@ export default function ReportsBuilder({
                     </div>
                   )}
 
+                  <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Store Groups by Region</div>
+                    <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
+                      {storeRegionGroups.map((regionGroup) => (
+                        <div key={regionGroup.region} className="rounded-md border border-white/5 bg-black/20 p-2">
+                          <div className="mb-2 text-xs font-semibold text-emerald-300">{regionGroup.region}</div>
+                          <div className="space-y-2">
+                            {regionGroup.groups.map((group) => (
+                              <div key={group.key} className="flex items-center justify-between rounded-md border border-white/5 bg-white/[0.02] p-2">
+                                <div className="text-xs text-slate-300">{group.label}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => addStoresByGroup(group.key)}
+                                  className="rounded-full border border-cyan-500/30 bg-cyan-950/20 px-2 py-1 text-[11px] font-semibold text-cyan-300 transition hover:bg-cyan-900/40"
+                                >
+                                  Add all ({group.stores.length})
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {selectedStoreOptions.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {selectedStoreOptions.map((store) => (
@@ -1978,7 +2037,7 @@ export default function ReportsBuilder({
                           onClick={() => removeStore(store.key)}
                           className="rounded-full border border-cyan-500/30 bg-cyan-950/30 px-3 py-1 text-sm text-cyan-300 transition hover:bg-cyan-900/50"
                         >
-                          {store.displayName} ×
+                          {store.displayName} x
                         </button>
                       ))}
                     </div>
@@ -2032,7 +2091,7 @@ export default function ReportsBuilder({
                             onClick={() => removeEmployee(normalizedCode)}
                             className="rounded-full border border-cyan-500/30 bg-cyan-950/30 px-3 py-1 text-sm text-cyan-300 transition hover:bg-cyan-900/50"
                           >
-                            {employee.first_name} {employee.last_name} ({employee.employee_code}) ×
+                            {employee.first_name} {employee.last_name} ({employee.employee_code}) x
                           </button>
                         );
                       })}

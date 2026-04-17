@@ -12,6 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
+import { findRegionMasterRowByRep, getStoreGrouping, resolveRegionForStore } from "@/services/regionMaster";
 import { motion } from "framer-motion";
 import type { CommunicationAutomation, CommunicationProfile, ReportTemplate } from "@/types/workflows";
 import type { WorkBook } from "xlsx";
@@ -181,6 +182,19 @@ function deriveEmployeeLocationsFromProfiles(profiles: Employee[]) {
   ).values()];
 
   return { regions, stores };
+}
+
+function mapEmployeeToRegionMaster(employee: Employee): Employee {
+  const storeGroup = getStoreGrouping(employee.store, employee.store_code, employee.region);
+  const fullName = `${String(employee.first_name || "").trim()} ${String(employee.last_name || "").trim()}`.trim();
+  const repMatch = fullName ? findRegionMasterRowByRep(fullName) : null;
+  const resolvedRegion = storeGroup.region !== "UNASSIGNED" ? storeGroup.region : (repMatch?.region || storeGroup.region);
+
+  return {
+    ...employee,
+    region: resolvedRegion,
+    store: storeGroup.store || employee.store,
+  };
 }
 
 type AttendanceRecord = {
@@ -1424,6 +1438,7 @@ export default function App() {
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"pie" | "table">("pie");
   const [selectedOverviewDate, setSelectedOverviewDate] = useState<string>(formatDateValue(new Date()));
+  const [selectedOverviewRegion, setSelectedOverviewRegion] = useState<string>("all");
   const [selectedOverviewStoreKey, setSelectedOverviewStoreKey] = useState<string>("all");
   const [overviewStoreSearch, setOverviewStoreSearch] = useState("");
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
@@ -1596,13 +1611,14 @@ export default function App() {
       try {
         await initializeEmployeeDatabase();
         const data = await getEmployees();
-        setEmployees(data);
-        setEmployeeLocations(deriveEmployeeLocationsFromProfiles(data));
+        const mapped = data.map(mapEmployeeToRegionMaster);
+        setEmployees(mapped);
+        setEmployeeLocations(deriveEmployeeLocationsFromProfiles(mapped));
         employeeRequestRef.current = {
           fetchedAt: Date.now(),
           inFlight: false,
         };
-        return data;
+        return mapped;
       } finally {
         employeeRequestRef.current = {
           ...employeeRequestRef.current,
@@ -3009,6 +3025,7 @@ export default function App() {
         label: string;
         store: string;
         storeCode: string;
+        region: string;
         employeeCount: number;
         employeeCodes: string[];
         attendanceCount: number;
@@ -3021,6 +3038,7 @@ export default function App() {
       const store = String(employee.store || "").trim();
       const storeCode = String(employee.store_code || "").trim();
       if (!store && !storeCode) return;
+      const region = resolveRegionForStore(store, storeCode, employee.region);
 
       const key = buildOverviewStoreKey(store, storeCode);
       const existing =
@@ -3030,6 +3048,7 @@ export default function App() {
           label: buildOverviewStoreLabel(store, storeCode),
           store,
           storeCode,
+          region,
           employeeCount: 0,
           employeeCodes: [],
           attendanceCount: 0,
@@ -3070,6 +3089,15 @@ export default function App() {
       .sort((a, b) => b.employeeCount - a.employeeCount || a.label.localeCompare(b.label));
   }, [overviewAttendanceRecords, overviewEmployeeProfiles]);
 
+  const overviewRegionOptions = useMemo(() => {
+    const regions = new Set<string>();
+    overviewStoreOptions.forEach((option) => {
+      if (option.region && option.region !== "UNASSIGNED") regions.add(option.region);
+    });
+    if (regions.size === 0) return ["all"];
+    return ["all", ...Array.from(regions).sort((a, b) => a.localeCompare(b))];
+  }, [overviewStoreOptions]);
+
   const selectedOverviewStoreOption = useMemo(
     () => overviewStoreOptions.find((option) => option.key === selectedOverviewStoreKey) || null,
     [overviewStoreOptions, selectedOverviewStoreKey]
@@ -3085,13 +3113,24 @@ export default function App() {
     [selectedOverviewStoreOption]
   );
 
+  const overviewEmployeeRegionByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    overviewEmployeeProfiles.forEach((employee) => {
+      const code = normalizeEmployeeCode(employee.employee_code);
+      if (!code) return;
+      map.set(code, resolveRegionForStore(employee.store, employee.store_code, employee.region));
+    });
+    return map;
+  }, [overviewEmployeeProfiles]);
+
   const filteredOverviewStoreOptions = useMemo(() => {
     const query = normalizeOverviewCompare(overviewStoreSearch);
     if (!query) return [];
     return overviewStoreOptions
-      .filter((option) => normalizeOverviewCompare(`${option.label} ${option.store} ${option.storeCode}`).includes(query))
+      .filter((option) => selectedOverviewRegion === "all" || option.region === selectedOverviewRegion)
+      .filter((option) => normalizeOverviewCompare(`${option.label} ${option.store} ${option.storeCode} ${option.region}`).includes(query))
       .slice(0, 10);
-  }, [overviewStoreOptions, overviewStoreSearch]);
+  }, [overviewStoreOptions, overviewStoreSearch, selectedOverviewRegion]);
 
   // Toggle store expansion
   const toggleStore = (storeName: string) => {
@@ -3104,23 +3143,42 @@ export default function App() {
   };
 
   const filteredOverviewAttendanceRecords = useMemo(() => {
-    if (selectedOverviewStoreKey === "all") return overviewAttendanceRecords;
-    return overviewAttendanceRecords.filter((record) =>
+    const regionFiltered =
+      selectedOverviewRegion === "all"
+        ? overviewAttendanceRecords
+        : overviewAttendanceRecords.filter((record) => {
+            const employeeRegion = overviewEmployeeRegionByCode.get(normalizeEmployeeCode(record.employeeCode));
+            return employeeRegion === selectedOverviewRegion;
+          });
+
+    if (selectedOverviewStoreKey === "all") return regionFiltered;
+    return regionFiltered.filter((record) =>
       selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode))
     );
-  }, [overviewAttendanceRecords, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [overviewAttendanceRecords, overviewEmployeeRegionByCode, selectedOverviewRegion, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
 
   const filteredOverviewEmployeeProfiles = useMemo(() => {
-    if (selectedOverviewStoreKey === "all") return overviewEmployeeProfiles;
-    return overviewEmployeeProfiles.filter((employee) =>
+    const regionFiltered =
+      selectedOverviewRegion === "all"
+        ? overviewEmployeeProfiles
+        : overviewEmployeeProfiles.filter(
+            (employee) => resolveRegionForStore(employee.store, employee.store_code, employee.region) === selectedOverviewRegion
+          );
+
+    if (selectedOverviewStoreKey === "all") return regionFiltered;
+    return regionFiltered.filter((employee) =>
       selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(employee.employee_code))
     );
-  }, [overviewEmployeeProfiles, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [overviewEmployeeProfiles, selectedOverviewRegion, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
 
   useEffect(() => {
     if (
       selectedOverviewStoreKey !== "all" &&
-      !overviewStoreOptions.some((option) => option.key === selectedOverviewStoreKey)
+      !overviewStoreOptions.some(
+        (option) =>
+          option.key === selectedOverviewStoreKey &&
+          (selectedOverviewRegion === "all" || option.region === selectedOverviewRegion)
+      )
     ) {
       setSelectedOverviewStoreKey("all");
       setOverviewStoreSearch("");
@@ -3128,7 +3186,7 @@ export default function App() {
       setExpandedStores(new Set());
       setExpandedRegions(new Set());
     }
-  }, [overviewStoreOptions, selectedOverviewStoreKey]);
+  }, [overviewStoreOptions, selectedOverviewRegion, selectedOverviewStoreKey]);
 
   // Region-based table data for table view
   const regionTableData = useMemo(() => {
@@ -3612,13 +3670,14 @@ export default function App() {
       const { region, regionCode, store, storeCode } = parseRegionStore(currentStore);
       
       // Use currentRegion if parse didn't find one, or if it's just the store name
-      const finalRegion = currentRegion && currentRegion !== "UNKNOWN REGION" ? currentRegion : region;
-      
+      const parsedRegion = currentRegion && currentRegion !== "UNKNOWN REGION" ? currentRegion : region;
+      const mappedRegion = resolveRegionForStore(store || currentStore, storeCode, parsedRegion);
+
       rows.push({
         id: employeeCode,
         employeeCode: employeeCode,
         name: employeeName,
-        region: finalRegion,
+        region: mappedRegion,
         regionCode: regionCode,
         store: store || currentStore,
         storeCode: storeCode,
@@ -3686,14 +3745,17 @@ export default function App() {
 
         const storeSource = String(row[storeIdx] || deviceName).trim();
         const parsedStore = parseRegionStore(storeSource);
+        const storeGroup = getStoreGrouping(
+          parsedStore.store && parsedStore.store !== "Unknown Store" ? parsedStore.store : storeSource,
+          parsedStore.storeCode,
+          String(row[regionIdx] || parsedStore.region || "")
+        );
         const store = (
-          parsedStore.store && parsedStore.store !== "Unknown Store"
-            ? parsedStore.store
-            : storeSource
+          storeGroup.store
         )
           .replace(/\s*\(\d+\)\s*$/, "")
           .trim() || "Unassigned Store";
-        const region = String(row[regionIdx] || parsedStore.region || "Unassigned Region").trim();
+        const region = storeGroup.region || "UNASSIGNED";
         const deviceType = normalizeDeviceType(row[deviceTypeIdx]);
 
         let status: "online" | "offline" | "warning" = "online";
@@ -3993,7 +4055,7 @@ export default function App() {
                           <div>
                             <div className="text-sm font-medium text-white">{option.label}</div>
                             <div className="text-xs text-slate-400">
-                              {option.employeeCount} active profiles • {option.attendanceCount} attendance rows
+                              {option.region} - {option.employeeCount} active profiles - {option.attendanceCount} attendance rows
                             </div>
                           </div>
                         </button>
@@ -4003,6 +4065,28 @@ export default function App() {
                     )}
                   </div>
                 )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-slate-400" />
+                <select
+                  value={selectedOverviewRegion}
+                  onChange={(e) => {
+                    setSelectedOverviewRegion(e.target.value);
+                    setSelectedOverviewStoreKey("all");
+                    setOverviewStoreSearch("");
+                    setSelectedSlice(null);
+                    setExpandedStores(new Set());
+                    setExpandedRegions(new Set());
+                  }}
+                  className="h-10 rounded-lg border border-slate-600 bg-slate-800 px-3 text-sm text-white"
+                >
+                  {overviewRegionOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "all" ? "All regions" : option}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Date Selector */}
@@ -4055,6 +4139,11 @@ export default function App() {
           {selectedOverviewStoreOption ? (
             <Badge className="border-cyan-500/30 bg-cyan-500/15 text-cyan-200">
               Store filter: {selectedOverviewStoreOption.label}
+            </Badge>
+          ) : null}
+          {selectedOverviewRegion !== "all" ? (
+            <Badge className="border-indigo-500/30 bg-indigo-500/15 text-indigo-200">
+              Region filter: {selectedOverviewRegion}
             </Badge>
           ) : null}
           {overviewLastUpdatedAt ? (
