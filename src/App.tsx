@@ -1429,6 +1429,12 @@ export default function App() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [overviewAttendanceRecords, setOverviewAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [overviewTrendSeries, setOverviewTrendSeries] = useState<Array<Record<string, number | string>>>([]);
+
+  useEffect(() => {
+    if (!saveMessage) return;
+    const timeout = window.setTimeout(() => setSaveMessage(""), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [saveMessage]);
   const [overviewEmployeeProfiles, setOverviewEmployeeProfiles] = useState<Employee[]>([]);
   const [overviewModuleSnapshot, setOverviewModuleSnapshot] = useState<OverviewModuleSnapshot>({
     employeeProfiles: 0,

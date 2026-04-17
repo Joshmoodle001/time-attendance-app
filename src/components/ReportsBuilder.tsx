@@ -347,6 +347,41 @@ function formatHours(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+function parseClockTimeToSeconds(value: string) {
+  if (!value || value === "-") return null;
+  const parts = String(value).split(":").map(Number);
+  if (parts.length < 2 || parts.some((part) => Number.isNaN(part))) return null;
+  const [hours, minutes, seconds = 0] = parts;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function calculateWorkedHoursForRow(row: {
+  firstClock?: string;
+  lastClock?: string;
+  clockCount: number;
+}) {
+  const start = parseClockTimeToSeconds(row.firstClock || "");
+  const end = parseClockTimeToSeconds(row.lastClock || "");
+  if (start === null || end === null || row.clockCount < 2 || end <= start) return 0;
+  return Number(((end - start) / 3600).toFixed(2));
+}
+
+function calculateWorkedHoursForEmployee(rows: Array<{
+  firstClock?: string;
+  lastClock?: string;
+  clockCount: number;
+}>) {
+  return Number(rows.reduce((sum, row) => sum + calculateWorkedHoursForRow(row), 0).toFixed(2));
+}
+
+function buildRowNote(row: AttendanceDayRow) {
+  if (row.holidayTitle) return `Holiday: ${row.holidayTitle}`;
+  if (row.clockings.length > 0) return row.clockings.join(" | ");
+  if (row.status === "No In/Out") return "Single clocking";
+  if (row.status === "AWOL") return "No clockings";
+  return "";
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -572,6 +607,12 @@ export default function ReportsBuilder({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const liveLoadedRecordCount = records.length;
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    const timeout = window.setTimeout(() => setStatusMessage(""), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [statusMessage]);
 
   useEffect(() => {
     let alive = true;
@@ -913,19 +954,19 @@ export default function ReportsBuilder({
         section.employees.forEach((employee) => {
           employee.rows.forEach((row) => {
             summary.totalRows += 1;
-            summary.targetHours += row.targetHours;
-             if (row.status === "P/H") summary.inOut += 1;
-             if (row.status === "Public Holiday") summary.noInOut += 1;
-             if (row.status === "In/Out") summary.inOut += 1;
-             if (row.status === "No In/Out") summary.noInOut += 1;
-             if (row.status === "AWOL") summary.awol += 1;
-             if (isLeaveStatus(row.status)) summary.leave += 1;
-             if (row.status === "Day Off") summary.dayOff += 1;
-          });
+            summary.workedHours += calculateWorkedHoursForRow(row);
+              if (row.status === "P/H") summary.inOut += 1;
+              if (row.status === "Public Holiday") summary.noInOut += 1;
+              if (row.status === "In/Out") summary.inOut += 1;
+              if (row.status === "No In/Out") summary.noInOut += 1;
+              if (row.status === "AWOL") summary.awol += 1;
+              if (isLeaveStatus(row.status)) summary.leave += 1;
+              if (row.status === "Day Off") summary.dayOff += 1;
+           });
         });
         return summary;
       },
-      { totalRows: 0, targetHours: 0, inOut: 0, noInOut: 0, awol: 0, leave: 0, dayOff: 0 }
+      { totalRows: 0, workedHours: 0, inOut: 0, noInOut: 0, awol: 0, leave: 0, dayOff: 0 }
     );
   }, [generatedSections]);
 
@@ -1153,31 +1194,6 @@ export default function ReportsBuilder({
     const contentWidth = pageWidth - marginX * 2;
     const bottomMargin = 34;
 
-    const parseClockTimeToSeconds = (value: string) => {
-      if (!value || value === "-") return null;
-      const parts = String(value).split(":").map(Number);
-      if (parts.length < 2 || parts.some((part) => Number.isNaN(part))) return null;
-      const [hours, minutes, seconds = 0] = parts;
-      return hours * 3600 + minutes * 60 + seconds;
-    };
-
-    const calculateWorkedHoursForRow = (row: {
-      firstClock?: string;
-      lastClock?: string;
-      clockCount: number;
-    }) => {
-      const start = parseClockTimeToSeconds(row.firstClock || "");
-      const end = parseClockTimeToSeconds(row.lastClock || "");
-      if (start === null || end === null || row.clockCount < 2 || end <= start) return 0;
-      return Number(((end - start) / 3600).toFixed(2));
-    };
-
-    const calculateWorkedHoursForEmployee = (rows: Array<{
-      firstClock?: string;
-      lastClock?: string;
-      clockCount: number;
-    }>) => Number(rows.reduce((sum, row) => sum + calculateWorkedHoursForRow(row), 0).toFixed(2));
-
     const drawSectionHeader = (section: StoreSection, pageNumber: number) => {
       doc.setDrawColor(34, 211, 238);
       doc.setLineWidth(1.1);
@@ -1232,7 +1248,6 @@ export default function ReportsBuilder({
       section.employees.forEach((employee) => {
         const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
         const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-        const empTarget = Number(employee.rows.reduce((sum, row) => sum + row.targetHours, 0).toFixed(2));
         const empWorked = calculateWorkedHoursForEmployee(employee.rows);
 
         const metaLine = [
@@ -1284,8 +1299,7 @@ export default function ReportsBuilder({
         const metricCols = [
           { label: "IN/OUT", value: String(empInOut), x: employeeCardRight - 162, color: [21, 128, 61] as [number, number, number] },
           { label: "AWOL", value: String(empAwol), x: employeeCardRight - 116, color: [185, 28, 28] as [number, number, number] },
-          { label: "WORKED", value: formatHours(empWorked), x: employeeCardRight - 60, color: [30, 41, 59] as [number, number, number] },
-          { label: "TARGET", value: formatHours(empTarget), x: employeeCardRight - 8, color: [30, 41, 59] as [number, number, number] },
+          { label: "WORKED HRS", value: formatHours(empWorked), x: employeeCardRight - 26, color: [30, 41, 59] as [number, number, number] },
         ];
 
         metricCols.forEach((metric) => {
@@ -1333,7 +1347,7 @@ export default function ReportsBuilder({
           alternateRowStyles: {
             fillColor: [255, 255, 255],
           },
-          head: [["DATE", "DAY", "WK", "SHIFT", "TARGET HRS", "IN", "OUT", "NOTES", "STATUS"]],
+          head: [["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "NOTES", "STATUS"]],
           columnStyles: {
             0: { cellWidth: 60 },
             1: { cellWidth: 28 },
@@ -1350,10 +1364,10 @@ export default function ReportsBuilder({
             row.weekdayLabel,
             row.weekLabel.replace(/^WEEK\s+/i, "W"),
             row.scheduleLabel,
-            formatHours(row.targetHours),
+            formatHours(calculateWorkedHoursForRow(row)),
             row.firstClock || "-",
             row.lastClock || "-",
-            "",
+            buildRowNote(row),
             row.status,
           ]),
           didParseCell: (data) => {
@@ -1393,6 +1407,25 @@ export default function ReportsBuilder({
 
         cursorY =
           ((doc as InstanceType<JsPdfConstructor> & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY + 120) + 14;
+
+        const signatureBlockHeight = 38;
+        if (cursorY + signatureBlockHeight > pageHeight - bottomMargin) {
+          doc.addPage();
+          pageNumber += 1;
+          drawSectionHeader(section, pageNumber);
+          cursorY = topY + 58;
+        }
+
+        const signatureY = cursorY + 8;
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text("Employee Signature", marginX + 6, signatureY);
+        doc.setDrawColor(148, 163, 184);
+        doc.setLineWidth(0.6);
+        doc.line(marginX + 6, signatureY + 14, marginX + 176, signatureY + 14);
+        doc.text("Date", marginX + 198, signatureY);
+        doc.line(marginX + 198, signatureY + 14, marginX + 268, signatureY + 14);
+        cursorY = signatureY + 22;
       });
     });
 
@@ -1506,7 +1539,7 @@ export default function ReportsBuilder({
                 (employee) => {
                   const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
                   const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-                  const empTarget = employee.rows.reduce((sum, row) => sum + row.targetHours, 0);
+                  const empWorked = calculateWorkedHoursForEmployee(employee.rows);
                   return `
                   <div class="employee-block">
                     <div class="employee-header">
@@ -1528,8 +1561,8 @@ export default function ReportsBuilder({
                           <div class="summary-value ${empAwol > 0 ? 'red' : ''}">${empAwol}</div>
                         </div>
                         <div class="summary-item">
-                          <div class="summary-label">Hours</div>
-                          <div class="summary-value">${formatHours(empTarget)}</div>
+                          <div class="summary-label">Worked Hours</div>
+                          <div class="summary-value">${formatHours(empWorked)}</div>
                         </div>
                       </div>
                     </div>
@@ -1540,11 +1573,10 @@ export default function ReportsBuilder({
                           <th>Day</th>
                           <th>Week</th>
                           <th>Roster</th>
-                          <th style="text-align:center">Hours</th>
+                          <th style="text-align:center">Worked Hrs</th>
                           <th style="text-align:center">In</th>
                           <th style="text-align:center">Out</th>
-                          <th style="text-align:center">#</th>
-                          <th>Clocks</th>
+                          <th>Notes</th>
                           <th style="text-align:right">Status</th>
                         </tr>
                       </thead>
@@ -1557,11 +1589,10 @@ export default function ReportsBuilder({
                               <td>${escapeHtml(row.weekdayLabel)}</td>
                               <td>${escapeHtml(row.weekLabel)}</td>
                               <td>${escapeHtml(row.scheduleLabel)}</td>
-                              <td style="text-align:center">${escapeHtml(formatHours(row.targetHours))}</td>
+                              <td style="text-align:center">${escapeHtml(formatHours(calculateWorkedHoursForRow(row)))}</td>
                               <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
                               <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
-                              <td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>
-                              <td>${escapeHtml(row.clockings.length > 0 ? row.clockings.join(" | ") : "-")}</td>
+                              <td>${escapeHtml(buildRowNote(row) || "-")}</td>
                               <td style="text-align:right"><span class="status ${getStatusCssClass(row.status)}">${escapeHtml(row.status)}</span></td>
                             </tr>
                           `
@@ -2102,8 +2133,8 @@ export default function ReportsBuilder({
                     <div className="mt-2 text-2xl font-bold text-red-700">{generatedTotals.awol}</div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Target Hours</div>
-                    <div className="mt-2 text-2xl font-bold text-slate-900">{formatHours(generatedTotals.targetHours)}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Worked Hours</div>
+                    <div className="mt-2 text-2xl font-bold text-slate-900">{formatHours(generatedTotals.workedHours)}</div>
                   </div>
                 </div>
 
@@ -2132,7 +2163,7 @@ export default function ReportsBuilder({
                           {section.employees.map((employee) => {
                             const inOutCount = employee.rows.filter((row) => row.status === "In/Out").length;
                             const awolCount = employee.rows.filter((row) => row.status === "AWOL").length;
-                            const targetHours = employee.rows.reduce((sum, row) => sum + row.targetHours, 0);
+                            const workedHours = calculateWorkedHoursForEmployee(employee.rows);
 
                             return (
                               <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-6 py-6 first:border-t-0">
@@ -2159,8 +2190,8 @@ export default function ReportsBuilder({
                                       <div className="mt-2 text-xl font-bold text-red-300">{awolCount}</div>
                                     </div>
                                     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                                      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Target Hours</div>
-                                      <div className="mt-2 text-xl font-bold text-white">{formatHours(targetHours)}</div>
+                                      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Worked Hours</div>
+                                      <div className="mt-2 text-xl font-bold text-white">{formatHours(workedHours)}</div>
                                     </div>
                                   </div>
                                 </div>
@@ -2173,11 +2204,10 @@ export default function ReportsBuilder({
                                         <th className="border-b border-slate-200 px-3 py-3 text-left">Day</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-left">Week</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-left">Roster</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-center">Hours</th>
+                                        <th className="border-b border-slate-200 px-3 py-3 text-center">Worked Hrs</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-center">In</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-center">Out</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-center">Clocks</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Clocks</th>
+                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Notes</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-right">Status</th>
                                       </tr>
                                     </thead>
@@ -2191,12 +2221,11 @@ export default function ReportsBuilder({
                                           <td className="border-b border-slate-200 px-3 py-3">{row.weekdayLabel}</td>
                                           <td className="border-b border-slate-200 px-3 py-3">{row.weekLabel}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 font-medium text-slate-900">{row.scheduleLabel}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatHours(row.targetHours)}</td>
+                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatHours(calculateWorkedHoursForRow(row))}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{row.clockCount}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-xs text-slate-500">
-                                            {row.clockings.length > 0 ? row.clockings.join("  |  ") : "No clocks"}
+                                            {buildRowNote(row) || "-"}
                                           </td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-right">
                                             <Badge className={getStatusTone(row.status)}>{row.status}</Badge>
