@@ -10,14 +10,11 @@ import {
   Key,
   Search,
   RefreshCw,
-  ChevronRight,
   Shield,
-  CheckCircle,
   XCircle,
   AlertTriangle,
   Clock,
   ShieldCheck,
-  UserCog,
   LayoutGrid,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -313,7 +310,7 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
   );
 }
 
-function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: any; label: string }) {
+function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: React.ElementType; label: string }) {
   return (
     <button
       onClick={onClick}

@@ -22,8 +22,6 @@ import {
   getAuthSession,
   getDefaultSuperAdminCredentials,
   login,
-  logout,
-  updateOwnPassword,
   type AuthSession,
 } from "@/services/auth";
 

@@ -12,7 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { getAuthSession, updateUserProfile, logout, isSuperAdmin, getRoleLabel, type AuthSession, type AuthRole } from "@/services/auth";
+import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { CommunicationAutomation, CommunicationProfile, ReportTemplate } from "@/types/workflows";
@@ -95,8 +95,6 @@ const ALL_SIDEBAR_ITEMS = [
   { key: "superadmin", label: "Super Admin", icon: Shield },
   { key: "myportal", label: "My Portal", icon: Building2 },
 ] as const;
-
-type SidebarItem = typeof ALL_SIDEBAR_ITEMS[number];
 
 declare const __BUILD_TIMESTAMP__: string;
 
