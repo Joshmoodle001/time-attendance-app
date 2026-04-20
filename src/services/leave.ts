@@ -71,6 +71,18 @@ type RosterSource = {
   storeCode: string;
 };
 
+export type LeaveImportProgress = {
+  phase: "reading" | "parsing" | "matching" | "savingLocal" | "syncingBatch" | "syncingApplications" | "complete";
+  percent: number;
+  message: string;
+  currentRow?: number;
+  totalRows?: number;
+};
+
+type LeaveImportOptions = {
+  onProgress?: (progress: LeaveImportProgress) => void;
+};
+
 const LEAVE_UPLOADS_STORAGE_KEY = "leave-upload-batches-cache-v1";
 const LEAVE_APPLICATIONS_STORAGE_KEY = "leave-applications-cache-v1";
 const LEAVE_REMOTE_SETUP_HINT =
@@ -81,6 +93,31 @@ let leaveRemoteSetupCheck: Promise<boolean> | null = null;
 
 function randomId() {
   return globalThis.crypto?.randomUUID?.() ?? `leave_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function reportImportProgress(
+  onProgress: LeaveImportOptions["onProgress"],
+  progress: LeaveImportProgress
+) {
+  onProgress?.({
+    ...progress,
+    percent: clampPercent(progress.percent),
+  });
+}
+
+async function yieldToBrowser() {
+  await new Promise<void>((resolve) => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+
+    setTimeout(resolve, 0);
+  });
 }
 
 function normalizeText(value: unknown) {
@@ -465,13 +502,58 @@ function parseLeaveRowsFromSheet(sheet: XLSX.WorkSheet, sourceFileName: string) 
     .filter(Boolean) as ParsedLeaveRow[];
 }
 
-export function parseLeaveWorkbook(buffer: ArrayBuffer, sourceFileName: string): ParsedLeaveRow[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
-  return workbook.SheetNames.flatMap((sheetName) => {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) return [] as ParsedLeaveRow[];
-    return parseLeaveRowsFromSheet(sheet, sourceFileName);
+export async function parseLeaveWorkbook(
+  buffer: ArrayBuffer,
+  sourceFileName: string,
+  options?: LeaveImportOptions
+): Promise<ParsedLeaveRow[]> {
+  reportImportProgress(options?.onProgress, {
+    phase: "reading",
+    percent: 5,
+    message: `Opening ${sourceFileName}...`,
   });
+
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
+  const totalSheets = Math.max(workbook.SheetNames.length, 1);
+  const parsedRows: ParsedLeaveRow[] = [];
+
+  for (const [index, sheetName] of workbook.SheetNames.entries()) {
+    reportImportProgress(options?.onProgress, {
+      phase: "parsing",
+      percent: 10 + (index / totalSheets) * 20,
+      message: `Parsing sheet ${index + 1} of ${totalSheets}: ${sheetName}`,
+    });
+
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      await yieldToBrowser();
+      continue;
+    }
+
+    parsedRows.push(...parseLeaveRowsFromSheet(sheet, sourceFileName));
+
+    reportImportProgress(options?.onProgress, {
+      phase: "parsing",
+      percent: 10 + ((index + 1) / totalSheets) * 20,
+      message: `Parsed ${index + 1} of ${totalSheets} sheet${totalSheets === 1 ? "" : "s"} - ${parsedRows.length} leave row${parsedRows.length === 1 ? "" : "s"} found`,
+      currentRow: parsedRows.length,
+      totalRows: parsedRows.length,
+    });
+
+    await yieldToBrowser();
+  }
+
+  reportImportProgress(options?.onProgress, {
+    phase: "parsing",
+    percent: 30,
+    message: parsedRows.length
+      ? `Workbook parsed. ${parsedRows.length} leave row${parsedRows.length === 1 ? "" : "s"} ready to import.`
+      : "Workbook parsed. No leave rows found.",
+    currentRow: parsedRows.length,
+    totalRows: parsedRows.length,
+  });
+
+  return parsedRows;
 }
 
 export async function initializeLeaveDatabase(): Promise<boolean> {
@@ -619,59 +701,88 @@ export async function importLeaveApplications(
   parsedRows: ParsedLeaveRow[],
   fileName: string,
   employees: Employee[],
-  rosters: ShiftRoster[]
+  rosters: ShiftRoster[],
+  options?: LeaveImportOptions
 ) {
   const createdAt = new Date().toISOString();
   const uploadBatchId = randomId();
   const { byCode, byId } = buildEmployeeMaps(employees);
   const rosterSources = buildRosterSources(rosters);
+  const totalRows = parsedRows.length;
+  const applications: LeaveApplication[] = [];
 
-   const applications = parsedRows.map((row) => {
-     const employeeByCode = row.raw_employee_code ? byCode.get(normalizeEmployeeCode(row.raw_employee_code)) || null : null;
-     const employeeById = !employeeByCode && row.raw_id_number ? byId.get(normalizeMatchValue(row.raw_id_number)) || null : null;
-     const matchedEmployee = employeeByCode || employeeById || null;
-     const matchedBy = employeeByCode ? "employee_code" : employeeById ? "id_number" : "";
-     const matchedRoster = matchedEmployee ? matchRosterSource(matchedEmployee, rosterSources.get(normalizeEmployeeCode(matchedEmployee.employee_code)) || []) : null;
+  reportImportProgress(options?.onProgress, {
+    phase: "matching",
+    percent: totalRows > 0 ? 35 : 70,
+    message: totalRows > 0 ? `Matching ${totalRows} leave row${totalRows === 1 ? "" : "s"} to employees and rosters...` : "No leave rows to match.",
+    currentRow: 0,
+    totalRows,
+  });
 
-     const applyStatus: LeaveApplication["apply_status"] = matchedEmployee ? "applied" : "unmatched";
-     const statusReason = matchedEmployee
-       ? matchedRoster
-         ? `Applied to ${matchedRoster.storeName || matchedRoster.sheetName}`
-         : "Matched employee profile by employee code or ID number and applied using fallback employee matching"
-       : row.raw_employee_code || row.raw_id_number
-         ? "No employee profile matched by employee code or ID number"
-         : "The leave row did not include a usable employee code or ID number";
+  const chunkSize = 50;
+  for (let startIndex = 0; startIndex < parsedRows.length; startIndex += chunkSize) {
+    const chunk = parsedRows.slice(startIndex, startIndex + chunkSize);
 
-     return normalizeLeaveApplication({
-       id: randomId(),
-       upload_batch_id: uploadBatchId,
-       row_number: row.row_number,
-       representative_name: row.representative_name,
-       submitted_at: row.submitted_at,
-       place: row.place,
-       territory: row.territory,
-       raw_employee_code: row.raw_employee_code,
-       raw_id_number: row.raw_id_number,
-       merchandiser_name: row.merchandiser_name,
-       merchandiser_surname: row.merchandiser_surname,
-       leave_type: row.leave_type,
-       leave_days: row.leave_days,
-       leave_start_date: row.leave_start_date,
-       leave_end_date: row.leave_end_date,
-       form_link: row.form_link,
-       comments: row.comments,
-       matched_employee_id: matchedEmployee?.id || "",
-       matched_employee_code: matchedEmployee?.employee_code || "",
-       matched_by: matchedBy,
-       matched_roster_sheet_name: matchedRoster?.sheetName || "",
-       matched_roster_store_name: matchedRoster?.storeName || "",
-       matched_roster_store_code: matchedRoster?.storeCode || "",
-       apply_status: applyStatus,
-       status_reason: statusReason,
-       source_file_name: fileName,
-       created_at: createdAt,
-     });
-   });
+    chunk.forEach((row) => {
+      const employeeByCode = row.raw_employee_code ? byCode.get(normalizeEmployeeCode(row.raw_employee_code)) || null : null;
+      const employeeById = !employeeByCode && row.raw_id_number ? byId.get(normalizeMatchValue(row.raw_id_number)) || null : null;
+      const matchedEmployee = employeeByCode || employeeById || null;
+      const matchedBy = employeeByCode ? "employee_code" : employeeById ? "id_number" : "";
+      const matchedRoster = matchedEmployee ? matchRosterSource(matchedEmployee, rosterSources.get(normalizeEmployeeCode(matchedEmployee.employee_code)) || []) : null;
+
+      const applyStatus: LeaveApplication["apply_status"] = matchedEmployee ? "applied" : "unmatched";
+      const statusReason = matchedEmployee
+        ? matchedRoster
+          ? `Applied to ${matchedRoster.storeName || matchedRoster.sheetName}`
+          : "Matched employee profile by employee code or ID number and applied using fallback employee matching"
+        : row.raw_employee_code || row.raw_id_number
+          ? "No employee profile matched by employee code or ID number"
+          : "The leave row did not include a usable employee code or ID number";
+
+      applications.push(
+        normalizeLeaveApplication({
+          id: randomId(),
+          upload_batch_id: uploadBatchId,
+          row_number: row.row_number,
+          representative_name: row.representative_name,
+          submitted_at: row.submitted_at,
+          place: row.place,
+          territory: row.territory,
+          raw_employee_code: row.raw_employee_code,
+          raw_id_number: row.raw_id_number,
+          merchandiser_name: row.merchandiser_name,
+          merchandiser_surname: row.merchandiser_surname,
+          leave_type: row.leave_type,
+          leave_days: row.leave_days,
+          leave_start_date: row.leave_start_date,
+          leave_end_date: row.leave_end_date,
+          form_link: row.form_link,
+          comments: row.comments,
+          matched_employee_id: matchedEmployee?.id || "",
+          matched_employee_code: matchedEmployee?.employee_code || "",
+          matched_by: matchedBy,
+          matched_roster_sheet_name: matchedRoster?.sheetName || "",
+          matched_roster_store_name: matchedRoster?.storeName || "",
+          matched_roster_store_code: matchedRoster?.storeCode || "",
+          apply_status: applyStatus,
+          status_reason: statusReason,
+          source_file_name: fileName,
+          created_at: createdAt,
+        })
+      );
+    });
+
+    const processedRows = Math.min(startIndex + chunk.length, totalRows);
+    reportImportProgress(options?.onProgress, {
+      phase: "matching",
+      percent: 35 + (processedRows / Math.max(totalRows, 1)) * 35,
+      message: `Matched ${processedRows} of ${totalRows} leave row${totalRows === 1 ? "" : "s"}.`,
+      currentRow: processedRows,
+      totalRows,
+    });
+
+    await yieldToBrowser();
+  }
 
   const uploadBatch = normalizeLeaveBatch({
     id: uploadBatchId,
@@ -684,10 +795,25 @@ export async function importLeaveApplications(
 
   const mergedUploads = mergeLeaveUploads(loadLocalLeaveUploads(), [uploadBatch]);
   const mergedApplications = mergeLeaveApplications(loadLocalLeaveApplications(), applications);
+
+  reportImportProgress(options?.onProgress, {
+    phase: "savingLocal",
+    percent: 74,
+    message: "Saving leave upload locally...",
+    currentRow: totalRows,
+    totalRows,
+  });
   saveLocalLeaveUploads(mergedUploads);
   saveLocalLeaveApplications(mergedApplications);
 
   try {
+    reportImportProgress(options?.onProgress, {
+      phase: "syncingBatch",
+      percent: 82,
+      message: "Syncing upload batch...",
+      currentRow: totalRows,
+      totalRows,
+    });
     const { error: uploadError } = await supabase.from("leave_upload_batches").insert(uploadBatch);
     if (uploadError) {
       const message = getLeaveStorageErrorMessage(uploadError);
@@ -695,6 +821,13 @@ export async function importLeaveApplications(
       return { success: true, batch: uploadBatch, applications, error: message };
     }
 
+    reportImportProgress(options?.onProgress, {
+      phase: "syncingApplications",
+      percent: 90,
+      message: "Syncing leave applications...",
+      currentRow: totalRows,
+      totalRows,
+    });
     const { error: applicationsError } = await supabase.from("leave_applications").insert(
       applications.map((item) => ({
         id: item.id,
@@ -732,6 +865,13 @@ export async function importLeaveApplications(
       return { success: true, batch: uploadBatch, applications, error: message };
     }
 
+    reportImportProgress(options?.onProgress, {
+      phase: "complete",
+      percent: 100,
+      message: "Leave import synced successfully.",
+      currentRow: totalRows,
+      totalRows,
+    });
     return { success: true, batch: uploadBatch, applications };
   } catch (error) {
     const message = getLeaveStorageErrorMessage(error);

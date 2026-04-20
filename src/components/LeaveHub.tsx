@@ -15,12 +15,20 @@ import {
   deleteLeaveApplication,
   deleteLeaveByDateRange,
   type LeaveApplication,
+  type LeaveImportProgress,
   type LeaveUploadBatch,
 } from "@/services/leave";
 import type { Employee } from "@/services/database";
 
 type LeaveHubProps = {
   employees: Employee[];
+};
+
+type UploadProgressState = LeaveImportProgress & {
+  currentFile: number;
+  totalFiles: number;
+  fileName: string;
+  status: "active" | "complete" | "error";
 };
 
 function formatDateLabel(value: string) {
@@ -55,6 +63,7 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
   const [applicationStatusFilter, setApplicationStatusFilter] = useState("all");
   const [statusMessage, setStatusMessage] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<UploadProgressState | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -115,7 +124,36 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
 
+    const updateImportProgress = (
+      fileIndex: number,
+      fileName: string,
+      progress: LeaveImportProgress,
+      status: UploadProgressState["status"] = "active"
+    ) => {
+      const overallPercent = Math.min(100, ((fileIndex - 1) / files.length) * 100 + progress.percent / files.length);
+
+      setImportProgress({
+        ...progress,
+        percent: overallPercent,
+        currentFile: fileIndex,
+        totalFiles: files.length,
+        fileName,
+        status,
+      });
+    };
+
     setIsImporting(true);
+    setStatusMessage("");
+    setImportProgress({
+      phase: "reading",
+      percent: 0,
+      message: `Preparing ${files.length} leave file${files.length === 1 ? "" : "s"}...`,
+      currentFile: 0,
+      totalFiles: files.length,
+      fileName: "",
+      status: "active",
+    });
+
     try {
       const rosters = await getShiftRosters();
       let importedRows = 0;
@@ -123,23 +161,62 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
       let unmatchedRows = 0;
       const notices: string[] = [];
 
-      for (const file of files) {
+      for (const [index, file] of files.entries()) {
+        const fileNumber = index + 1;
+        updateImportProgress(fileNumber, file.name, {
+          phase: "reading",
+          percent: 2,
+          message: `Reading ${file.name}...`,
+        });
+
         const buffer = await file.arrayBuffer();
-        const parsedRows = parseLeaveWorkbook(buffer, file.name);
+        const parsedRows = await parseLeaveWorkbook(buffer, file.name, {
+          onProgress: (progress) => updateImportProgress(fileNumber, file.name, progress),
+        });
 
         if (parsedRows.length === 0) {
           notices.push(`${file.name}: no leave rows found.`);
+          updateImportProgress(
+            fileNumber,
+            file.name,
+            {
+              phase: "complete",
+              percent: 100,
+              message: `${file.name} finished with no leave rows found.`,
+            },
+            "active"
+          );
           continue;
         }
 
-        const result = await importLeaveApplications(parsedRows, file.name, employees, rosters);
+        const result = await importLeaveApplications(parsedRows, file.name, employees, rosters, {
+          onProgress: (progress) => updateImportProgress(fileNumber, file.name, progress),
+        });
         importedRows += result.batch.total_rows;
         appliedRows += result.batch.applied_rows;
         unmatchedRows += result.batch.unmatched_rows;
         if (result.error) notices.push(`${file.name}: ${result.error}`);
       }
 
+      setImportProgress({
+        phase: "complete",
+        percent: 98,
+        message: "Refreshing leave logs...",
+        currentFile: files.length,
+        totalFiles: files.length,
+        fileName: files[files.length - 1]?.name || "",
+        status: "active",
+      });
       await loadLeaveData();
+      setImportProgress({
+        phase: "complete",
+        percent: 100,
+        message: `Leave import complete. ${importedRows} row${importedRows === 1 ? "" : "s"} processed.`,
+        currentFile: files.length,
+        totalFiles: files.length,
+        fileName: files[files.length - 1]?.name || "",
+        status: "complete",
+      });
       setStatusMessage(
         [
           `Imported ${importedRows} leave row${importedRows === 1 ? "" : "s"} from ${files.length} file${files.length === 1 ? "" : "s"}.`,
@@ -151,6 +228,23 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
           .join(" ")
       );
     } catch (error) {
+      setImportProgress((current) =>
+        current
+          ? {
+              ...current,
+              status: "error",
+              message: `Import failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+            }
+          : {
+              phase: "complete",
+              percent: 100,
+              message: `Import failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+              currentFile: files.length,
+              totalFiles: files.length,
+              fileName: files[files.length - 1]?.name || "",
+              status: "error",
+            }
+      );
       setStatusMessage(`Leave import failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setIsImporting(false);
@@ -279,6 +373,59 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
             </Button>
             <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" multiple className="hidden" onChange={handleImport} />
           </div>
+
+          {importProgress ? (
+            <div className="section-tech-subpanel px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-[240px] flex-1">
+                  <div className="text-sm font-semibold text-white">
+                    {importProgress.status === "error"
+                      ? "Leave import failed"
+                      : importProgress.status === "complete"
+                        ? "Leave import complete"
+                        : "Uploading leave workbook"}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-400">{importProgress.message}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {importProgress.totalFiles > 1
+                      ? `File ${Math.max(importProgress.currentFile, 1)} of ${importProgress.totalFiles}${importProgress.fileName ? ` - ${importProgress.fileName}` : ""}`
+                      : importProgress.fileName || "Waiting for file details..."}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div
+                    className={`text-lg font-semibold ${
+                      importProgress.status === "error"
+                        ? "text-red-400"
+                        : importProgress.status === "complete"
+                          ? "text-emerald-400"
+                          : "text-cyan-400"
+                    }`}
+                  >
+                    {Math.round(importProgress.percent)}%
+                  </div>
+                  {typeof importProgress.totalRows === "number" && importProgress.totalRows > 0 ? (
+                    <div className="text-xs text-slate-400">
+                      {Math.min(importProgress.currentRow || importProgress.totalRows, importProgress.totalRows)} / {importProgress.totalRows} rows
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    importProgress.status === "error"
+                      ? "bg-gradient-to-r from-red-500 to-rose-400"
+                      : importProgress.status === "complete"
+                        ? "bg-gradient-to-r from-emerald-500 to-green-400"
+                        : "bg-gradient-to-r from-cyan-500 to-sky-400"
+                  }`}
+                  style={{ width: `${importProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
 
           {statusMessage ? <div className="section-tech-subpanel px-4 py-3 text-sm text-slate-400">{statusMessage}</div> : null}
         </CardContent>
