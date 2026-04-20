@@ -1,12 +1,11 @@
-import React, { Suspense, lazy, useCallback, useDeferredValue, useMemo, useRef, useState, useEffect } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import React, { Suspense, lazy, startTransition, useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { uploadAttendanceFile } from "@/services/storage";
-import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployees, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
+import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, importEmployees, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
 import type { Employee, EmployeeInput } from "@/services/database";
 import { getConfig, saveConfig, testConnection, getSyncLogs, syncFromIpulse, clearSyncLogs, startAutoSync, stopAutoSync, IPULSE_SETUP_SQL } from "@/services/ipulse";
 import type { IpulseConfig, SyncLog } from "@/services/ipulse";
-import { getClockEvents, getClockEventsForEmployeeProfile, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
-import { getEmployeeUpdateUploadLogs, saveEmployeeUpdateUploadLog, markEmployeeUpdateUploadLogRolledBack, clearEmployeeUpdateUploadLogs, type EmployeeUpdateReportItem, type EmployeeUpdateUploadLog } from "@/services/employeeUpdateLogs";
+import { getClockEvents, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
+import { saveEmployeeUpdateUploadLog, type EmployeeUpdateReportItem, type EmployeeUpdateUploadLog } from "@/services/employeeUpdateLogs";
 import { getCombinedCalendarEvents, getWeekCycleLabel, loadCalendarEvents } from "@/services/calendar";
 import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/services/leave";
 import { getShiftRosters } from "@/services/shifts";
@@ -173,17 +172,6 @@ function loadPdfRuntime() {
   return pdfRuntimePromise;
 }
 
-function deriveEmployeeLocationsFromProfiles(profiles: Employee[]) {
-  const regions = [...new Set(profiles.map((employee) => employee.region).filter(Boolean))].sort();
-  const stores = [...new Map(
-    profiles
-      .filter((employee) => employee.store)
-      .map((employee) => [employee.store, { store: employee.store, region: employee.region }])
-  ).values()];
-
-  return { regions, stores };
-}
-
 function mapEmployeeToRegionMaster(employee: Employee): Employee {
   const storeGroup = getStoreGrouping(employee.store, employee.store_code, employee.region);
   const fullName = `${String(employee.first_name || "").trim()} ${String(employee.last_name || "").trim()}`.trim();
@@ -277,15 +265,6 @@ function formatClockTime(date: Date) {
     minute: "2-digit",
     hour12: true,
   }).toLowerCase();
-}
-
-function buildEmployeeClockProfileCacheKey(employee: Pick<Employee, "employee_code" | "id_number" | "first_name" | "last_name">) {
-  return [
-    normalizeEmployeeCode(employee.employee_code),
-    String(employee.id_number || "").trim(),
-    String(employee.first_name || "").trim().toLowerCase(),
-    String(employee.last_name || "").trim().toLowerCase(),
-  ].join("__");
 }
 
 function normalizeClockValue(value: unknown) {
@@ -1365,7 +1344,6 @@ export default function App() {
   const deviceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const employeeUploadInputRef = useRef<HTMLInputElement | null>(null);
   const employeeUpdateUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const clockProfileEventCacheRef = useRef<Map<string, BiometricClockEvent[]>>(new Map());
   const ipulseAutoSyncRunningRef = useRef(false);
 
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -1477,22 +1455,17 @@ export default function App() {
 
   // Employee state
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [employeeSearch, setEmployeeSearch] = useState("");
-  const deferredEmployeeSearch = useDeferredValue(employeeSearch);
-  const [employeeFilterRegion, setEmployeeFilterRegion] = useState("all");
-  const [employeeFilterStatus, setEmployeeFilterStatus] = useState("all");
-  const [employeeLocations, setEmployeeLocations] = useState<{ regions: string[]; stores: { store: string; region: string }[] }>({ regions: [], stores: [] });
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const [isAddingEmployee, setIsAddingEmployee] = useState(false);
-  const employeeTableRef = useRef<HTMLDivElement>(null);
+  const employeesRef = useRef<Employee[]>([]);
   const [clockOverview, setClockOverview] = useState({
     totalEvents: 0,
     employeesWithClocks: 0,
     verifiedEvents: 0,
   });
-  const [employeeClockSummaryMap, setEmployeeClockSummaryMap] = useState<
-    Map<string, { totalEvents: number; verifiedEvents: number; lastClockedAt: string; stores: string[] }>
-  >(new Map());
+  const clockOverviewRef = useRef({
+    totalEvents: 0,
+    employeesWithClocks: 0,
+    verifiedEvents: 0,
+  });
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   const [isLoadingClockEvents, setIsLoadingClockEvents] = useState(false);
   const employeeRequestRef = useRef<{ fetchedAt: number; inFlight: boolean }>({
@@ -1520,33 +1493,11 @@ export default function App() {
     leaveApplicationsForRange: Awaited<ReturnType<typeof getLeaveApplications>>;
     fetchedAt: number;
   } | null>(null);
-  const [selectedClockProfileEmployee, setSelectedClockProfileEmployee] = useState<Employee | null>(null);
-  const [selectedClockProfileEvents, setSelectedClockProfileEvents] = useState<BiometricClockEvent[]>([]);
-  const [isLoadingClockProfile, setIsLoadingClockProfile] = useState(false);
-  const [clockProfileLoadProgress, setClockProfileLoadProgress] = useState(0);
-  const [clockProfileLoadMessage, setClockProfileLoadMessage] = useState("");
-  const [clockProfileSearch, setClockProfileSearch] = useState("");
-  const [clockProfileStartDate, setClockProfileStartDate] = useState("");
-  const [clockProfileEndDate, setClockProfileEndDate] = useState("");
-  const deferredClockProfileSearch = useDeferredValue(clockProfileSearch);
+  const activeNavRef = useRef<(typeof sidebarItems)[number]["key"]>(activeNav);
+  const overviewTrendRequestRef = useRef(0);
   const [isUpdatingEmployeesFromStaffList, setIsUpdatingEmployeesFromStaffList] = useState(false);
   const [staffListUploadProgress, setStaffListUploadProgress] = useState(0);
   const [staffListUploadStage, setStaffListUploadStage] = useState("");
-  const [staffListUploadResult, setStaffListUploadResult] = useState<{
-    logId?: string;
-    fileName: string;
-    createdAt: string;
-    matchedCount: number;
-    updatedCount: number;
-    inactiveCount: number;
-    unchangedCount: number;
-    unmatchedCount: number;
-    reportItems: EmployeeUpdateReportItem[];
-    remoteMessage?: string;
-  } | null>(null);
-  const [staffListUploadLogs, setStaffListUploadLogs] = useState<EmployeeUpdateUploadLog[]>([]);
-  const [expandedStaffListLogDates, setExpandedStaffListLogDates] = useState<Set<string>>(new Set());
-  const [rollingBackEmergencyUploadId, setRollingBackEmergencyUploadId] = useState<string | null>(null);
   const [reportTemplates] = useState<ReportTemplate[]>(() => loadLocalArrayState<ReportTemplate>(REPORT_TEMPLATES_STORAGE_KEY));
   const [communicationProfiles, setCommunicationProfiles] = useState<CommunicationProfile[]>(() =>
     loadLocalArrayState<CommunicationProfile>(COMMUNICATION_PROFILES_STORAGE_KEY)
@@ -1554,50 +1505,26 @@ export default function App() {
   const [communicationAutomations, setCommunicationAutomations] = useState<CommunicationAutomation[]>(() =>
     loadLocalArrayState<CommunicationAutomation>(COMMUNICATION_AUTOMATIONS_STORAGE_KEY)
   );
-  const [employeeFormData, setEmployeeFormData] = useState<EmployeeInput>({
-    employee_code: "",
-    first_name: "",
-    last_name: "",
-    gender: "",
-    title: "",
-    alias: "",
-    id_number: "",
-    email: "",
-    phone: "",
-    job_title: "",
-    department: "",
-    region: "",
-    store: "",
-    store_code: "",
-    hire_date: "",
-    person_type: "",
-    fingerprints_enrolled: null,
-    company: "",
-    branch: "",
-    business_unit: "",
-    cost_center: "",
-    team: "",
-    ta_integration_id_1: "",
-    ta_integration_id_2: "",
-    access_profile: "",
-    ta_enabled: null,
-    permanent: null,
-    active: true,
-    termination_reason: "",
-    termination_date: "",
-    status: "active",
-  });
+
+  useEffect(() => {
+    employeesRef.current = employees;
+  }, [employees]);
+
+  useEffect(() => {
+    clockOverviewRef.current = clockOverview;
+  }, [clockOverview]);
 
   // Load employees from database
   const loadEmployees = useCallback(async (options?: { force?: boolean }) => {
     const now = Date.now();
+    const cachedEmployees = employeesRef.current;
 
     if (
       !options?.force &&
-      employees.length > 0 &&
+      cachedEmployees.length > 0 &&
       now - employeeRequestRef.current.fetchedAt < EMPLOYEE_REFRESH_TTL_MS
     ) {
-      return employees;
+      return cachedEmployees;
     }
 
     if (employeeRequestRef.current.inFlight && employeeLoadPromiseRef.current) {
@@ -1612,8 +1539,8 @@ export default function App() {
         await initializeEmployeeDatabase();
         const data = await getEmployees();
         const mapped = data.map(mapEmployeeToRegionMaster);
+        employeesRef.current = mapped;
         setEmployees(mapped);
-        setEmployeeLocations(deriveEmployeeLocationsFromProfiles(mapped));
         employeeRequestRef.current = {
           fetchedAt: Date.now(),
           inFlight: false,
@@ -1630,41 +1557,16 @@ export default function App() {
     })();
 
     return employeeLoadPromiseRef.current;
-  }, [employees]);
-
-  const loadEmployeeUpdateLogs = async () => {
-    const logs = await getEmployeeUpdateUploadLogs();
-    setStaffListUploadLogs(logs);
-    const latestDate = logs[0]?.created_at ? formatDateValue(new Date(logs[0].created_at)) : "";
-    if (latestDate) {
-      setExpandedStaffListLogDates((prev) => (prev.has(latestDate) ? prev : new Set([...prev, latestDate])));
-    }
-    const latestLog = logs[0];
-    if (latestLog) {
-      setStaffListUploadResult({
-        logId: latestLog.id,
-        fileName: latestLog.file_name,
-        createdAt: latestLog.created_at,
-        matchedCount: latestLog.matched_profiles,
-        updatedCount: latestLog.updated_profiles,
-        inactiveCount: latestLog.inactive_profiles,
-        unchangedCount: latestLog.unchanged_profiles,
-        unmatchedCount: latestLog.unmatched_rows,
-        reportItems: latestLog.items || [],
-        remoteMessage: latestLog.remote_message || "",
-      });
-    } else {
-      setStaffListUploadResult(null);
-    }
-  };
+  }, []);
 
   const loadClockEvents = useCallback(async (options?: { force?: boolean }) => {
     const now = Date.now();
     if (!options?.force && now - clockRequestRef.current.fetchedAt < CLOCK_REFRESH_TTL_MS) {
+      const cachedOverview = clockOverviewRef.current;
       return {
-        totalEvents: clockOverview.totalEvents,
-        employeesWithClocks: clockOverview.employeesWithClocks,
-        verifiedEvents: clockOverview.verifiedEvents,
+        totalEvents: cachedOverview.totalEvents,
+        employeesWithClocks: cachedOverview.employeesWithClocks,
+        verifiedEvents: cachedOverview.verifiedEvents,
         summaries: [],
       };
     }
@@ -1684,19 +1586,11 @@ export default function App() {
           employeesWithClocks: overview.employeesWithClocks,
           verifiedEvents: overview.verifiedEvents,
         });
-        setEmployeeClockSummaryMap(
-          new Map(
-            overview.summaries.map((summary) => [
-              normalizeEmployeeCode(summary.employee_code),
-              {
-                totalEvents: summary.total_events,
-                verifiedEvents: summary.verified_events,
-                lastClockedAt: summary.last_clocked_at,
-                stores: summary.store ? [summary.store] : [],
-              },
-            ])
-          )
-        );
+        clockOverviewRef.current = {
+          totalEvents: overview.totalEvents,
+          employeesWithClocks: overview.employeesWithClocks,
+          verifiedEvents: overview.verifiedEvents,
+        };
         clockRequestRef.current = {
           fetchedAt: Date.now(),
           inFlight: false,
@@ -1713,7 +1607,7 @@ export default function App() {
     })();
 
     return clockLoadPromiseRef.current;
-  }, [clockOverview.employeesWithClocks, clockOverview.totalEvents, clockOverview.verifiedEvents]);
+  }, []);
 
   // Separate state for trend loading to allow pie chart to show first
   const [trendLoading, setTrendLoading] = useState(false);
@@ -1857,8 +1751,13 @@ export default function App() {
       if (trendRangeTimeoutRef.current) {
         clearTimeout(trendRangeTimeoutRef.current);
       }
-      
+
+      const trendRequestId = ++overviewTrendRequestRef.current;
       trendRangeTimeoutRef.current = setTimeout(async () => {
+        if (trendRequestId !== overviewTrendRequestRef.current || activeNavRef.current !== "overview") {
+          return;
+        }
+
         setTrendLoading(true);
         try {
           const cache = overviewDataCacheRef.current;
@@ -1873,6 +1772,10 @@ export default function App() {
               getLeaveApplications({ startDate: overviewStartDate, endDate: overviewEndDate }),
               getClockEvents({ startDate: overviewStartDate, endDate: overviewEndDate }),
             ]);
+
+          if (trendRequestId !== overviewTrendRequestRef.current || activeNavRef.current !== "overview") {
+            return;
+          }
 
           // Update cache with range data
           cache.rangeAttendance = rangeAttendance;
@@ -1911,13 +1814,19 @@ export default function App() {
                 leaveCodesByDate: rangeLeaveCodesByDate,
               },
             });
-            
+
+            if (trendRequestId !== overviewTrendRequestRef.current || activeNavRef.current !== "overview") {
+              return;
+            }
+
             setOverviewTrendSeries(derivedTrendSeries);
           }
         } catch (error) {
           console.error("Error loading trend data:", error);
         } finally {
-          setTrendLoading(false);
+          if (trendRequestId === overviewTrendRequestRef.current) {
+            setTrendLoading(false);
+          }
         }
       }, 300);
 
@@ -2022,16 +1931,29 @@ export default function App() {
   useEffect(() => {
     if (!trialResetReady) return;
     if (activeNav === "employees") {
-      void loadEmployeeUpdateLogs();
-    }
-  }, [activeNav, trialResetReady]);
-
-  useEffect(() => {
-    if (!trialResetReady) return;
-    if (activeNav === "employees") {
       void loadClockEvents();
     }
   }, [activeNav, loadClockEvents, trialResetReady]);
+
+  useEffect(() => {
+    activeNavRef.current = activeNav;
+    if (activeNav === "overview") return;
+
+    overviewTrendRequestRef.current += 1;
+    if (trendRangeTimeoutRef.current) {
+      clearTimeout(trendRangeTimeoutRef.current);
+      trendRangeTimeoutRef.current = null;
+    }
+    setTrendLoading(false);
+  }, [activeNav]);
+
+  useEffect(() => {
+    return () => {
+      if (trendRangeTimeoutRef.current) {
+        clearTimeout(trendRangeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!trialResetReady) return;
@@ -2099,244 +2021,6 @@ export default function App() {
     }
   }, [communicationAutomations, trialResetReady]);
 
-  const employeesWithClockHistory = clockOverview.employeesWithClocks;
-
-  const groupedStaffListUploadLogs = useMemo(() => {
-    const grouped = new Map<string, EmployeeUpdateUploadLog[]>();
-    staffListUploadLogs.forEach((log) => {
-      const dateKey = formatDateValue(new Date(log.created_at));
-      if (!grouped.has(dateKey)) grouped.set(dateKey, []);
-      grouped.get(dateKey)!.push(log);
-    });
-
-    return Array.from(grouped.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([dateKey, logs]) => ({
-        dateKey,
-        logs: logs.sort((a, b) => b.created_at.localeCompare(a.created_at)),
-      }));
-  }, [staffListUploadLogs]);
-
-  const latestStaffListUploadLog = staffListUploadResult
-    ? staffListUploadLogs.find((log) =>
-        staffListUploadResult.logId
-          ? log.id === staffListUploadResult.logId
-          : log.created_at === staffListUploadResult.createdAt && log.file_name === staffListUploadResult.fileName
-      ) || null
-    : null;
-
-  useEffect(() => {
-    let alive = true;
-
-    const loadSelectedClockProfileEvents = async () => {
-      if (!selectedClockProfileEmployee) {
-        setSelectedClockProfileEvents([]);
-        setIsLoadingClockProfile(false);
-        setClockProfileLoadProgress(0);
-        setClockProfileLoadMessage("");
-        return;
-      }
-
-      const cacheKey = buildEmployeeClockProfileCacheKey(selectedClockProfileEmployee);
-      const cachedEvents = clockProfileEventCacheRef.current.get(cacheKey);
-      if (cachedEvents) {
-        setSelectedClockProfileEvents(cachedEvents);
-        setIsLoadingClockProfile(false);
-        setClockProfileLoadProgress(100);
-        setClockProfileLoadMessage(
-          cachedEvents.length > 0
-            ? `Loaded ${cachedEvents.length} cached clock event${cachedEvents.length === 1 ? "" : "s"} for this employee.`
-            : "No matching clock events were found for this employee."
-        );
-        return;
-      }
-
-      setIsLoadingClockProfile(true);
-      setClockProfileLoadProgress(18);
-      setClockProfileLoadMessage("Loading saved clock history for this employee...");
-      setClockProfileLoadProgress(52);
-      const events = await getClockEventsForEmployeeProfile(selectedClockProfileEmployee);
-
-      if (!alive) return;
-      clockProfileEventCacheRef.current.set(cacheKey, events);
-      setSelectedClockProfileEvents(events);
-      setClockProfileLoadProgress(100);
-      setIsLoadingClockProfile(false);
-      setClockProfileLoadMessage(
-        events.length > 0
-          ? `Loaded ${events.length} clock event${events.length === 1 ? "" : "s"} for this employee.`
-          : "No matching clock events were found for this employee."
-      );
-    };
-
-    void loadSelectedClockProfileEvents();
-    return () => {
-      alive = false;
-    };
-  }, [selectedClockProfileEmployee]);
-
-  const selectedClockProfileFilteredEvents = useMemo(() => {
-    const queryText = deferredClockProfileSearch.trim().toLowerCase();
-
-    return selectedClockProfileEvents.filter((event) => {
-      const haystack = [
-        event.employee_code,
-        event.first_name,
-        event.last_name,
-        event.alias,
-        event.id_number,
-        event.device_name,
-        event.store,
-        event.method,
-        event.direction,
-        event.source_file_name,
-        event.department,
-        event.team,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch = !queryText || haystack.includes(queryText);
-      const matchesStartDate = !clockProfileStartDate || event.clock_date >= clockProfileStartDate;
-      const matchesEndDate = !clockProfileEndDate || event.clock_date <= clockProfileEndDate;
-      return matchesSearch && matchesStartDate && matchesEndDate;
-    });
-  }, [selectedClockProfileEvents, deferredClockProfileSearch, clockProfileStartDate, clockProfileEndDate]);
-
-  const selectedClockProfileAvailableDateRange = useMemo(() => {
-    const orderedEvents = [...selectedClockProfileEvents].sort((a, b) => b.clock_date.localeCompare(a.clock_date));
-    return {
-      latest: orderedEvents[0]?.clock_date || "",
-      earliest: orderedEvents[orderedEvents.length - 1]?.clock_date || "",
-    };
-  }, [selectedClockProfileEvents]);
-
-  const selectedClockProfileTimeline = useMemo(() => {
-    const grouped = new Map<string, BiometricClockEvent[]>();
-
-    selectedClockProfileFilteredEvents.forEach((event) => {
-      const dateKey = event.clock_date || event.clocked_at.slice(0, 10);
-      if (!grouped.has(dateKey)) grouped.set(dateKey, []);
-      grouped.get(dateKey)!.push(event);
-    });
-
-    return Array.from(grouped.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([dateKey, events]) => ({
-        dateKey,
-        events: [...events].sort((a, b) => b.clocked_at.localeCompare(a.clocked_at)),
-      }));
-  }, [selectedClockProfileFilteredEvents]);
-
-  const selectedClockProfileSummary = useMemo(() => {
-    if (!selectedClockProfileEmployee) {
-      return {
-        totalEvents: 0,
-        verifiedEvents: 0,
-        grantedEvents: 0,
-        stores: [] as string[],
-        devices: [] as string[],
-        firstClockedAt: "",
-        lastClockedAt: "",
-      };
-    }
-
-    const filteredEvents = selectedClockProfileFilteredEvents;
-    const timelineEvents = [...filteredEvents].sort((a, b) => a.clocked_at.localeCompare(b.clocked_at));
-
-    return {
-      totalEvents: filteredEvents.length,
-      verifiedEvents: filteredEvents.filter((event) => event.access_verified).length,
-      grantedEvents: filteredEvents.filter((event) => event.access_granted).length,
-      stores: Array.from(new Set(filteredEvents.map((event) => event.store).filter(Boolean))),
-      devices: Array.from(new Set(filteredEvents.map((event) => event.device_name).filter(Boolean))),
-      firstClockedAt: timelineEvents[0]?.clocked_at || "",
-      lastClockedAt: timelineEvents[timelineEvents.length - 1]?.clocked_at || "",
-    };
-  }, [selectedClockProfileEmployee, selectedClockProfileFilteredEvents]);
-
-  const handleSaveEmployee = async () => {
-    if (!employeeFormData.employee_code || !employeeFormData.first_name || !employeeFormData.last_name) {
-      setSaveMessage("Employee code, first name, and last name are required");
-      return;
-    }
-
-    const nextEmployeeFormData: EmployeeInput =
-      employeeFormData.termination_reason || employeeFormData.termination_date
-        ? {
-            ...employeeFormData,
-            active: false,
-            status: "inactive",
-          }
-        : employeeFormData;
-
-    if (editingEmployee) {
-      const result = await updateEmployee(editingEmployee.id, nextEmployeeFormData);
-      if (result.success) {
-        setSaveMessage(result.error ? `Employee updated. ${result.error}` : "Employee updated successfully");
-        setEditingEmployee(null);
-        setIsAddingEmployee(false);
-        resetEmployeeForm();
-        loadEmployees();
-      } else {
-        setSaveMessage(`Error: ${result.error}`);
-      }
-    } else {
-      const result = await createEmployee(nextEmployeeFormData);
-      if (result.success) {
-        setSaveMessage(result.error ? `Employee created. ${result.error}` : "Employee created successfully");
-        setIsAddingEmployee(false);
-        resetEmployeeForm();
-        loadEmployees();
-      } else {
-        setSaveMessage(`Error: ${result.error}`);
-      }
-    }
-  };
-
-  const handleDeleteEmployee = async (id: string) => {
-    if (confirm("Are you sure you want to delete this employee?")) {
-      const result = await deleteEmployee(id);
-      if (result.success) {
-        setSaveMessage(result.error ? `Employee deleted. ${result.error}` : "Employee deleted successfully");
-        loadEmployees();
-      } else {
-        setSaveMessage(`Error: ${result.error}`);
-      }
-    }
-  };
-
-  const openEmployeeClockProfile = (employee: Employee) => {
-    setSelectedClockProfileEmployee(employee);
-    setSelectedClockProfileEvents([]);
-    setClockProfileLoadProgress(0);
-    setClockProfileLoadMessage("");
-    setClockProfileSearch("");
-    setClockProfileStartDate("");
-    setClockProfileEndDate("");
-  };
-
-  const closeEmployeeClockProfile = () => {
-    setSelectedClockProfileEmployee(null);
-    setSelectedClockProfileEvents([]);
-    setIsLoadingClockProfile(false);
-    setClockProfileLoadProgress(0);
-    setClockProfileLoadMessage("");
-    setClockProfileSearch("");
-    setClockProfileStartDate("");
-    setClockProfileEndDate("");
-  };
-
-  const toggleStaffListLogDate = (dateKey: string) => {
-    setExpandedStaffListLogDates((prev) => {
-      const next = new Set(prev);
-      if (next.has(dateKey)) next.delete(dateKey);
-      else next.add(dateKey);
-      return next;
-    });
-  };
-
   const exportEmployeeUpdateLogWorkbook = async (log: EmployeeUpdateUploadLog) => {
     const xlsx = await loadXlsxRuntime();
     const workbook = xlsx.utils.book_new();
@@ -2379,187 +2063,6 @@ export default function App() {
     const safeDate = log.created_at.slice(0, 10);
     const safeName = log.file_name.replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
     xlsx.writeFile(workbook, `${safeName || "employee-update"}-${safeDate}.xlsx`);
-  };
-
-  const filteredEmployees = useMemo(() => {
-    const query = deferredEmployeeSearch.trim().toLowerCase();
-
-    return employees.filter((employee) => {
-      const matchesStatus = employeeFilterStatus === "all" || employee.status === employeeFilterStatus;
-      const matchesRegion = employeeFilterRegion === "all" || employee.region === employeeFilterRegion;
-      const haystack = [
-        employee.employee_code,
-        employee.first_name,
-        employee.last_name,
-        employee.id_number,
-        employee.alias,
-        employee.email,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const matchesSearch = !query || haystack.includes(query);
-      return matchesStatus && matchesRegion && matchesSearch;
-    });
-  }, [deferredEmployeeSearch, employeeFilterRegion, employeeFilterStatus, employees]);
-
-  // Virtualizer for employee table
-  const employeeRowVirtualizer = useVirtualizer({
-    count: filteredEmployees.length,
-    getScrollElement: () => employeeTableRef.current,
-    estimateSize: () => 72,
-    overscan: 10,
-  });
-
-  const handleRollbackEmergencyUpload = async (log: EmployeeUpdateUploadLog) => {
-    if (!log.rollback_employees || log.rollback_employees.length === 0) {
-      setSaveMessage("No rollback snapshot is available for that emergency upload.");
-      return;
-    }
-
-    if (log.rolled_back_at) {
-      setSaveMessage("That emergency upload has already been rolled back.");
-      return;
-    }
-
-    const confirmed = confirm(`Roll back emergency upload from ${new Date(log.created_at).toLocaleString("en-ZA")}?`);
-    if (!confirmed) return;
-
-    setRollingBackEmergencyUploadId(log.id);
-    try {
-      const result = await importEmployees(log.rollback_employees);
-      const rolledBackAt = new Date().toISOString();
-      const rollbackLogResult = await markEmployeeUpdateUploadLogRolledBack(log.id, rolledBackAt);
-      await loadEmployees();
-      await loadEmployeeUpdateLogs();
-
-      const matchingLatest =
-        staffListUploadResult &&
-        (staffListUploadResult.logId
-          ? staffListUploadResult.logId === log.id
-          : staffListUploadResult.createdAt === log.created_at && staffListUploadResult.fileName === log.file_name);
-
-      if (matchingLatest) {
-        setStaffListUploadResult((current) =>
-          current
-            ? {
-                ...current,
-                remoteMessage: [current.remoteMessage, rollbackLogResult.error].filter(Boolean).join(" ").trim(),
-              }
-            : current
-        );
-      }
-
-      setSaveMessage(
-        result.error
-          ? `Emergency upload rolled back. ${result.error}`
-          : "Emergency upload rolled back successfully."
-      );
-    } finally {
-      setRollingBackEmergencyUploadId(null);
-    }
-  };
-
-  const handleClearEmployeeUpdateLogs = async () => {
-    const confirmed = confirm("Clear the full emergency upload log history?");
-    if (!confirmed) return;
-
-    const result = await clearEmployeeUpdateUploadLogs();
-    setStaffListUploadLogs([]);
-    setStaffListUploadResult(null);
-    setExpandedStaffListLogDates(new Set());
-    setSaveMessage(
-      result.error
-        ? `Emergency upload logs cleared. ${result.error}`
-        : "Emergency upload logs cleared successfully."
-    );
-  };
-
-  const handleSetEmployeeStatus = async (employee: Employee, status: "active" | "inactive") => {
-    const result = await updateEmployee(employee.id, {
-      status,
-      active: status === "active",
-    });
-    if (result.success) {
-      setSaveMessage(`${employee.first_name} ${employee.last_name} marked ${status}.`);
-      loadEmployees();
-    } else {
-      setSaveMessage(`Error: ${result.error}`);
-    }
-  };
-
-  const handleEditEmployee = (employee: Employee) => {
-    setEditingEmployee(employee);
-    setEmployeeFormData({
-      employee_code: employee.employee_code,
-      first_name: employee.first_name,
-      last_name: employee.last_name,
-      gender: employee.gender || "",
-      title: employee.title || "",
-      alias: employee.alias || "",
-      id_number: employee.id_number || "",
-      email: employee.email || "",
-      phone: employee.phone || "",
-      job_title: employee.job_title || "",
-      department: employee.department || "",
-      region: employee.region || "",
-      store: employee.store || "",
-      store_code: employee.store_code || "",
-      hire_date: employee.hire_date || "",
-      person_type: employee.person_type || "",
-      fingerprints_enrolled: employee.fingerprints_enrolled ?? null,
-      company: employee.company || "",
-      branch: employee.branch || "",
-      business_unit: employee.business_unit || "",
-      cost_center: employee.cost_center || "",
-      team: employee.team || "",
-      ta_integration_id_1: employee.ta_integration_id_1 || "",
-      ta_integration_id_2: employee.ta_integration_id_2 || "",
-      access_profile: employee.access_profile || "",
-      ta_enabled: employee.ta_enabled ?? null,
-      permanent: employee.permanent ?? null,
-      active: employee.active ?? employee.status === "active",
-      termination_reason: employee.termination_reason || "",
-      termination_date: employee.termination_date || "",
-      status: employee.status,
-    });
-    setIsAddingEmployee(true);
-  };
-
-  const resetEmployeeForm = () => {
-    setEmployeeFormData({
-      employee_code: "",
-      first_name: "",
-      last_name: "",
-      gender: "",
-      title: "",
-      alias: "",
-      id_number: "",
-      email: "",
-      phone: "",
-      job_title: "",
-      department: "",
-      region: "",
-      store: "",
-      store_code: "",
-      hire_date: "",
-      person_type: "",
-      fingerprints_enrolled: null,
-      company: "",
-      branch: "",
-      business_unit: "",
-      cost_center: "",
-      team: "",
-      ta_integration_id_1: "",
-      ta_integration_id_2: "",
-      access_profile: "",
-      ta_enabled: null,
-      permanent: null,
-      active: true,
-      termination_reason: "",
-      termination_date: "",
-      status: "active",
-    });
   };
 
   const [payrollUploadProgress, setPayrollUploadProgress] = useState(0);
@@ -2733,7 +2236,6 @@ export default function App() {
     setIsUpdatingEmployeesFromStaffList(true);
     setStaffListUploadProgress(10);
     setStaffListUploadStage("Reading staff list workbook...");
-    setStaffListUploadResult(null);
 
     try {
       const buffer = await file.arrayBuffer();
@@ -2753,7 +2255,7 @@ export default function App() {
       }
 
       if (analysis.matchedProfiles === 0) {
-        const unmatchedLog = await saveEmployeeUpdateUploadLog({
+        await saveEmployeeUpdateUploadLog({
           file_name: file.name,
           upload_type: "emergency_upload_update",
           matched_profiles: 0,
@@ -2765,27 +2267,14 @@ export default function App() {
           items: [],
           rollback_employees: [],
         });
-        setStaffListUploadResult({
-          logId: unmatchedLog.entry.id,
-          fileName: file.name,
-          createdAt: unmatchedLog.entry.created_at,
-          matchedCount: 0,
-          updatedCount: 0,
-          inactiveCount: 0,
-          unchangedCount: 0,
-          unmatchedCount: analysis.unmatchedRows,
-          reportItems: [],
-          remoteMessage: unmatchedLog.error,
-        });
         setSaveMessage(`No matching employee codes were found in existing profiles for ${file.name}.`);
         setStaffListUploadProgress(100);
         setStaffListUploadStage("No matching employee codes were found in existing profiles.");
-        await loadEmployeeUpdateLogs();
         return;
       }
 
       if (analysis.updatesToApply.length === 0) {
-        const noChangeLog = await saveEmployeeUpdateUploadLog({
+        await saveEmployeeUpdateUploadLog({
           file_name: file.name,
           upload_type: "emergency_upload_update",
           matched_profiles: analysis.matchedProfiles,
@@ -2797,22 +2286,9 @@ export default function App() {
           items: [],
           rollback_employees: [],
         });
-        setStaffListUploadResult({
-          logId: noChangeLog.entry.id,
-          fileName: file.name,
-          createdAt: noChangeLog.entry.created_at,
-          matchedCount: analysis.matchedProfiles,
-          updatedCount: 0,
-          inactiveCount: 0,
-          unchangedCount: analysis.unchangedProfiles,
-          unmatchedCount: analysis.unmatchedRows,
-          reportItems: [],
-          remoteMessage: noChangeLog.error,
-        });
         setSaveMessage(`No employee profile changes were needed from ${file.name}.`);
         setStaffListUploadProgress(100);
         setStaffListUploadStage("No profile changes were needed.");
-        await loadEmployeeUpdateLogs();
         return;
       }
 
@@ -2820,7 +2296,7 @@ export default function App() {
       setStaffListUploadStage("Applying staff list updates to employee profiles...");
       const result = await importEmployees(analysis.updatesToApply);
       if (result.success) {
-        const logResult = await saveEmployeeUpdateUploadLog({
+        await saveEmployeeUpdateUploadLog({
           file_name: file.name,
           upload_type: "emergency_upload_update",
           matched_profiles: analysis.matchedProfiles,
@@ -2832,18 +2308,6 @@ export default function App() {
           items: analysis.reportItems,
           rollback_employees: analysis.rollbackEmployees,
         });
-        setStaffListUploadResult({
-          logId: logResult.entry.id,
-          fileName: file.name,
-          createdAt: logResult.entry.created_at,
-          matchedCount: analysis.matchedProfiles,
-          updatedCount: analysis.updatedProfiles,
-          inactiveCount: analysis.inactiveProfiles,
-          unchangedCount: analysis.unchangedProfiles,
-          unmatchedCount: analysis.unmatchedRows,
-          reportItems: analysis.reportItems,
-          remoteMessage: result.error || logResult.error,
-        });
         setStaffListUploadProgress(100);
         setStaffListUploadStage("Employee profiles updated successfully.");
         setSaveMessage(
@@ -2852,7 +2316,6 @@ export default function App() {
             : `Updated ${analysis.updatedProfiles} matching employee profile${analysis.updatedProfiles === 1 ? "" : "s"} from ${file.name}. ${analysis.inactiveProfiles} profile${analysis.inactiveProfiles === 1 ? "" : "s"} were marked inactive from termination data.`
         );
         await loadEmployees();
-        await loadEmployeeUpdateLogs();
       } else {
         setStaffListUploadProgress(100);
         setStaffListUploadStage("Employee update import failed.");
@@ -5174,6 +4637,17 @@ export default function App() {
   );
   };
 
+  const handleEmployeesHubChange = useCallback(() => {
+    overviewDataCacheRef.current = null;
+    overviewRequestRef.current = { key: "", fetchedAt: 0, inFlight: false };
+    employeeRequestRef.current = { ...employeeRequestRef.current, fetchedAt: 0 };
+    clockRequestRef.current = { ...clockRequestRef.current, fetchedAt: 0 };
+    void Promise.all([
+      loadEmployees({ force: true }),
+      loadClockEvents({ force: true }),
+    ]);
+  }, [loadClockEvents, loadEmployees]);
+
   const renderEmployees = () => {
     return (
       <>
@@ -5204,6 +4678,7 @@ export default function App() {
           </Card>
         }>
           <EmployeesHub
+            onEmployeesChange={handleEmployeesHubChange}
             onOpenPayrollUpload={() => {
               const input = document.getElementById('payroll-file-input');
               if (input) {
@@ -5213,10 +4688,7 @@ export default function App() {
               }
             }}
             onOpenStaffListUpload={() => employeeUpdateUploadInputRef.current?.click()}
-            onExportUploadLog={(logId) => {
-              const log = staffListUploadLogs.find(l => l.id === logId);
-              if (log) exportEmployeeUpdateLogWorkbook(log);
-            }}
+            onExportUploadLog={(log) => void exportEmployeeUpdateLogWorkbook(log)}
             isUpdatingStaffList={isUpdatingEmployeesFromStaffList}
             staffListUploadStage={staffListUploadStage}
             payrollUploadProgress={payrollUploadProgress}
@@ -5765,7 +5237,9 @@ export default function App() {
   );
 
   const handleNavClick = (key: typeof sidebarItems[number]["key"]) => {
-    setActiveNav(key);
+    startTransition(() => {
+      setActiveNav(key);
+    });
     setMobileMenuOpen(false);
   };
 

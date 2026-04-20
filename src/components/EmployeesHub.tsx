@@ -60,7 +60,7 @@ type EmployeesHubProps = {
   onEmployeesChange?: () => void;
   onOpenPayrollUpload?: () => void;
   onOpenStaffListUpload?: () => void;
-  onExportUploadLog?: (logId: string) => void;
+  onExportUploadLog?: (log: EmployeeUpdateUploadLog) => void;
   isUpdatingStaffList?: boolean;
   staffListUploadStage?: string;
   payrollUploadProgress?: number;
@@ -278,10 +278,22 @@ export default function EmployeesHub({
   const prevUploadingRef = useRef(false);
   useEffect(() => {
     if (prevUploadingRef.current && !isUploadingPayroll) {
-      loadEmployees({ force: true });
+      void loadEmployees({ force: true });
     }
     prevUploadingRef.current = isUploadingPayroll;
   }, [isUploadingPayroll, loadEmployees]);
+
+  const prevStaffListUploadingRef = useRef(false);
+  useEffect(() => {
+    if (prevStaffListUploadingRef.current && !isUpdatingStaffList) {
+      void Promise.all([
+        loadEmployees({ force: true }),
+        loadClockEvents(),
+        loadStaffListLogs(),
+      ]);
+    }
+    prevStaffListUploadingRef.current = isUpdatingStaffList;
+  }, [isUpdatingStaffList, loadClockEvents, loadEmployees]);
 
   // Filtered employees
   const filteredEmployees = useMemo(() => {
@@ -725,7 +737,7 @@ export default function EmployeesHub({
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => onExportUploadLog?.(log.id)}
+                              onClick={() => onExportUploadLog?.(log)}
                             >
                               <Download className="w-4 h-4 mr-1" /> Export
                             </Button>
