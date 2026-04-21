@@ -941,6 +941,34 @@ function findClockHeaderRow(rows: unknown[][]) {
   });
 }
 
+function expandWorksheetRange(sheet: XLSX.WorkSheet) {
+  const cellAddresses = Object.keys(sheet).filter((key) => !key.startsWith("!"));
+  if (cellAddresses.length === 0) {
+    return sheet;
+  }
+
+  let minRow = Number.POSITIVE_INFINITY;
+  let minColumn = Number.POSITIVE_INFINITY;
+  let maxRow = 0;
+  let maxColumn = 0;
+
+  cellAddresses.forEach((address) => {
+    const { r, c } = XLSX.utils.decode_cell(address);
+    minRow = Math.min(minRow, r);
+    minColumn = Math.min(minColumn, c);
+    maxRow = Math.max(maxRow, r);
+    maxColumn = Math.max(maxColumn, c);
+  });
+
+  return {
+    ...sheet,
+    "!ref": XLSX.utils.encode_range({
+      s: { r: minRow, c: minColumn },
+      e: { r: maxRow, c: maxColumn },
+    }),
+  };
+}
+
 function toNormalizedEntries(row: Record<string, unknown>) {
   return Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
     acc[normalizeHeaderKey(key)] = value;
@@ -953,14 +981,16 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
    if (workbook.SheetNames.length === 0) return [];
 
    const rows = workbook.SheetNames.flatMap((sheetName) => {
-     const sheet = workbook.Sheets[sheetName];
+     const sheet = expandWorksheetRange(workbook.Sheets[sheetName]);
      const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
      const headerRowIndex = findClockHeaderRow(rawRows);
      if (headerRowIndex < 0) return [];
+     const sheetRange = XLSX.utils.decode_range(sheet["!ref"] as string);
+     const headerRowNumber = sheetRange.s.r + headerRowIndex;
 
      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
        defval: "",
-       range: headerRowIndex,
+       range: headerRowNumber,
        raw: true,
      });
 
@@ -983,7 +1013,7 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
          if (!clockedAt) return null;
 
          return {
-           raw_row_number: headerRowIndex + index + 2,
+           raw_row_number: headerRowNumber + index + 2,
            raw_employee_code: rawEmployeeCode,
            raw_employee_number: rawEmployeeNumber,
            raw_id_number: rawIdNumber,
