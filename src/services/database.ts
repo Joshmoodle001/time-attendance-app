@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 
 const EMPLOYEE_CACHE_KEY = 'employees-cache'
 const EMPLOYEE_CACHE_DURATION = 30 * 60 * 1000
+const EMPLOYEE_REMOTE_PAGE_SIZE = 1000
 let employeeCache: { data: Employee[] | null; timestamp: number } = { data: null, timestamp: 0 }
 
 function getCachedEmployees(): Employee[] | null {
@@ -1052,6 +1053,53 @@ export async function initializeEmployeeDatabase(): Promise<boolean> {
   }
 }
 
+async function fetchRemoteEmployees(filters?: {
+  search?: string
+  region?: string
+  store?: string
+  status?: string
+}) {
+  const results: Employee[] = []
+  let offset = 0
+
+  while (true) {
+    let query = supabase
+      .from('employees')
+      .select('*')
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true })
+      .range(offset, offset + EMPLOYEE_REMOTE_PAGE_SIZE - 1)
+
+    if (filters?.search) {
+      const search = filters.search.replace(/,/g, '')
+      query = query.or(`employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,id_number.ilike.%${search}%,alias.ilike.%${search}%,email.ilike.%${search}%,ta_integration_id_1.ilike.%${search}%,ta_integration_id_2.ilike.%${search}%`)
+    }
+    if (filters?.region) {
+      query = query.eq('region', filters.region)
+    }
+    if (filters?.store) {
+      query = query.eq('store', filters.store)
+    }
+    if (filters?.status) {
+      query = query.eq('status', filters.status)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      return { data: results, error }
+    }
+
+    const page = (data || []) as Employee[]
+    results.push(...page)
+
+    if (page.length < EMPLOYEE_REMOTE_PAGE_SIZE) {
+      return { data: results, error: null }
+    }
+
+    offset += EMPLOYEE_REMOTE_PAGE_SIZE
+  }
+}
+
 export async function getEmployees(filters?: {
   search?: string
   region?: string
@@ -1070,23 +1118,7 @@ export async function getEmployees(filters?: {
   }
 
   try {
-    let query = supabase.from('employees').select('*', { count: 'exact' }).order('last_name', { ascending: true }).order('first_name', { ascending: true }).limit(1000)
-
-    if (filters?.search) {
-      const search = filters.search.replace(/,/g, '')
-      query = query.or(`employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,id_number.ilike.%${search}%,alias.ilike.%${search}%,email.ilike.%${search}%,ta_integration_id_1.ilike.%${search}%,ta_integration_id_2.ilike.%${search}%`)
-    }
-    if (filters?.region) {
-      query = query.eq('region', filters.region)
-    }
-    if (filters?.store) {
-      query = query.eq('store', filters.store)
-    }
-    if (filters?.status) {
-      query = query.eq('status', filters.status)
-    }
-
-    const { data, error, count } = await query
+    const { data, error } = await fetchRemoteEmployees(filters)
 
     if (error) {
       console.warn('Get employees warning:', getEmployeeStorageErrorMessage(error))
@@ -1094,13 +1126,6 @@ export async function getEmployees(filters?: {
     }
 
     const remote = (data || []) as Employee[]
-    if (count && count > 1000) {
-      const filtered = filterEmployees(remote, filters)
-      if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
-        setCachedEmployees(filtered)
-      }
-      return filtered
-    }
     const merged = mergeEmployeeCollections(remote, localEmployees)
     if (merged.length > 0) await saveStoredEmployees(merged)
     const result = filterEmployees(merged.length > 0 ? merged : localEmployees, filters)
