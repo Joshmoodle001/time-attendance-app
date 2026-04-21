@@ -189,6 +189,7 @@ const CLOCK_INDEXED_DB_NAME = "time-attendance-clock-db";
 const CLOCK_INDEXED_DB_VERSION = 1;
 const CLOCK_INDEXED_DB_STORE = "biometric_clock_events";
 const CLOCK_WRITE_CHUNK_SIZE = 1000;
+const CLOCK_REMOTE_PAGE_SIZE = 1000;
 const CLOCK_REMOTE_TIMEOUT_MS = 4000;
 let clockLocalPersistenceCleared = false;
 
@@ -363,6 +364,29 @@ function applyClockFiltersToQuery<T>(query: T, filters?: GetClockEventsFilters) 
   }
 
   return nextQuery as T;
+}
+
+async function fetchClockRowsPaged<T>(
+  buildPageQuery: (offset: number, pageSize: number) => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<{ data: T[]; error: unknown | null }> {
+  const rows: T[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await withClockTimeout(buildPageQuery(offset, CLOCK_REMOTE_PAGE_SIZE));
+    if (error) {
+      return { data: rows, error };
+    }
+
+    const page = data || [];
+    rows.push(...page);
+
+    if (page.length < CLOCK_REMOTE_PAGE_SIZE) {
+      return { data: rows, error: null };
+    }
+
+    offset += CLOCK_REMOTE_PAGE_SIZE;
+  }
 }
 
 function formatClockDateKey(date: Date) {
@@ -603,29 +627,31 @@ export async function compareClockEventsOptimized(
 
   try {
     const incomingDates = uniqueIncoming.map((event) => event.clock_date).filter(Boolean).sort();
-    let query = supabase
-      .from("biometric_clock_events")
-      .select("event_key, employee_code")
-      .order("clock_date", { ascending: false })
-      .limit(10000);
+    const { data, error } = await fetchClockRowsPaged<{ event_key?: string; employee_code?: string }>((offset, pageSize) => {
+      let query = supabase
+        .from("biometric_clock_events")
+        .select("event_key, employee_code")
+        .order("clock_date", { ascending: false })
+        .range(offset, offset + pageSize - 1);
 
-    if (incomingDates.length > 0) {
-      query = query.gte("clock_date", incomingDates[0]).lte("clock_date", incomingDates[incomingDates.length - 1]);
-    }
-    if (incomingEmployeeCodes.size > 0 && incomingEmployeeCodes.size <= 500) {
-      query = query.in("employee_code", Array.from(incomingEmployeeCodes));
-    }
+      if (incomingDates.length > 0) {
+        query = query.gte("clock_date", incomingDates[0]).lte("clock_date", incomingDates[incomingDates.length - 1]);
+      }
+      if (incomingEmployeeCodes.size > 0 && incomingEmployeeCodes.size <= 500) {
+        query = query.in("employee_code", Array.from(incomingEmployeeCodes));
+      }
 
-    const { data, error } = await withClockTimeout(query);
+      return query;
+    });
     if (error) throw error;
 
     const existingKeys = new Set(
-      ((data as Array<{ event_key?: string; employee_code?: string }> | null) || [])
+      (data || [])
         .map((row) => normalizeText(row.event_key || ""))
         .filter(Boolean)
     );
     const existingEmployeeCodes = new Set(
-      ((data as Array<{ event_key?: string; employee_code?: string }> | null) || [])
+      (data || [])
         .map((row) => normalizeEmployeeCode(row.employee_code || ""))
         .filter(Boolean)
     );
@@ -1269,17 +1295,22 @@ export async function initializeClockDatabase() {
 
 export async function getClockEvents(filters?: GetClockEventsFilters) {
   try {
-    const query = applyClockFiltersToQuery(
-      supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false }).limit(5000),
-      filters
+    const { data, error } = await fetchClockRowsPaged<BiometricClockEvent>((offset, pageSize) =>
+      applyClockFiltersToQuery(
+        supabase
+          .from("biometric_clock_events")
+          .select("*")
+          .order("clocked_at", { ascending: false })
+          .range(offset, offset + pageSize - 1),
+        filters
+      )
     );
-    const { data, error } = await withClockTimeout(query);
     if (error) {
       console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
       return [];
     }
 
-    return (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+    return data.map((event) => normalizeClockEvent(event as BiometricClockEvent));
   } catch (error) {
     console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
     return [];
@@ -1373,9 +1404,9 @@ export async function getClockStats(filters?: GetClockEventsFilters): Promise<Cl
           filters
         )
       ),
-      withClockTimeout(
+      fetchClockRowsPaged<{ employee_code?: string }>((offset, pageSize) =>
         applyClockFiltersToQuery(
-          supabase.from("biometric_clock_events").select("employee_code").limit(10000),
+          supabase.from("biometric_clock_events").select("employee_code").range(offset, offset + pageSize - 1),
           filters
         )
       ),
@@ -1386,7 +1417,7 @@ export async function getClockStats(filters?: GetClockEventsFilters): Promise<Cl
     if (employeeCodesResult.error) throw employeeCodesResult.error;
 
     const employeesWithClocks = new Set(
-      ((employeeCodesResult.data as Array<{ employee_code?: string }> | null) || [])
+      employeeCodesResult.data
         .map((row) => normalizeEmployeeCode(row.employee_code || ""))
         .filter(Boolean)
     ).size;
