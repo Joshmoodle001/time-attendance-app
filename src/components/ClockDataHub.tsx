@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { importEmployees, normalizeEmployeeCode, type Employee } from "@/services/database";
+import { getEmployees, importEmployees, initializeEmployeeDatabase, normalizeEmployeeCode, type Employee } from "@/services/database";
 import {
     buildEmployeeInputsFromClockEvents,
     buildClockEmployeeSummaries,
@@ -274,6 +274,10 @@ const [importPercent, setImportPercent] = useState(0);
     try {
       await waitForPaint();
 
+      await initializeEmployeeDatabase();
+      const liveEmployees = await getEmployees({ preferRemote: true });
+      const matchingEmployees = liveEmployees.length > 0 ? liveEmployees : employees;
+
       const parsedFiles: BiometricClockEvent[] = [];
       const allocatedRows: ClockImportAllocationRow[] = [];
       const unallocatedRows: ClockImportAllocationRow[] = [];
@@ -291,7 +295,7 @@ const [importPercent, setImportPercent] = useState(0);
         setImportStage(`Parsing ${file.name}...`);
         await waitForPaint();
 
-        const parsed = parseClockWorkbook(buffer, file.name, employees);
+        const parsed = parseClockWorkbook(buffer, file.name, matchingEmployees);
          parsedFiles.push(...parsed.events);
          allocatedRows.push(...parsed.report.allocatedRows);
          unallocatedRows.push(...parsed.report.unallocatedRows);
@@ -343,7 +347,7 @@ const [importPercent, setImportPercent] = useState(0);
           `${itemLabel} ${Math.min(progress.completed, progress.total)} of ${progress.total} biometric event${progress.total === 1 ? "" : "s"}...`
         );
       });
-      const employeeInputs = buildEmployeeInputsFromClockEvents(uniqueParsedFiles, employees);
+      const employeeInputs = buildEmployeeInputsFromClockEvents(uniqueParsedFiles, matchingEmployees);
       setImportPercent(78);
       setImportStage(`Linking ${employeeInputs.length} employee profile${employeeInputs.length === 1 ? "" : "s"}...`);
       await waitForPaint();

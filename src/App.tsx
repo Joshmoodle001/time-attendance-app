@@ -1537,7 +1537,7 @@ export default function App() {
     employeeLoadPromiseRef.current = (async () => {
       try {
         await initializeEmployeeDatabase();
-        const data = await getEmployees();
+      const data = await getEmployees({ preferRemote: true });
         const mapped = data.map(mapEmployeeToRegionMaster);
         employeesRef.current = mapped;
         setEmployees(mapped);

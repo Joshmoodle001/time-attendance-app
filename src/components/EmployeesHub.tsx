@@ -210,7 +210,7 @@ export default function EmployeesHub({
 
     try {
       await initializeEmployeeDatabase();
-      const data = await getEmployees();
+      const data = await getEmployees({ preferRemote: true });
       setEmployees(data);
       setEmployeeLocations(deriveEmployeeLocationsFromProfiles(data));
       employeeRequestRef.current = { fetchedAt: Date.now(), inFlight: false };

@@ -1057,12 +1057,14 @@ export async function getEmployees(filters?: {
   region?: string
   store?: string
   status?: string
+  preferRemote?: boolean
 }): Promise<Employee[]> {
-  const cached = getCachedEmployees()
+  const preferRemote = Boolean(filters?.preferRemote)
+  const cached = !preferRemote ? getCachedEmployees() : null
   if (cached) return cached
   
   const localEmployees = await loadStoredEmployees()
-  if (localEmployees.length > 0) {
+  if (localEmployees.length > 0 && !preferRemote) {
     setCachedEmployees(localEmployees)
     return localEmployees
   }
