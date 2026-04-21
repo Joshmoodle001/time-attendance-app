@@ -4,7 +4,7 @@ import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAtten
 import type { Employee, EmployeeInput } from "@/services/database";
 import { getConfig, saveConfig, testConnection, getSyncLogs, syncFromIpulse, clearSyncLogs, startAutoSync, stopAutoSync, IPULSE_SETUP_SQL } from "@/services/ipulse";
 import type { IpulseConfig, SyncLog } from "@/services/ipulse";
-import { getClockEvents, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
+import { getClockEvents, getClockStats, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
 import { saveEmployeeUpdateUploadLog, type EmployeeUpdateReportItem, type EmployeeUpdateUploadLog } from "@/services/employeeUpdateLogs";
 import { getCombinedCalendarEvents, getWeekCycleLabel, loadCalendarEvents } from "@/services/calendar";
 import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/services/leave";
@@ -1477,7 +1477,7 @@ export default function App() {
     fetchedAt: 0,
     inFlight: false,
   });
-  const clockLoadPromiseRef = useRef<Promise<Awaited<ReturnType<typeof getClockOverview>>> | null>(null);
+  const clockLoadPromiseRef = useRef<Promise<Awaited<ReturnType<typeof getClockStats>>> | null>(null);
   const hasInitializedOverviewRangeRef = useRef(false);
   const overviewRequestRef = useRef<{ key: string; fetchedAt: number; inFlight: boolean }>({
     key: "",
@@ -1567,7 +1567,6 @@ export default function App() {
         totalEvents: cachedOverview.totalEvents,
         employeesWithClocks: cachedOverview.employeesWithClocks,
         verifiedEvents: cachedOverview.verifiedEvents,
-        summaries: [],
       };
     }
 
@@ -1580,7 +1579,7 @@ export default function App() {
     clockLoadPromiseRef.current = (async () => {
       try {
         await initializeClockDatabase();
-        const overview = await getClockOverview();
+        const overview = await getClockStats();
         setClockOverview({
           totalEvents: overview.totalEvents,
           employeesWithClocks: overview.employeesWithClocks,

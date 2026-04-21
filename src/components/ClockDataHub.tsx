@@ -66,6 +66,14 @@ function waitForPaint() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
+function getTodayClockFilterValue() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function mapSaveProgressToImportPercent(progress: ClockUpsertProgress) {
   const normalizedPercent = Math.max(0, Math.min(progress.percent, 100));
   if (progress.phase === "local") {
@@ -98,6 +106,8 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
   const [searchTerm, setSearchTerm] = useState("");
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [storeFilter, setStoreFilter] = useState("all");
+  const [startDateFilter, setStartDateFilter] = useState(getTodayClockFilterValue);
+  const [endDateFilter, setEndDateFilter] = useState(getTodayClockFilterValue);
   const [statusMessage, setStatusMessage] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -141,13 +151,17 @@ const [importPercent, setImportPercent] = useState(0);
   }, [isLoadingData]);
 
   const loadClockView = useCallback(
-    async (options?: { rawPage?: number; processedPage?: number; preserveStatus?: boolean }) => {
+    async (options?: { rawPage?: number; processedPage?: number; preserveStatus?: boolean; startDate?: string; endDate?: string }) => {
       const requestId = ++loadRequestRef.current;
       const nextRawPage = options?.rawPage ?? rawPage;
       const nextProcessedPage = options?.processedPage ?? processedPage;
+      const effectiveStartDate = options?.startDate ?? startDateFilter;
+      const effectiveEndDate = options?.endDate ?? endDateFilter;
       const filters = {
         search: deferredSearchTerm.trim() || undefined,
         store: storeFilter === "all" ? undefined : storeFilter,
+        startDate: effectiveStartDate || undefined,
+        endDate: effectiveEndDate || undefined,
       };
 
       setIsLoadingData(true);
@@ -206,7 +220,7 @@ const [importPercent, setImportPercent] = useState(0);
         }, 300);
       }
     },
-    [deferredSearchTerm, processedPage, rawPage, storeFilter]
+    [deferredSearchTerm, endDateFilter, processedPage, rawPage, startDateFilter, storeFilter]
   );
 
   useEffect(() => {
@@ -230,7 +244,7 @@ const [importPercent, setImportPercent] = useState(0);
   useEffect(() => {
     setRawPage(1);
     setProcessedPage(1);
-  }, [deferredSearchTerm, storeFilter]);
+  }, [deferredSearchTerm, storeFilter, startDateFilter, endDateFilter]);
 
   const storeOptions = useMemo(() => ["all", ...overview.stores], [overview.stores]);
 
@@ -305,6 +319,9 @@ const [importPercent, setImportPercent] = useState(0);
       const uniqueParsedFiles = Array.from(new Map(parsedFiles.map((item) => [item.event_key, item])).values());
       const duplicateRowsSkipped = Math.max(0, parsedFiles.length - uniqueParsedFiles.length);
       const uniqueEmployees = new Set(uniqueParsedFiles.map((item) => item.employee_code)).size;
+      const importedDates = uniqueParsedFiles.map((item) => item.clock_date).filter(Boolean).sort();
+      const importedStartDate = importedDates[0] || startDateFilter;
+      const importedEndDate = importedDates[importedDates.length - 1] || endDateFilter;
       setImportPercent(54);
       setImportStage("Comparing upload against existing clock data...");
       await waitForPaint();
@@ -336,9 +353,11 @@ const [importPercent, setImportPercent] = useState(0);
       setImportStage("Refreshing clock audit view...");
       await waitForPaint();
 
+      setStartDateFilter(importedStartDate);
+      setEndDateFilter(importedEndDate);
       setRawPage(1);
       setProcessedPage(1);
-      await loadClockView({ rawPage: 1, processedPage: 1, preserveStatus: true });
+      await loadClockView({ rawPage: 1, processedPage: 1, preserveStatus: true, startDate: importedStartDate, endDate: importedEndDate });
       await onEmployeesRefresh?.();
       setImportPercent(100);
       setImportStage("Import complete.");
@@ -542,6 +561,20 @@ const [importPercent, setImportPercent] = useState(0);
               ))}
             </select>
 
+            <Input
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => setStartDateFilter(e.target.value)}
+              className="w-[170px] border-white/10 bg-white/5 text-white"
+            />
+
+            <Input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => setEndDateFilter(e.target.value)}
+              className="w-[170px] border-white/10 bg-white/5 text-white"
+            />
+
             <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" multiple onChange={handleImport} className="hidden" />
             <Button variant="outline" onClick={() => uploadRef.current?.click()} disabled={isImporting}>
               <Upload className="mr-2 h-4 w-4" />
@@ -554,7 +587,7 @@ const [importPercent, setImportPercent] = useState(0);
           </div>
 
           <div className="section-tech-subpanel px-4 py-3 text-sm text-slate-300">
-            Select one file or many clock payroll workbooks together. The import now supports branded exports with headings starting on <span className="font-semibold text-white">row 5</span>, uses <span className="font-semibold text-white">Employee #</span> as the primary identifier, falls back to <span className="font-semibold text-white">Emp #</span>, and if needed allocates missing codes by <span className="font-semibold text-white">National ID</span>, <span className="font-semibold text-white">Alias</span>, or employee name.
+            Select one file or many clock payroll workbooks together. The import supports branded exports with headings starting on <span className="font-semibold text-white">row 5</span>. Clock Data now loads only the selected <span className="font-semibold text-white">date or date range</span> from Supabase instead of pulling all clock history into the browser.
           </div>
 
           {hasSeedOnlyData ? (

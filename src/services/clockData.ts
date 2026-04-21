@@ -128,6 +128,8 @@ export type ClockOverview = {
   summaries: ClockEmployeeSummary[];
 };
 
+export type ClockStats = Pick<ClockOverview, "totalEvents" | "employeesWithClocks" | "verifiedEvents">;
+
 export type ClockImportComparison = {
    incomingCount: number;
    existingCount: number;
@@ -188,6 +190,7 @@ const CLOCK_INDEXED_DB_VERSION = 1;
 const CLOCK_INDEXED_DB_STORE = "biometric_clock_events";
 const CLOCK_WRITE_CHUNK_SIZE = 1000;
 const CLOCK_REMOTE_TIMEOUT_MS = 4000;
+let clockLocalPersistenceCleared = false;
 
 export const CLOCK_DATA_SETUP_SQL = `
 CREATE TABLE IF NOT EXISTS biometric_clock_events (
@@ -334,6 +337,32 @@ function withClockTimeout<T>(promise: PromiseLike<T>, timeoutMs = CLOCK_REMOTE_T
       window.clearTimeout(timer);
     }
   });
+}
+
+function getNormalizedClockEmployeeCodes(filters?: GetClockEventsFilters) {
+  return filters?.employeeCodes
+    ?.map((code) => normalizeEmployeeCode(code))
+    .filter(Boolean);
+}
+
+function applyClockFiltersToQuery<T>(query: T, filters?: GetClockEventsFilters) {
+  let nextQuery = query as any;
+  const normalizedEmployeeCodes = getNormalizedClockEmployeeCodes(filters);
+
+  if (filters?.store) nextQuery = nextQuery.eq("store", filters.store);
+  if (filters?.startDate) nextQuery = nextQuery.gte("clock_date", filters.startDate);
+  if (filters?.endDate) nextQuery = nextQuery.lte("clock_date", filters.endDate);
+  if (normalizedEmployeeCodes && normalizedEmployeeCodes.length > 0) {
+    nextQuery = nextQuery.in("employee_code", normalizedEmployeeCodes);
+  }
+  if (filters?.search) {
+    const search = filters.search.replace(/,/g, "");
+    nextQuery = nextQuery.or(
+      `employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,alias.ilike.%${search}%,id_number.ilike.%${search}%,device_name.ilike.%${search}%,store.ilike.%${search}%`
+    );
+  }
+
+  return nextQuery as T;
 }
 
 function formatClockDateKey(date: Date) {
@@ -566,29 +595,67 @@ export async function compareClockEventsOptimized(
 ): Promise<ClockImportComparison> {
   const { items: uniqueIncoming, duplicatesRemoved } = dedupeClockEvents(incomingEvents);
   const incomingKeys = new Set(uniqueIncoming.map((event) => normalizeClockEvent(event).event_key));
-  const existingKeys = await getExistingEventKeys();
-  
-  let existingCount = 0;
-  incomingKeys.forEach((key) => {
-    if (existingKeys.has(key)) existingCount++;
-  });
-
   const incomingEmployeeCodes = new Set(
     uniqueIncoming
       .map((event) => normalizeEmployeeCode(event.employee_code))
       .filter(Boolean)
   );
-  
-  const existingEmployeeCodes = await getExistingEmployeeCodes();
-  const matchingEmployees = Array.from(incomingEmployeeCodes).filter((code) => existingEmployeeCodes.has(code)).length;
+
+  try {
+    const incomingDates = uniqueIncoming.map((event) => event.clock_date).filter(Boolean).sort();
+    let query = supabase
+      .from("biometric_clock_events")
+      .select("event_key, employee_code")
+      .order("clock_date", { ascending: false })
+      .limit(10000);
+
+    if (incomingDates.length > 0) {
+      query = query.gte("clock_date", incomingDates[0]).lte("clock_date", incomingDates[incomingDates.length - 1]);
+    }
+    if (incomingEmployeeCodes.size > 0 && incomingEmployeeCodes.size <= 500) {
+      query = query.in("employee_code", Array.from(incomingEmployeeCodes));
+    }
+
+    const { data, error } = await withClockTimeout(query);
+    if (error) throw error;
+
+    const existingKeys = new Set(
+      ((data as Array<{ event_key?: string; employee_code?: string }> | null) || [])
+        .map((row) => normalizeText(row.event_key || ""))
+        .filter(Boolean)
+    );
+    const existingEmployeeCodes = new Set(
+      ((data as Array<{ event_key?: string; employee_code?: string }> | null) || [])
+        .map((row) => normalizeEmployeeCode(row.employee_code || ""))
+        .filter(Boolean)
+    );
+
+    let existingCount = 0;
+    incomingKeys.forEach((key) => {
+      if (existingKeys.has(key)) existingCount++;
+    });
+
+    const matchingEmployees = Array.from(incomingEmployeeCodes).filter((code) => existingEmployeeCodes.has(code)).length;
+
+    return {
+      incomingCount: uniqueIncoming.length,
+      existingCount,
+      newCount: Math.max(0, uniqueIncoming.length - existingCount),
+      duplicateIncomingCount: duplicatesRemoved,
+      incomingEmployees: incomingEmployeeCodes.size,
+      matchingEmployees,
+    };
+  } catch (error) {
+    console.warn("Compare clock events warning:", getClockStorageErrorMessage(error));
+  }
 
   return {
     incomingCount: uniqueIncoming.length,
-    existingCount,
-    newCount: Math.max(0, uniqueIncoming.length - existingCount),
+    existingCount: 0,
+    newCount: uniqueIncoming.length,
     duplicateIncomingCount: duplicatesRemoved,
     incomingEmployees: incomingEmployeeCodes.size,
-    matchingEmployees,
+    matchingEmployees: 0,
   };
 }
 
@@ -802,6 +869,28 @@ async function saveLocalClockEvents(events: BiometricClockEvent[]) {
   if (!saved) saveLegacyLocalClockEvents(normalizedEvents);
 }
 
+async function clearClockLocalPersistence() {
+  if (clockLocalPersistenceCleared || typeof window === "undefined") return;
+
+  clockCache = { data: null, timestamp: 0 };
+  try {
+    window.localStorage.removeItem(CLOCK_CACHE_KEY);
+    window.localStorage.removeItem(CLOCK_STORAGE_KEY);
+  } catch {}
+
+  const database = await openClockIndexedDb();
+  if (database) {
+    await new Promise<void>((resolve) => {
+      const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readwrite");
+      transaction.objectStore(CLOCK_INDEXED_DB_STORE).clear();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+    });
+  }
+
+  clockLocalPersistenceCleared = true;
+}
+
 function getClockStorageErrorMessage(error: unknown) {
   const message =
     typeof error === "object" && error !== null && "message" in error
@@ -888,6 +977,7 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
 
          const { clockedAt, clockDate, clockTime } = combineDateTime(entries.date, entries.time);
          const deviceName = normalizeText(entries.device_name || entries.device);
+         const reasonDeclined = normalizeText(entries.reason_declined);
          const parsedStore = parseRegionStore(deviceName);
 
          if (!clockedAt) return null;
@@ -917,7 +1007,10 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
            cost_center: normalizeText(entries.cost_center),
            custom_1: normalizeText(entries.custom1 || entries.custom_1),
            custom_2: normalizeText(entries.custom_2),
-           access_granted: normalizeBool(entries.access_granted),
+           access_granted:
+             reasonDeclined
+               ? reasonDeclined.toLowerCase() === "accessgranted"
+               : normalizeBool(entries.access_granted),
            access_verified: normalizeBool(entries.access_verified),
            region: parsedStore.region,
            store: parsedStore.store,
@@ -1132,6 +1225,7 @@ export function buildEmployeeInputsFromClockEvents(events: BiometricClockEvent[]
 
 export async function initializeClockDatabase() {
   try {
+    await clearClockLocalPersistence();
     const isAvailable = await checkRemoteClockTableAvailability();
     if (!isAvailable) {
       console.warn("Clock database initialization warning:", CLOCK_TABLE_SETUP_HINT);
@@ -1144,72 +1238,27 @@ export async function initializeClockDatabase() {
 }
 
 export async function getClockEvents(filters?: GetClockEventsFilters) {
-  const hasFilters = filters?.search || filters?.store || filters?.startDate || filters?.endDate || (filters as GetClockEventsFilters | undefined)?.employeeCodes?.length
-  
-  if (!hasFilters) {
-    const cached = getCachedClockEvents()
-    if (cached) return cached
-  }
-  
-  const localEvents = await loadLocalClockEvents();
-  if (localEvents.length > 0 && !hasFilters) {
-    setCachedClockEvents(localEvents)
-    return localEvents
-  }
-  
-  const normalizedEmployeeCodes = (filters as GetClockEventsFilters | undefined)?.employeeCodes
-    ?.map((code) => normalizeEmployeeCode(code))
-    .filter(Boolean);
-
-  const applyFilters = (events: BiometricClockEvent[]) =>
-    events.filter((event) => {
-      const matchesStore = !filters?.store || event.store === filters.store;
-      const queryText = normalizeText(filters?.search).toLowerCase();
-      const haystack = `${event.employee_code} ${event.first_name} ${event.last_name} ${event.alias} ${event.id_number} ${event.device_name} ${event.store}`.toLowerCase();
-      const matchesSearch = !queryText || haystack.includes(queryText);
-      const matchesEmployeeCodes =
-        !normalizedEmployeeCodes || normalizedEmployeeCodes.length === 0 || normalizedEmployeeCodes.includes(normalizeEmployeeCode(event.employee_code));
-      const matchesStartDate = !(filters as GetClockEventsFilters | undefined)?.startDate || event.clock_date >= (filters as GetClockEventsFilters).startDate!;
-      const matchesEndDate = !(filters as GetClockEventsFilters | undefined)?.endDate || event.clock_date <= (filters as GetClockEventsFilters).endDate!;
-      return matchesStore && matchesSearch && matchesEmployeeCodes && matchesStartDate && matchesEndDate;
-    });
-
   try {
-    let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false }).limit(5000);
-    if (filters?.store) query = query.eq("store", filters.store);
-    if ((filters as GetClockEventsFilters | undefined)?.startDate) query = query.gte("clock_date", (filters as GetClockEventsFilters).startDate!);
-    if ((filters as GetClockEventsFilters | undefined)?.endDate) query = query.lte("clock_date", (filters as GetClockEventsFilters).endDate!);
-    if (filters?.search) {
-      const search = filters.search.replace(/,/g, "");
-      query = query.or(
-        `employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,alias.ilike.%${search}%,id_number.ilike.%${search}%,device_name.ilike.%${search}%,store.ilike.%${search}%`
-      );
-    }
-
+    const query = applyClockFiltersToQuery(
+      supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false }).limit(5000),
+      filters
+    );
     const { data, error } = await withClockTimeout(query);
     if (error) {
       console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
-      return applyFilters(localEvents);
+      return [];
     }
 
-    const merged = mergeClockEvents(localEvents, (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent)));
-    await saveLocalClockEvents(merged);
-    const result = applyFilters(merged);
-    if (!hasFilters) {
-      setCachedClockEvents(result)
-    }
-    return result;
+    return (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
   } catch (error) {
     console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
-    return applyFilters(localEvents);
+    return [];
   }
 }
 
 export async function getClockEventsForEmployeeProfile(
   employee: Pick<Employee, "employee_code" | "id_number" | "first_name" | "last_name">
 ) {
-  const localEvents = await loadLocalClockEvents();
-  const localMatches = localEvents.filter((event) => matchesEmployeeClockProfile(event, employee));
   const primaryCode = normalizeEmployeeCode(employee.employee_code);
   const fallbackIdNumber = normalizeText(employee.id_number);
   const fallbackFirstName = normalizeText(employee.first_name);
@@ -1219,104 +1268,126 @@ export async function getClockEventsForEmployeeProfile(
     let remoteMatches: BiometricClockEvent[] = [];
 
     if (primaryCode) {
-      const { data, error } = await supabase
+      const { data, error } = await withClockTimeout(
+        supabase
         .from("biometric_clock_events")
         .select("*")
         .eq("employee_code", primaryCode)
-        .order("clocked_at", { ascending: false });
+        .order("clocked_at", { ascending: false })
+      );
 
       if (error) {
         console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
-        return mergeClockEvents(localMatches);
+        return [];
       }
 
       remoteMatches = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
     }
 
     if (remoteMatches.length === 0 && fallbackIdNumber) {
-      const { data, error } = await supabase
+      const { data, error } = await withClockTimeout(
+        supabase
         .from("biometric_clock_events")
         .select("*")
         .eq("id_number", fallbackIdNumber)
         .order("clocked_at", { ascending: false })
-        .limit(500);
+        .limit(500)
+      );
 
       if (error) {
         console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
-        return mergeClockEvents(localMatches);
+        return [];
       }
 
       remoteMatches = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
     }
 
     if (remoteMatches.length === 0 && fallbackFirstName && fallbackLastName) {
-      const { data, error } = await supabase
+      const { data, error } = await withClockTimeout(
+        supabase
         .from("biometric_clock_events")
         .select("*")
         .ilike("first_name", fallbackFirstName)
         .ilike("last_name", fallbackLastName)
         .order("clocked_at", { ascending: false })
-        .limit(500);
+        .limit(500)
+      );
 
       if (error) {
         console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
-        return mergeClockEvents(localMatches);
+        return [];
       }
 
       remoteMatches = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
     }
 
-    const merged = mergeClockEvents(localMatches, remoteMatches.filter((event) => matchesEmployeeClockProfile(event, employee)));
-    if (merged.length > 0) {
-      await saveLocalClockEvents(mergeClockEvents(localEvents, merged));
-    }
-    return merged;
+    return remoteMatches.filter((event) => matchesEmployeeClockProfile(event, employee));
   } catch (error) {
     console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
-    return mergeClockEvents(localMatches);
+    return [];
+  }
+}
+
+export async function getClockStats(filters?: GetClockEventsFilters): Promise<ClockStats> {
+  try {
+    const [totalResult, verifiedResult, employeeCodesResult] = await Promise.all([
+      withClockTimeout(
+        applyClockFiltersToQuery(
+          supabase.from("biometric_clock_events").select("id", { count: "exact", head: true }),
+          filters
+        )
+      ),
+      withClockTimeout(
+        applyClockFiltersToQuery(
+          supabase.from("biometric_clock_events").select("id", { count: "exact", head: true }).eq("access_verified", true),
+          filters
+        )
+      ),
+      withClockTimeout(
+        applyClockFiltersToQuery(
+          supabase.from("biometric_clock_events").select("employee_code").limit(10000),
+          filters
+        )
+      ),
+    ]);
+
+    if (totalResult.error) throw totalResult.error;
+    if (verifiedResult.error) throw verifiedResult.error;
+    if (employeeCodesResult.error) throw employeeCodesResult.error;
+
+    const employeesWithClocks = new Set(
+      ((employeeCodesResult.data as Array<{ employee_code?: string }> | null) || [])
+        .map((row) => normalizeEmployeeCode(row.employee_code || ""))
+        .filter(Boolean)
+    ).size;
+
+    return {
+      totalEvents: totalResult.count || 0,
+      employeesWithClocks,
+      verifiedEvents: verifiedResult.count || 0,
+    };
+  } catch (error) {
+    console.warn("Clock stats error:", getClockStorageErrorMessage(error));
+    return {
+      totalEvents: 0,
+      employeesWithClocks: 0,
+      verifiedEvents: 0,
+    };
   }
 }
 
 export async function getClockOverview(filters?: GetClockEventsFilters): Promise<ClockOverview> {
-  const hasFilters = filters?.search || filters?.store || filters?.startDate || filters?.endDate
-  
-  if (!hasFilters) {
-    const cached = getCachedClockEvents()
-    if (cached) {
-      const summaries = buildClockEmployeeSummaries(cached);
-      const processedDays = buildProcessedClockDays(cached);
-      return {
-        totalEvents: cached.length,
-        totalProcessedDays: processedDays.length,
-        employeesWithClocks: summaries.length,
-        verifiedEvents: cached.filter((event) => event.access_verified).length,
-        stores: Array.from(new Set(cached.map((event) => event.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
-        summaries,
-      };
-    }
-  }
-  
   try {
-    let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false }).limit(5000);
-    if (filters?.store) query = query.eq("store", filters.store);
-    if (filters?.startDate) query = query.gte("clock_date", filters.startDate);
-    if (filters?.endDate) query = query.lte("clock_date", filters.endDate);
-    
-    const { data, error } = await withClockTimeout(query);
-    if (error) throw error;
-    
-    const events = (data || []).map((e) => normalizeClockEvent(e as BiometricClockEvent));
-    const localEvents = await loadLocalClockEvents();
-    const merged = mergeClockEvents(localEvents, events);
-    const summaries = buildClockEmployeeSummaries(merged);
-    const processedDays = buildProcessedClockDays(merged);
+    const [stats, events] = await Promise.all([getClockStats(filters), getClockEvents(filters)]);
+    const summaries = buildClockEmployeeSummaries(events);
+    const processedDays = buildProcessedClockDays(events);
 
     return {
-      totalEvents: merged.length,
+      totalEvents: stats.totalEvents,
       totalProcessedDays: processedDays.length,
-      employeesWithClocks: summaries.length,
-      verifiedEvents: merged.filter((event) => event.access_verified).length,
-      stores: Array.from(new Set(merged.map((event) => event.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+      employeesWithClocks: stats.employeesWithClocks,
+      verifiedEvents: stats.verifiedEvents,
+      stores: Array.from(new Set(events.map((event) => event.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
       summaries,
     };
   } catch (err) {
@@ -1351,28 +1422,13 @@ export async function upsertClockEvents(
   onProgress?: (progress: ClockUpsertProgress) => void
 ) {
   const { items: uniqueEvents, duplicatesRemoved } = dedupeClockEvents(events);
-  
-  const existingKeys = await getExistingEventKeys();
-  const newOnlyEvents = uniqueEvents.filter((event) => !existingKeys.has(normalizeClockEvent(event).event_key));
-  
+
   const safeEmit = (phase: "local" | "remote", completed: number, total: number) => {
     const percent = total <= 0 ? 100 : Math.max(0, Math.min(100, Math.round((completed / total) * 100)));
     onProgress?.({ phase, completed, total, percent });
   };
-  
-  safeEmit("local", 0, Math.max(1, newOnlyEvents.length));
-  
-  if (newOnlyEvents.length > 0) {
-    let localWritten = 0;
-    for (const chunk of chunkArray(newOnlyEvents)) {
-      const result = await writeNewClockEventsOnly(chunk);
-      localWritten += result.writtenCount;
-      safeEmit("local", localWritten, newOnlyEvents.length);
-      await waitForTick();
-    }
-  } else {
-    safeEmit("local", 1, 1);
-  }
+
+  safeEmit("local", 1, 1);
   
   try {
     const payload = uniqueEvents.map((event) => {
@@ -1415,7 +1471,9 @@ export async function upsertClockEvents(
     
     let remoteSaved = 0;
     for (const chunk of chunkArray(payload)) {
-      const { error } = await supabase.from("biometric_clock_events").upsert(chunk, { onConflict: "event_key" });
+      const { error } = await withClockTimeout(
+        supabase.from("biometric_clock_events").upsert(chunk, { onConflict: "event_key" })
+      );
       if (error) {
         const message = getClockStorageErrorMessage(error);
         console.warn("Upsert clock events warning:", message);
@@ -1427,14 +1485,10 @@ export async function upsertClockEvents(
     }
     
     safeEmit("remote", payload.length, payload.length);
-    clockCache = { data: null, timestamp: 0 }
-    try { localStorage.removeItem(CLOCK_CACHE_KEY) } catch {}
     return { success: true, count: payload.length, duplicatesRemoved };
   } catch (error) {
     const message = getClockStorageErrorMessage(error);
     console.warn("Upsert clock events warning:", message);
-    clockCache = { data: null, timestamp: 0 }
-    try { localStorage.removeItem(CLOCK_CACHE_KEY) } catch {}
     return { success: true, error: message, count: uniqueEvents.length, duplicatesRemoved };
   }
 }

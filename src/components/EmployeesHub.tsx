@@ -32,7 +32,14 @@ import {
   type EmployeeUpdateReportItem,
   type EmployeeUpdateUploadLog,
 } from "@/services/employeeUpdateLogs";
-import { getClockEventsForEmployeeProfile, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
+import {
+  buildClockEmployeeSummaries,
+  getClockEvents,
+  getClockEventsForEmployeeProfile,
+  getClockStats,
+  initializeClockDatabase,
+  type BiometricClockEvent,
+} from "@/services/clockData";
 // Format helpers
 function formatClockAuditTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
@@ -218,25 +225,12 @@ export default function EmployeesHub({
     setIsLoadingClockEvents(true);
     try {
       await initializeClockDatabase();
-      const overview = await getClockOverview();
+      const overview = await getClockStats();
       setClockOverview({
         totalEvents: overview.totalEvents,
         employeesWithClocks: overview.employeesWithClocks,
         verifiedEvents: overview.verifiedEvents,
       });
-      setEmployeeClockSummaryMap(
-        new Map(
-          overview.summaries.map((summary) => [
-            normalizeEmployeeCode(summary.employee_code),
-            {
-              totalEvents: summary.total_events,
-              verifiedEvents: summary.verified_events,
-              lastClockedAt: summary.last_clocked_at,
-              stores: summary.store ? [summary.store] : [],
-            },
-          ])
-        )
-      );
     } finally {
       setIsLoadingClockEvents(false);
     }
@@ -326,6 +320,49 @@ export default function EmployeesHub({
   }, [filteredEmployees, employeePage]);
   
   const totalEmployeePages = Math.ceil(filteredEmployees.length / EMPLOYEES_PER_PAGE);
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadVisibleClockSummaries = async () => {
+      const visibleEmployeeCodes = Array.from(
+        new Set(
+          paginatedEmployees
+            .map((employee) => normalizeEmployeeCode(employee.employee_code))
+            .filter(Boolean)
+        )
+      );
+
+      if (visibleEmployeeCodes.length === 0) {
+        setEmployeeClockSummaryMap(new Map());
+        return;
+      }
+
+      const events = await getClockEvents({ employeeCodes: visibleEmployeeCodes });
+      if (!alive) return;
+
+      const summaries = buildClockEmployeeSummaries(events);
+      setEmployeeClockSummaryMap(
+        new Map(
+          summaries.map((summary) => [
+            normalizeEmployeeCode(summary.employee_code),
+            {
+              totalEvents: summary.total_events,
+              verifiedEvents: summary.verified_events,
+              lastClockedAt: summary.last_clocked_at,
+              stores: summary.store ? [summary.store] : [],
+            },
+          ])
+        )
+      );
+    };
+
+    void loadVisibleClockSummaries();
+
+    return () => {
+      alive = false;
+    };
+  }, [paginatedEmployees]);
 
   // Employee form handlers
   const resetEmployeeForm = () => {
