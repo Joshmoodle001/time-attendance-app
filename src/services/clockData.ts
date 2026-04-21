@@ -156,7 +156,7 @@ export type ClockImportAllocationRow = {
    device_name: string;
    method: string;
    direction: string;
-   matched_by: "employee_code" | "id_number" | "";
+   matched_by: "employee_code" | "id_number" | "alias" | "name" | "";
    employee_profile_status: string;
    status: "allocated" | "unallocated";
    reason: string;
@@ -187,6 +187,7 @@ const CLOCK_INDEXED_DB_NAME = "time-attendance-clock-db";
 const CLOCK_INDEXED_DB_VERSION = 1;
 const CLOCK_INDEXED_DB_STORE = "biometric_clock_events";
 const CLOCK_WRITE_CHUNK_SIZE = 1000;
+const CLOCK_REMOTE_TIMEOUT_MS = 15000;
 
 export const CLOCK_DATA_SETUP_SQL = `
 CREATE TABLE IF NOT EXISTS biometric_clock_events (
@@ -272,7 +273,7 @@ async function checkRemoteClockTableAvailability() {
 
   clockRemoteSetupCheck = (async () => {
     try {
-      const { error } = await supabase.from("biometric_clock_events").select("id").limit(1);
+      const { error } = await withClockTimeout(supabase.from("biometric_clock_events").select("id").limit(1));
       clockRemoteSetupAvailable = !error;
       return clockRemoteSetupAvailable;
     } catch {
@@ -318,6 +319,23 @@ function normalizeBool(value: unknown) {
   return null;
 }
 
+function withClockTimeout<T>(promise: PromiseLike<T>, timeoutMs = CLOCK_REMOTE_TIMEOUT_MS) {
+  let timer: number | undefined;
+
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) => {
+      timer = window.setTimeout(() => {
+        reject(new Error(`Clock request timed out after ${timeoutMs}ms.`));
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+    }
+  });
+}
+
 function formatClockDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -332,6 +350,87 @@ function formatClockTime(date: Date) {
   return `${hours}:${minutes}:${seconds}`;
 }
 
+function parseExcelSerialDate(value: number) {
+  const parsed = XLSX.SSF.parse_date_code(value);
+  if (!parsed) return null;
+  return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0);
+}
+
+function coerceDateValue(value: unknown): Date | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate(), value.getHours(), value.getMinutes(), value.getSeconds());
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return parseExcelSerialDate(value);
+  }
+
+  const text = normalizeText(value);
+  if (!text) return null;
+
+  const normalized = text.replace(/\./g, "/").replace(/-/g, " ").replace(/\s+/g, " ").trim();
+  const directParse = new Date(text);
+  if (!Number.isNaN(directParse.getTime())) {
+    return directParse;
+  }
+
+  const fallbackParse = new Date(normalized);
+  if (!Number.isNaN(fallbackParse.getTime())) {
+    return fallbackParse;
+  }
+
+  const dayMonthYear = normalized.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/);
+  if (dayMonthYear) {
+    const manualParse = new Date(`${dayMonthYear[1]} ${dayMonthYear[2]} ${dayMonthYear[3]}`);
+    return Number.isNaN(manualParse.getTime()) ? null : manualParse;
+  }
+
+  return null;
+}
+
+function coerceTimeValue(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return {
+      hours: value.getHours(),
+      minutes: value.getMinutes(),
+      seconds: value.getSeconds(),
+    };
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = parseExcelSerialDate(value);
+    if (!parsed) return null;
+    return {
+      hours: parsed.getHours(),
+      minutes: parsed.getMinutes(),
+      seconds: parsed.getSeconds(),
+    };
+  }
+
+  const text = normalizeText(value);
+  if (!text) return null;
+
+  const timeMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (timeMatch) {
+    return {
+      hours: Number(timeMatch[1]),
+      minutes: Number(timeMatch[2]),
+      seconds: Number(timeMatch[3] || 0),
+    };
+  }
+
+  const parsed = new Date(`1970-01-01T${text}`);
+  if (!Number.isNaN(parsed.getTime())) {
+    return {
+      hours: parsed.getHours(),
+      minutes: parsed.getMinutes(),
+      seconds: parsed.getSeconds(),
+    };
+  }
+
+  return null;
+}
+
 function getClockTimeValue(event: BiometricClockEvent) {
   if (event.clock_time) return event.clock_time;
   return new Date(event.clocked_at).toLocaleTimeString("en-ZA", {
@@ -344,19 +443,14 @@ function getClockTimeValue(event: BiometricClockEvent) {
 }
 
 function combineDateTime(dateValue: unknown, timeValue: unknown) {
-  const datePart =
-    dateValue instanceof Date && !Number.isNaN(dateValue.getTime())
-      ? dateValue
-      : timeValue instanceof Date && !Number.isNaN(timeValue.getTime())
-        ? timeValue
-        : null;
+  const datePart = coerceDateValue(dateValue) || coerceDateValue(timeValue);
+  const timePart = coerceTimeValue(timeValue) || coerceTimeValue(dateValue);
 
   if (!datePart) {
-    const now = new Date();
     return {
-      clockedAt: now.toISOString(),
-      clockDate: formatClockDateKey(now),
-      clockTime: formatClockTime(now),
+      clockedAt: "",
+      clockDate: "",
+      clockTime: "",
     };
   }
 
@@ -364,9 +458,9 @@ function combineDateTime(dateValue: unknown, timeValue: unknown) {
     datePart.getFullYear(),
     datePart.getMonth(),
     datePart.getDate(),
-    timeValue instanceof Date && !Number.isNaN(timeValue.getTime()) ? timeValue.getHours() : datePart.getHours(),
-    timeValue instanceof Date && !Number.isNaN(timeValue.getTime()) ? timeValue.getMinutes() : datePart.getMinutes(),
-    timeValue instanceof Date && !Number.isNaN(timeValue.getTime()) ? timeValue.getSeconds() : datePart.getSeconds()
+    timePart?.hours ?? datePart.getHours(),
+    timePart?.minutes ?? datePart.getMinutes(),
+    timePart?.seconds ?? datePart.getSeconds()
   );
 
   return {
@@ -744,7 +838,17 @@ function matchesEmployeeClockProfile(event: BiometricClockEvent, employee: Pick<
 function findClockHeaderRow(rows: unknown[][]) {
   return rows.findIndex((row) => {
     const keys = row.map((cell) => normalizeHeaderKey(cell));
-    return keys.includes("date") && keys.includes("time") && keys.includes("first_name") && (keys.includes("employee") || keys.includes("employee_1") || keys.includes("emp"));
+    const hasPrimaryColumns = keys.includes("date") && keys.includes("time");
+    const hasIdentityColumns =
+      keys.includes("employee") ||
+      keys.includes("employee_1") ||
+      keys.includes("emp") ||
+      keys.includes("first_name") ||
+      keys.includes("last_name") ||
+      keys.includes("lastname") ||
+      keys.includes("alias");
+
+    return hasPrimaryColumns && hasIdentityColumns;
   });
 }
 
@@ -783,7 +887,7 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
          const rawIdNumber = isUsableMatchToken(entries.national_id || entries.id_number) ? normalizeMatchToken(entries.national_id || entries.id_number) : "";
 
          const { clockedAt, clockDate, clockTime } = combineDateTime(entries.date, entries.time);
-         const deviceName = normalizeText(entries.device_name);
+         const deviceName = normalizeText(entries.device_name || entries.device);
          const parsedStore = parseRegionStore(deviceName);
 
          if (!clockedAt) return null;
@@ -833,12 +937,18 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
 function buildClockWorkbookImportResult(parsedRows: ParsedClockWorkbookRow[], employees: Employee[]): ClockWorkbookParseResult {
    const employeesByCode = new Map<string, Employee>();
    const employeesById = new Map<string, Employee>();
+   const employeesByAlias = new Map<string, Employee>();
+   const employeesByName = new Map<string, Employee>();
 
    employees.forEach((employee) => {
      const code = normalizeEmployeeCode(employee.employee_code);
      const idNumber = normalizeMatchToken(employee.id_number);
+     const alias = normalizeMatchToken(employee.alias);
+     const fullName = normalizeMatchToken(`${employee.first_name} ${employee.last_name}`);
      if (code) employeesByCode.set(code, employee);
      if (idNumber) employeesById.set(idNumber, employee);
+     if (alias) employeesByAlias.set(alias, employee);
+     if (fullName) employeesByName.set(fullName, employee);
    });
 
    const allocatedRows: ClockImportAllocationRow[] = [];
@@ -848,19 +958,27 @@ function buildClockWorkbookImportResult(parsedRows: ParsedClockWorkbookRow[], em
    parsedRows.forEach((row) => {
      const workbookEmployeeCode = normalizeEmployeeCode(row.raw_employee_code || row.employee_code || row.employee_number);
      const workbookIdNumber = normalizeMatchToken(row.raw_id_number || row.id_number);
+     const workbookAlias = normalizeMatchToken(row.alias);
+     const workbookName = normalizeMatchToken(`${row.first_name} ${row.last_name}`);
 
      const matchedByCode = workbookEmployeeCode ? employeesByCode.get(workbookEmployeeCode) : undefined;
      const matchedById = !matchedByCode && workbookIdNumber ? employeesById.get(workbookIdNumber) : undefined;
-     const matchedEmployee = matchedByCode || matchedById;
+     const matchedByAlias = !matchedByCode && !matchedById && workbookAlias ? employeesByAlias.get(workbookAlias) : undefined;
+     const matchedByName = !matchedByCode && !matchedById && !matchedByAlias && workbookName ? employeesByName.get(workbookName) : undefined;
+     const matchedEmployee = matchedByCode || matchedById || matchedByAlias || matchedByName;
 
      const resolvedEmployeeCode = matchedEmployee
        ? normalizeEmployeeCode(matchedEmployee.employee_code)
        : workbookEmployeeCode;
 
-     const matchedBy: "employee_code" | "id_number" | "" = matchedByCode
+     const matchedBy: "employee_code" | "id_number" | "alias" | "name" | "" = matchedByCode
        ? "employee_code"
        : matchedById
          ? "id_number"
+         : matchedByAlias
+           ? "alias"
+           : matchedByName
+             ? "name"
          : workbookEmployeeCode
            ? "employee_code"
            : "";
@@ -934,7 +1052,11 @@ function buildClockWorkbookImportResult(parsedRows: ParsedClockWorkbookRow[], em
        reason: matchedEmployee
          ? matchedByCode
            ? `Allocated using employee code to a ${matchedEmployee.status || "active"} employee profile.`
-           : `Allocated using ID number to employee code ${resolvedEmployeeCode} on a ${matchedEmployee.status || "active"} employee profile.`
+           : matchedById
+             ? `Allocated using ID number to employee code ${resolvedEmployeeCode} on a ${matchedEmployee.status || "active"} employee profile.`
+             : matchedByAlias
+               ? `Allocated using alias to employee code ${resolvedEmployeeCode} on a ${matchedEmployee.status || "active"} employee profile.`
+               : `Allocated using employee name to employee code ${resolvedEmployeeCode} on a ${matchedEmployee.status || "active"} employee profile.`
          : `Allocated using workbook employee code ${resolvedEmployeeCode}. The employee sync step will create or update the profile if needed.`,
      });
    });
@@ -1064,7 +1186,7 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
       );
     }
 
-    const { data, error, count } = await query;
+    const { data, error, count } = await withClockTimeout(query);
     if (error) {
       console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
       return applyFilters(localEvents);
@@ -1180,7 +1302,7 @@ export async function getClockOverview(filters?: GetClockEventsFilters): Promise
     if (filters?.startDate) query = query.gte("clock_date", filters.startDate);
     if (filters?.endDate) query = query.lte("clock_date", filters.endDate);
     
-    const { data, error } = await query;
+    const { data, error } = await withClockTimeout(query);
     if (error) throw error;
     
     const events = (data || []).map((e) => normalizeClockEvent(e as BiometricClockEvent));

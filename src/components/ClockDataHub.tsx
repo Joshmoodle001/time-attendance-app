@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Clock3, RefreshCw, Search, Shield, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -8,10 +8,10 @@ import { Input } from "@/components/ui/input";
 import { importEmployees, normalizeEmployeeCode, type Employee } from "@/services/database";
 import {
     buildEmployeeInputsFromClockEvents,
+    buildClockEmployeeSummaries,
+    buildProcessedClockDays,
     compareClockEventsOptimized,
-    getClockEventsPage,
-    getClockOverview,
-    getProcessedClockDaysPage,
+    getClockEvents,
     initializeClockDatabase,
     parseClockWorkbook,
     type ClockOverview,
@@ -89,6 +89,7 @@ const EMPTY_OVERVIEW: ClockOverview = {
 export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDataHubProps) {
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const autoLinkRef = useRef(false);
+  const loadRequestRef = useRef(0);
   const processedTableRef = useRef<HTMLDivElement>(null);
   const rawTableRef = useRef<HTMLDivElement>(null);
   const [overview, setOverview] = useState<ClockOverview>(EMPTY_OVERVIEW);
@@ -139,74 +140,90 @@ const [importPercent, setImportPercent] = useState(0);
     };
   }, [isLoadingData]);
 
-  useEffect(() => {
-    let alive = true;
+  const loadClockView = useCallback(
+    async (options?: { rawPage?: number; processedPage?: number; preserveStatus?: boolean }) => {
+      const requestId = ++loadRequestRef.current;
+      const nextRawPage = options?.rawPage ?? rawPage;
+      const nextProcessedPage = options?.processedPage ?? processedPage;
+      const filters = {
+        search: deferredSearchTerm.trim() || undefined,
+        store: storeFilter === "all" ? undefined : storeFilter,
+      };
 
-    const load = async () => {
       setIsLoadingData(true);
       setLoadPercent(8);
       setLoadStage("Opening the clock database...");
-      await initializeClockDatabase();
-      const filters = {
-        search: deferredSearchTerm.trim() || undefined,
-        store: storeFilter === "all" ? undefined : storeFilter,
-      };
-      setLoadPercent(28);
-      setLoadStage("Loading overview and processed clock summaries...");
-      const [overviewResult, processedResult, rawResult] = await Promise.all([
-        getClockOverview(filters),
-        getProcessedClockDaysPage({ ...filters, offset: (processedPage - 1) * PROCESSED_PAGE_SIZE, limit: PROCESSED_PAGE_SIZE }),
-        getClockEventsPage({ ...filters, offset: (rawPage - 1) * RAW_PAGE_SIZE, limit: RAW_PAGE_SIZE }),
-      ]);
-      if (!alive) return;
-      setLoadPercent(100);
-      setLoadStage("Clock data loaded.");
-      setOverview(overviewResult);
-      setProcessedClockDays(processedResult.items);
-      setRawEvents(rawResult.items);
-      setStatusMessage(`Loaded ${overviewResult.totalEvents} biometric clock event${overviewResult.totalEvents === 1 ? "" : "s"} using the optimized clock store.`);
-      window.setTimeout(() => {
-        if (!alive) return;
-        setIsLoadingData(false);
-        setLoadStage("");
-      }, 300);
-    };
 
-    void load();
+      try {
+        await initializeClockDatabase();
+        if (requestId !== loadRequestRef.current) return;
+
+        setLoadPercent(28);
+        setLoadStage("Loading overview and processed clock summaries...");
+
+        const events = await getClockEvents(filters);
+        if (requestId !== loadRequestRef.current) return;
+
+        const summaries = buildClockEmployeeSummaries(events);
+        const processedDays = buildProcessedClockDays(events);
+        const pagedProcessedDays = processedDays.slice(
+          Math.max(0, (nextProcessedPage - 1) * PROCESSED_PAGE_SIZE),
+          Math.max(0, (nextProcessedPage - 1) * PROCESSED_PAGE_SIZE) + PROCESSED_PAGE_SIZE
+        );
+        const pagedRawEvents = events.slice(
+          Math.max(0, (nextRawPage - 1) * RAW_PAGE_SIZE),
+          Math.max(0, (nextRawPage - 1) * RAW_PAGE_SIZE) + RAW_PAGE_SIZE
+        );
+        const nextOverview: ClockOverview = {
+          totalEvents: events.length,
+          totalProcessedDays: processedDays.length,
+          employeesWithClocks: summaries.length,
+          verifiedEvents: events.filter((clockEvent) => clockEvent.access_verified).length,
+          stores: Array.from(new Set(events.map((clockEvent) => clockEvent.store).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+          summaries,
+        };
+
+        setLoadPercent(100);
+        setLoadStage("Clock data loaded.");
+        setOverview(nextOverview);
+        setProcessedClockDays(pagedProcessedDays);
+        setRawEvents(pagedRawEvents);
+
+        if (!options?.preserveStatus) {
+          setStatusMessage(`Loaded ${nextOverview.totalEvents} biometric clock event${nextOverview.totalEvents === 1 ? "" : "s"} using the optimized clock store.`);
+        }
+      } catch (error) {
+        if (requestId !== loadRequestRef.current) return;
+        setOverview(EMPTY_OVERVIEW);
+        setProcessedClockDays([]);
+        setRawEvents([]);
+        setStatusMessage(`Clock data load failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      } finally {
+        window.setTimeout(() => {
+          if (requestId !== loadRequestRef.current) return;
+          setIsLoadingData(false);
+          setLoadStage("");
+        }, 300);
+      }
+    },
+    [deferredSearchTerm, processedPage, rawPage, storeFilter]
+  );
+
+  useEffect(() => {
+    void loadClockView();
     return () => {
-      alive = false;
+      loadRequestRef.current += 1;
     };
-  }, [deferredSearchTerm, storeFilter, rawPage, processedPage]);
+  }, [loadClockView]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    setIsLoadingData(true);
-    setLoadPercent(10);
-    setLoadStage("Refreshing the optimized clock store...");
     try {
-      const filters = {
-        search: deferredSearchTerm.trim() || undefined,
-        store: storeFilter === "all" ? undefined : storeFilter,
-      };
-      setLoadPercent(32);
-      setLoadStage("Loading overview and clock pages...");
-      const [overviewResult, processedResult, rawResult] = await Promise.all([
-        getClockOverview(filters),
-        getProcessedClockDaysPage({ ...filters, offset: (processedPage - 1) * PROCESSED_PAGE_SIZE, limit: PROCESSED_PAGE_SIZE }),
-        getClockEventsPage({ ...filters, offset: (rawPage - 1) * RAW_PAGE_SIZE, limit: RAW_PAGE_SIZE }),
-      ]);
-      setLoadPercent(100);
-      setLoadStage("Clock data loaded.");
-      setOverview(overviewResult);
-      setProcessedClockDays(processedResult.items);
-      setRawEvents(rawResult.items);
-      setStatusMessage(`Loaded ${overviewResult.totalEvents} biometric clock event${overviewResult.totalEvents === 1 ? "" : "s"} using the optimized clock store.`);
+      setLoadPercent(10);
+      setLoadStage("Refreshing the optimized clock store...");
+      await loadClockView();
     } finally {
       setIsRefreshing(false);
-      window.setTimeout(() => {
-        setIsLoadingData(false);
-        setLoadStage("");
-      }, 300);
     }
   };
 
@@ -319,16 +336,9 @@ const [importPercent, setImportPercent] = useState(0);
       setImportStage("Refreshing clock audit view...");
       await waitForPaint();
 
-      const [overviewResult, processedResult, rawResult] = await Promise.all([
-        getClockOverview(),
-        getProcessedClockDaysPage({ offset: 0, limit: PROCESSED_PAGE_SIZE }),
-        getClockEventsPage({ offset: 0, limit: RAW_PAGE_SIZE }),
-      ]);
-      setOverview(overviewResult);
-      setProcessedClockDays(processedResult.items);
-      setRawEvents(rawResult.items);
       setRawPage(1);
       setProcessedPage(1);
+      await loadClockView({ rawPage: 1, processedPage: 1, preserveStatus: true });
       await onEmployeesRefresh?.();
       setImportPercent(100);
       setImportStage("Import complete.");
@@ -544,7 +554,7 @@ const [importPercent, setImportPercent] = useState(0);
           </div>
 
           <div className="section-tech-subpanel px-4 py-3 text-sm text-slate-300">
-            Select one file or many clock payroll workbooks together. The import now uses <span className="font-semibold text-white">Employee #</span> as the primary identifier, falls back to <span className="font-semibold text-white">Emp #</span>, and if needed allocates missing codes by <span className="font-semibold text-white">National ID</span> to active or inactive employee profiles.
+            Select one file or many clock payroll workbooks together. The import now supports branded exports with headings starting on <span className="font-semibold text-white">row 5</span>, uses <span className="font-semibold text-white">Employee #</span> as the primary identifier, falls back to <span className="font-semibold text-white">Emp #</span>, and if needed allocates missing codes by <span className="font-semibold text-white">National ID</span>, <span className="font-semibold text-white">Alias</span>, or employee name.
           </div>
 
           {hasSeedOnlyData ? (
