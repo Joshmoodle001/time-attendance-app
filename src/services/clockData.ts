@@ -187,7 +187,7 @@ const CLOCK_INDEXED_DB_NAME = "time-attendance-clock-db";
 const CLOCK_INDEXED_DB_VERSION = 1;
 const CLOCK_INDEXED_DB_STORE = "biometric_clock_events";
 const CLOCK_WRITE_CHUNK_SIZE = 1000;
-const CLOCK_REMOTE_TIMEOUT_MS = 15000;
+const CLOCK_REMOTE_TIMEOUT_MS = 4000;
 
 export const CLOCK_DATA_SETUP_SQL = `
 CREATE TABLE IF NOT EXISTS biometric_clock_events (
@@ -1175,7 +1175,7 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
     });
 
   try {
-    let query = supabase.from("biometric_clock_events").select("*", { count: "exact" }).order("clocked_at", { ascending: false }).limit(5000);
+    let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false }).limit(5000);
     if (filters?.store) query = query.eq("store", filters.store);
     if ((filters as GetClockEventsFilters | undefined)?.startDate) query = query.gte("clock_date", (filters as GetClockEventsFilters).startDate!);
     if ((filters as GetClockEventsFilters | undefined)?.endDate) query = query.lte("clock_date", (filters as GetClockEventsFilters).endDate!);
@@ -1186,7 +1186,7 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
       );
     }
 
-    const { data, error, count } = await withClockTimeout(query);
+    const { data, error } = await withClockTimeout(query);
     if (error) {
       console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
       return applyFilters(localEvents);
@@ -1297,7 +1297,7 @@ export async function getClockOverview(filters?: GetClockEventsFilters): Promise
   }
   
   try {
-    let query = supabase.from("biometric_clock_events").select("*", { count: "exact" }).order("clocked_at", { ascending: false }).limit(5000);
+    let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false }).limit(5000);
     if (filters?.store) query = query.eq("store", filters.store);
     if (filters?.startDate) query = query.gte("clock_date", filters.startDate);
     if (filters?.endDate) query = query.lte("clock_date", filters.endDate);
