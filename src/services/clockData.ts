@@ -2,35 +2,6 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { normalizeEmployeeCode, parseRegionStore, type Employee, type EmployeeInput } from "@/services/database";
 
-const CLOCK_CACHE_KEY = 'clock-events-cache'
-const CLOCK_CACHE_DURATION = 30 * 60 * 1000
-let clockCache: { data: BiometricClockEvent[] | null; timestamp: number } = { data: null, timestamp: 0 }
-
-function getCachedClockEvents(): BiometricClockEvent[] | null {
-  if (clockCache.data && Date.now() - clockCache.timestamp < CLOCK_CACHE_DURATION) {
-    return clockCache.data
-  }
-  
-  try {
-    const stored = localStorage.getItem(CLOCK_CACHE_KEY)
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      if (parsed.timestamp && Date.now() - parsed.timestamp < CLOCK_CACHE_DURATION) {
-        clockCache = parsed
-        return parsed.data
-      }
-    }
-  } catch {}
-  return null
-}
-
-function setCachedClockEvents(data: BiometricClockEvent[]) {
-  clockCache = { data, timestamp: Date.now() }
-  try {
-    localStorage.setItem(CLOCK_CACHE_KEY, JSON.stringify(clockCache))
-  } catch {}
-}
-
 export type BiometricClockEventInput = {
   employee_code: string;
   employee_number: string;
@@ -184,14 +155,9 @@ export type ClockUpsertProgress = {
   percent: number;
 };
 
-const CLOCK_STORAGE_KEY = "biometric-clock-events-cache-v1";
-const CLOCK_INDEXED_DB_NAME = "time-attendance-clock-db";
-const CLOCK_INDEXED_DB_VERSION = 1;
-const CLOCK_INDEXED_DB_STORE = "biometric_clock_events";
 const CLOCK_WRITE_CHUNK_SIZE = 1000;
 const CLOCK_REMOTE_PAGE_SIZE = 1000;
 const CLOCK_REMOTE_TIMEOUT_MS = 4000;
-let clockLocalPersistenceCleared = false;
 
 export const CLOCK_DATA_SETUP_SQL = `
 CREATE TABLE IF NOT EXISTS biometric_clock_events (
@@ -245,7 +211,7 @@ CREATE POLICY "Allow public update biometric clock events" ON biometric_clock_ev
 `;
 
 const CLOCK_TABLE_SETUP_HINT =
-  "Remote clock table is not set up yet. Run setup-database.ps1 or the SQL in supabase-clock-setup.sql to create biometric_clock_events. Clock data is still being stored locally in this browser.";
+  "Remote clock table is not set up yet. Run setup-database.ps1 or the SQL in supabase-clock-setup.sql to create biometric_clock_events.";
 
 let clockRemoteSetupAvailable: boolean | null = null;
 let clockRemoteSetupCheck: Promise<boolean> | null = null;
@@ -685,238 +651,6 @@ export async function compareClockEventsOptimized(
   };
 }
 
-function loadLegacyLocalClockEvents(): BiometricClockEvent[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem(CLOCK_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as BiometricClockEvent[];
-    return Array.isArray(parsed) ? parsed.map(normalizeClockEvent) : [];
-  } catch (error) {
-    console.error("Load legacy local clock events error:", error);
-    return [];
-  }
-}
-
-function saveLegacyLocalClockEvents(events: BiometricClockEvent[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(CLOCK_STORAGE_KEY, JSON.stringify(events.map(normalizeClockEvent)));
-  } catch (error) {
-    console.error("Save legacy local clock events error:", error);
-  }
-}
-
-function clearLegacyLocalClockEvents() {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(CLOCK_STORAGE_KEY);
-  } catch (error) {
-    console.error("Clear legacy local clock events error:", error);
-  }
-}
-
-function openClockIndexedDb(): Promise<IDBDatabase | null> {
-  if (typeof window === "undefined" || !("indexedDB" in window)) {
-    return Promise.resolve(null);
-  }
-
-  return new Promise((resolve) => {
-    const request = window.indexedDB.open(CLOCK_INDEXED_DB_NAME, CLOCK_INDEXED_DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains(CLOCK_INDEXED_DB_STORE)) {
-        const store = database.createObjectStore(CLOCK_INDEXED_DB_STORE, { keyPath: "event_key" });
-        store.createIndex("employee_code", "employee_code", { unique: false });
-        store.createIndex("clock_date", "clock_date", { unique: false });
-        store.createIndex("clocked_at", "clocked_at", { unique: false });
-        store.createIndex("store", "store", { unique: false });
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => {
-      console.error("Open clock IndexedDB error:", request.error);
-      resolve(null);
-    };
-  });
-}
-
-async function readIndexedDbClockEvents(): Promise<BiometricClockEvent[]> {
-  const database = await openClockIndexedDb();
-  if (!database) return [];
-
-  return new Promise((resolve) => {
-    const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readonly");
-    const store = transaction.objectStore(CLOCK_INDEXED_DB_STORE);
-    const request = store.getAll();
-
-    request.onsuccess = () => {
-      resolve(Array.isArray(request.result) ? request.result.map((event) => normalizeClockEvent(event as BiometricClockEvent)) : []);
-    };
-    request.onerror = () => {
-      console.error("Read IndexedDB clock events error:", request.error);
-      resolve([]);
-    };
-  });
-}
-
-async function getExistingEventKeys(): Promise<Set<string>> {
-  const database = await openClockIndexedDb();
-  if (!database) return new Set();
-
-  return new Promise((resolve) => {
-    const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readonly");
-    const store = transaction.objectStore(CLOCK_INDEXED_DB_STORE);
-    const request = store.getAllKeys();
-
-    request.onsuccess = () => {
-      const keys = new Set<string>();
-      if (Array.isArray(request.result)) {
-        request.result.forEach((key) => {
-          if (typeof key === "string") keys.add(key);
-        });
-      }
-      resolve(keys);
-    };
-    request.onerror = () => {
-      console.error("Get existing event keys error:", request.error);
-      resolve(new Set());
-    };
-  });
-}
-
-async function getExistingEmployeeCodes(): Promise<Set<string>> {
-  const database = await openClockIndexedDb();
-  if (!database) return new Set();
-
-  return new Promise((resolve) => {
-    const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readonly");
-    const store = transaction.objectStore(CLOCK_INDEXED_DB_STORE);
-    const index = store.index("employee_code");
-    const request = index.getAllKeys();
-
-    request.onsuccess = () => {
-      const codes = new Set<string>();
-      if (Array.isArray(request.result)) {
-        request.result.forEach((code) => {
-          const normalized = normalizeEmployeeCode(code as string);
-          if (normalized) codes.add(normalized);
-        });
-      }
-      resolve(codes);
-    };
-    request.onerror = () => {
-      console.error("Get existing employee codes error:", request.error);
-      resolve(new Set());
-    };
-  });
-}
-
-async function writeIndexedDbClockEvents(events: BiometricClockEvent[]) {
-  const database = await openClockIndexedDb();
-  if (!database) return false;
-
-  return new Promise<boolean>((resolve) => {
-    const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readwrite");
-    const store = transaction.objectStore(CLOCK_INDEXED_DB_STORE);
-    const normalizedEvents = events.map(normalizeClockEvent);
-
-    store.clear();
-    normalizedEvents.forEach((event) => store.put(event));
-
-    transaction.oncomplete = () => resolve(true);
-    transaction.onerror = () => {
-      console.error("Write IndexedDB clock events error:", transaction.error);
-      resolve(false);
-    };
-  });
-}
-
-async function writeNewClockEventsOnly(newEvents: BiometricClockEvent[]): Promise<{ success: boolean; writtenCount: number }> {
-  const database = await openClockIndexedDb();
-  if (!database) return { success: false, writtenCount: 0 };
-
-  const normalizedNewEvents = newEvents.map(normalizeClockEvent);
-  const existingKeys = await getExistingEventKeys();
-  const eventsToWrite = normalizedNewEvents.filter((event) => !existingKeys.has(event.event_key));
-
-  let writtenCount = 0;
-
-  for (const chunk of chunkArray(eventsToWrite)) {
-    const result = await new Promise<boolean>((resolve) => {
-      const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readwrite");
-      const store = transaction.objectStore(CLOCK_INDEXED_DB_STORE);
-
-      chunk.forEach((event) => {
-        store.put(event);
-      });
-
-      transaction.oncomplete = () => resolve(true);
-      transaction.onerror = () => {
-        console.error("Incremental write clock events error:", transaction.error);
-        resolve(false);
-      };
-    });
-
-    if (!result) {
-      return { success: false, writtenCount };
-    }
-
-    writtenCount += chunk.length;
-    await waitForTick();
-  }
-
-  return { success: true, writtenCount };
-}
-
-async function loadLocalClockEvents(): Promise<BiometricClockEvent[]> {
-  if (typeof window === "undefined") return [];
-
-  const indexedDbEvents = await readIndexedDbClockEvents();
-  const legacyEvents = loadLegacyLocalClockEvents();
-  const merged = mergeClockEvents(indexedDbEvents, legacyEvents);
-
-  if (merged.length > 0) {
-    const saved = await writeIndexedDbClockEvents(merged);
-    if (saved && legacyEvents.length > 0) clearLegacyLocalClockEvents();
-    return merged;
-  }
-
-  return [];
-}
-
-async function saveLocalClockEvents(events: BiometricClockEvent[]) {
-  if (typeof window === "undefined") return;
-  const normalizedEvents = events.map(normalizeClockEvent);
-  const saved = await writeIndexedDbClockEvents(normalizedEvents);
-  if (!saved) saveLegacyLocalClockEvents(normalizedEvents);
-}
-
-async function clearClockLocalPersistence() {
-  if (clockLocalPersistenceCleared || typeof window === "undefined") return;
-
-  clockCache = { data: null, timestamp: 0 };
-  try {
-    window.localStorage.removeItem(CLOCK_CACHE_KEY);
-    window.localStorage.removeItem(CLOCK_STORAGE_KEY);
-  } catch {}
-
-  const database = await openClockIndexedDb();
-  if (database) {
-    await new Promise<void>((resolve) => {
-      const transaction = database.transaction(CLOCK_INDEXED_DB_STORE, "readwrite");
-      transaction.objectStore(CLOCK_INDEXED_DB_STORE).clear();
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => resolve();
-    });
-  }
-
-  clockLocalPersistenceCleared = true;
-}
-
 function getClockStorageErrorMessage(error: unknown) {
   const message =
     typeof error === "object" && error !== null && "message" in error
@@ -1281,7 +1015,6 @@ export function buildEmployeeInputsFromClockEvents(events: BiometricClockEvent[]
 
 export async function initializeClockDatabase() {
   try {
-    await clearClockLocalPersistence();
     const isAvailable = await checkRemoteClockTableAvailability();
     if (!isAvailable) {
       console.warn("Clock database initialization warning:", CLOCK_TABLE_SETUP_HINT);
@@ -1555,9 +1288,6 @@ export async function upsertClockEvents(
 }
 
 export async function clearClockEvents() {
-  await saveLocalClockEvents([]);
-  clockCache = { data: null, timestamp: 0 }
-
   try {
     const { error } = await supabase.from("biometric_clock_events").delete().neq("id", "");
     if (error) {

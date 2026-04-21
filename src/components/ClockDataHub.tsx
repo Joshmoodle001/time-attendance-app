@@ -166,7 +166,7 @@ const [importPercent, setImportPercent] = useState(0);
 
       setIsLoadingData(true);
       setLoadPercent(8);
-      setLoadStage("Opening the clock database...");
+      setLoadStage("Connecting to Supabase clock data...");
 
       try {
         await initializeClockDatabase();
@@ -204,7 +204,7 @@ const [importPercent, setImportPercent] = useState(0);
         setRawEvents(pagedRawEvents);
 
         if (!options?.preserveStatus) {
-          setStatusMessage(`Loaded ${nextOverview.totalEvents} biometric clock event${nextOverview.totalEvents === 1 ? "" : "s"} using the optimized clock store.`);
+          setStatusMessage(`Loaded ${nextOverview.totalEvents} biometric clock event${nextOverview.totalEvents === 1 ? "" : "s"} from Supabase.`);
         }
       } catch (error) {
         if (requestId !== loadRequestRef.current) return;
@@ -234,7 +234,7 @@ const [importPercent, setImportPercent] = useState(0);
     setIsRefreshing(true);
     try {
       setLoadPercent(10);
-      setLoadStage("Refreshing the optimized clock store...");
+      setLoadStage("Refreshing Supabase clock data...");
       await loadClockView();
     } finally {
       setIsRefreshing(false);
@@ -339,8 +339,8 @@ const [importPercent, setImportPercent] = useState(0);
         const nextPercent = mapSaveProgressToImportPercent(progress);
         const itemLabel =
           progress.phase === "local"
-            ? "Writing to local clock store"
-            : "Saving to remote clock table";
+            ? "Preparing Supabase write"
+            : "Saving to Supabase clock table";
 
         setImportPercent((current) => Math.max(current, nextPercent));
         setImportStage(

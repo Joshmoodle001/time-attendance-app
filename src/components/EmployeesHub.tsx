@@ -33,8 +33,6 @@ import {
   type EmployeeUpdateUploadLog,
 } from "@/services/employeeUpdateLogs";
 import {
-  buildClockEmployeeSummaries,
-  getClockEvents,
   getClockEventsForEmployeeProfile,
   getClockStats,
   initializeClockDatabase,
@@ -109,9 +107,6 @@ export default function EmployeesHub({
     employeesWithClocks: 0,
     verifiedEvents: 0,
   });
-  const [employeeClockSummaryMap, setEmployeeClockSummaryMap] = useState<
-    Map<string, { totalEvents: number; verifiedEvents: number; lastClockedAt: string; stores: string[] }>
-  >(new Map());
   const [isLoadingClockEvents, setIsLoadingClockEvents] = useState(false);
 
   // Clock profile state
@@ -320,49 +315,6 @@ export default function EmployeesHub({
   }, [filteredEmployees, employeePage]);
   
   const totalEmployeePages = Math.ceil(filteredEmployees.length / EMPLOYEES_PER_PAGE);
-
-  useEffect(() => {
-    let alive = true;
-
-    const loadVisibleClockSummaries = async () => {
-      const visibleEmployeeCodes = Array.from(
-        new Set(
-          paginatedEmployees
-            .map((employee) => normalizeEmployeeCode(employee.employee_code))
-            .filter(Boolean)
-        )
-      );
-
-      if (visibleEmployeeCodes.length === 0) {
-        setEmployeeClockSummaryMap(new Map());
-        return;
-      }
-
-      const events = await getClockEvents({ employeeCodes: visibleEmployeeCodes });
-      if (!alive) return;
-
-      const summaries = buildClockEmployeeSummaries(events);
-      setEmployeeClockSummaryMap(
-        new Map(
-          summaries.map((summary) => [
-            normalizeEmployeeCode(summary.employee_code),
-            {
-              totalEvents: summary.total_events,
-              verifiedEvents: summary.verified_events,
-              lastClockedAt: summary.last_clocked_at,
-              stores: summary.store ? [summary.store] : [],
-            },
-          ])
-        )
-      );
-    };
-
-    void loadVisibleClockSummaries();
-
-    return () => {
-      alive = false;
-    };
-  }, [paginatedEmployees]);
 
   // Employee form handlers
   const resetEmployeeForm = () => {
@@ -837,7 +789,6 @@ export default function EmployeesHub({
                 <tbody>
                   {paginatedEmployees.map((employee) => {
                     const normalizedCode = normalizeEmployeeCode(employee.employee_code);
-                    const clockSummary = employeeClockSummaryMap.get(normalizedCode);
                     const isSelectedClockProfile =
                       normalizeEmployeeCode(selectedClockProfileEmployee?.employee_code) === normalizedCode;
 
@@ -865,18 +816,10 @@ export default function EmployeesHub({
                             <div className="text-xs text-slate-400">{employee.branch || employee.region || employee.company || "-"}</div>
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            {clockSummary ? (
-                              <div className="space-y-2">
-                                <div className="font-medium text-cyan-400">
-                                  {clockSummary.totalEvents} event{clockSummary.totalEvents === 1 ? "" : "s"}
-                                </div>
-                                <div className="text-xs text-slate-400">Last clock: {formatClockAuditTimestamp(clockSummary.lastClockedAt)}</div>
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                <div className="font-medium text-slate-500">No clock history yet</div>
-                              </div>
-                            )}
+                            <div className="space-y-2">
+                              <div className="font-medium text-slate-300">Loads on demand</div>
+                              <div className="text-xs text-slate-500">Open Clock profile to query Supabase for this employee.</div>
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <Badge
