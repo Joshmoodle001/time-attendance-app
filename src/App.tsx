@@ -850,6 +850,12 @@ function normalizeDeviceType(value: unknown): "physical" | "logical" {
   return normalized.includes("physical") ? "physical" : "logical";
 }
 
+function formatStoredDeviceImportDate(value: string) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString();
+}
+
 function isOverviewEmployeeReportable(employee: Employee | undefined | null) {
   if (!employee) return false;
   if (employee.active === false) return false;
@@ -1395,15 +1401,16 @@ export default function App() {
   const [activeNav, setActiveNav] = useState<(typeof sidebarItems)[number]["key"]>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
-  const [deviceImportDate, setDeviceImportDate] = useState(() => {
+  const [deviceImportTimestamp, setDeviceImportTimestamp] = useState(() => {
     try {
-      const stored = localStorage.getItem(`${DEVICES_STORAGE_KEY}_date`);
-      if (stored) {
-        return new Date(stored).toLocaleDateString();
-      }
+      return localStorage.getItem(`${DEVICES_STORAGE_KEY}_date`) || "";
     } catch {}
     return "";
   });
+  const deviceImportDate = useMemo(
+    () => formatStoredDeviceImportDate(deviceImportTimestamp),
+    [deviceImportTimestamp],
+  );
   const [saveMessage, setSaveMessage] = useState("");
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
@@ -1989,6 +1996,32 @@ export default function App() {
   const lastSavedReportTemplates = useRef<string>("");
   const lastSavedCommunicationProfiles = useRef<string>("");
   const lastSavedCommunicationAutomations = useRef<string>("");
+  const lastSavedDeviceRecords = useRef<string>("");
+  const lastSavedDeviceImportTimestamp = useRef<string>("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!trialResetReady) return;
+
+    const serialized = JSON.stringify(deviceRecords);
+    if (lastSavedDeviceRecords.current !== serialized) {
+      lastSavedDeviceRecords.current = serialized;
+      if (deviceRecords.length > 0) {
+        window.localStorage.setItem(DEVICES_STORAGE_KEY, serialized);
+      } else {
+        window.localStorage.removeItem(DEVICES_STORAGE_KEY);
+      }
+    }
+
+    if (lastSavedDeviceImportTimestamp.current !== deviceImportTimestamp) {
+      lastSavedDeviceImportTimestamp.current = deviceImportTimestamp;
+      if (deviceImportTimestamp) {
+        window.localStorage.setItem(`${DEVICES_STORAGE_KEY}_date`, deviceImportTimestamp);
+      } else {
+        window.localStorage.removeItem(`${DEVICES_STORAGE_KEY}_date`);
+      }
+    }
+  }, [deviceImportTimestamp, deviceRecords, trialResetReady]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2479,6 +2512,26 @@ export default function App() {
     }
   };
 
+  const storeDeviceTypeLookup = useMemo(() => {
+    const lookup = new Map<string, "physical" | "logical">();
+    deviceRecords.forEach((device) => {
+      const key = normalizeStoreLookupKey(device.store);
+      if (!key) return;
+      const current = lookup.get(key);
+      if (device.deviceType === "physical" || !current) {
+        lookup.set(key, device.deviceType);
+      }
+    });
+    return lookup;
+  }, [deviceRecords]);
+
+  const getStoreDeviceType = useCallback((store: string) => {
+    const type = storeDeviceTypeLookup.get(normalizeStoreLookupKey(store));
+    return type || "logical";
+  }, [storeDeviceTypeLookup]);
+
+  const shouldRestrictOverviewToPhysical = deviceRecords.length > 0;
+
   const overviewStoreOptions = useMemo(() => {
     const values = new Map<
       string,
@@ -2500,6 +2553,7 @@ export default function App() {
       const store = String(employee.store || "").trim();
       const storeCode = String(employee.store_code || "").trim();
       if (!store && !storeCode) return;
+      if (shouldRestrictOverviewToPhysical && getStoreDeviceType(store) !== "physical") return;
       const region = resolveRegionForStore(store, storeCode, employee.region);
 
       const key = buildOverviewStoreKey(store, storeCode);
@@ -2549,7 +2603,7 @@ export default function App() {
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => b.employeeCount - a.employeeCount || a.label.localeCompare(b.label));
-  }, [overviewAttendanceRecords, overviewEmployeeProfiles]);
+  }, [getStoreDeviceType, overviewAttendanceRecords, overviewEmployeeProfiles, shouldRestrictOverviewToPhysical]);
 
   const overviewRegionOptions = useMemo(() => {
     const regions = new Set<string>();
@@ -2605,10 +2659,14 @@ export default function App() {
   };
 
   const filteredOverviewAttendanceRecords = useMemo(() => {
+    const physicalFiltered = shouldRestrictOverviewToPhysical
+      ? overviewAttendanceRecords.filter((record) => getStoreDeviceType(record.store) === "physical")
+      : overviewAttendanceRecords;
+
     const regionFiltered =
       selectedOverviewRegion === "all"
-        ? overviewAttendanceRecords
-        : overviewAttendanceRecords.filter((record) => {
+        ? physicalFiltered
+        : physicalFiltered.filter((record) => {
             const employeeRegion = overviewEmployeeRegionByCode.get(normalizeEmployeeCode(record.employeeCode));
             return employeeRegion === selectedOverviewRegion;
           });
@@ -2617,13 +2675,17 @@ export default function App() {
     return regionFiltered.filter((record) =>
       selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode))
     );
-  }, [overviewAttendanceRecords, overviewEmployeeRegionByCode, selectedOverviewRegion, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [getStoreDeviceType, overviewAttendanceRecords, overviewEmployeeRegionByCode, selectedOverviewRegion, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey, shouldRestrictOverviewToPhysical]);
 
   const filteredOverviewEmployeeProfiles = useMemo(() => {
+    const physicalFiltered = shouldRestrictOverviewToPhysical
+      ? overviewEmployeeProfiles.filter((employee) => getStoreDeviceType(employee.store || "") === "physical")
+      : overviewEmployeeProfiles;
+
     const regionFiltered =
       selectedOverviewRegion === "all"
-        ? overviewEmployeeProfiles
-        : overviewEmployeeProfiles.filter(
+        ? physicalFiltered
+        : physicalFiltered.filter(
             (employee) => resolveRegionForStore(employee.store, employee.store_code, employee.region) === selectedOverviewRegion
           );
 
@@ -2631,7 +2693,7 @@ export default function App() {
     return regionFiltered.filter((employee) =>
       selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(employee.employee_code))
     );
-  }, [overviewEmployeeProfiles, selectedOverviewRegion, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [getStoreDeviceType, overviewEmployeeProfiles, selectedOverviewRegion, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey, shouldRestrictOverviewToPhysical]);
 
   useEffect(() => {
     if (
@@ -2719,7 +2781,7 @@ export default function App() {
       else storeData.unscheduled++;
     });
 
-    overviewEmployeeProfiles.forEach((employee) => {
+    filteredOverviewEmployeeProfiles.forEach((employee) => {
       const regionName = employee.region || "Unassigned Region";
       const storeName = employee.store || employee.branch || "Unassigned Store";
 
@@ -2795,7 +2857,7 @@ export default function App() {
           isMatch = record.dayOff;
           break;
         case "other":
-          isMatch = !record.atWork && !record.problem && !record.leave && !record.dayOff && record.scheduled;
+          isMatch = !record.atWork && !record.problem && !record.leave && !record.dayOff;
           break;
       }
       if (isMatch) {
@@ -2813,24 +2875,6 @@ export default function App() {
     entries.sort((a, b) => b[1].count - a[1].count);
     return entries.map(([store, data]) => ({ store, count: data.count, employees: data.employees }));
   }, [selectedSlice, filteredOverviewAttendanceRecords]);
-
-  const storeDeviceTypeLookup = useMemo(() => {
-    const lookup = new Map<string, "physical" | "logical">();
-    deviceRecords.forEach((device) => {
-      const key = normalizeStoreLookupKey(device.store);
-      if (!key) return;
-      const current = lookup.get(key);
-      if (device.deviceType === "physical" || !current) {
-        lookup.set(key, device.deviceType);
-      }
-    });
-    return lookup;
-  }, [deviceRecords]);
-
-  const getStoreDeviceType = useCallback((store: string) => {
-    const type = storeDeviceTypeLookup.get(normalizeStoreLookupKey(store));
-    return type || "logical";
-  }, [storeDeviceTypeLookup]);
 
   // Export store breakdown as PDF
   const exportStoreBreakdownPDF = async () => {
@@ -3366,16 +3410,8 @@ export default function App() {
         return;
       }
 
-      // Save to localStorage for persistence
-      try {
-        localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(parsed));
-        localStorage.setItem(`${DEVICES_STORAGE_KEY}_date`, new Date().toISOString());
-      } catch (e) {
-        console.error("Failed to save devices to localStorage:", e);
-      }
-
       setDeviceRecords(parsed);
-      setDeviceImportDate(new Date().toLocaleDateString());
+      setDeviceImportTimestamp(new Date().toISOString());
       setSaveMessage(`Replaced devices with ${parsed.length} records from ${file.name}`);
     } catch (error) {
       setSaveMessage(`Device upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -3392,7 +3428,7 @@ export default function App() {
       localStorage.removeItem(`${DEVICES_STORAGE_KEY}_date`);
     } catch {}
     setDeviceRecords([]);
-    setDeviceImportDate("");
+    setDeviceImportTimestamp("");
     setSaveMessage("Cleared all imported device records.");
   };
 
@@ -4371,6 +4407,7 @@ export default function App() {
         employees={employees}
         reportDateRangeLabel={reportDateRangeLabel}
         employeesReady={!isLoadingEmployees && employees.length > 0}
+        getStoreDeviceType={getStoreDeviceType}
       />
     </Suspense>
   );

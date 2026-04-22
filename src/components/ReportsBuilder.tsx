@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, CalendarRange, Printer, Search, Download, RefreshCw, UserRound, WandSparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,7 @@ type ReportsBuilderProps = {
   employees: Employee[];
   reportDateRangeLabel: string;
   employeesReady?: boolean;
+  getStoreDeviceType?: (store: string) => "physical" | "logical";
 };
 
 type SelectionMode = "store" | "employees";
@@ -77,6 +78,7 @@ type StoreOption = {
   key: string;
   store: string;
   storeCode: string;
+  storeType: "physical" | "logical";
   displayName: string;
   region: string;
   groupKey: string;
@@ -135,6 +137,7 @@ type StoreSection = {
   key: string;
   store: string;
   storeCode: string;
+  storeType: "physical" | "logical";
   region: string;
   employees: EmployeeReport[];
 };
@@ -144,6 +147,7 @@ type AwolReportRow = {
   employeeName: string;
   store: string;
   storeCode: string;
+  storeType: "physical" | "logical";
   region: string;
   department: string;
   currentAwolStreak: number;
@@ -593,6 +597,7 @@ export default function ReportsBuilder({
   employees,
   reportDateRangeLabel,
   employeesReady = true,
+  getStoreDeviceType,
 }: ReportsBuilderProps) {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [shiftRosters, setShiftRosters] = useState<ShiftRoster[]>([]);
@@ -613,6 +618,13 @@ export default function ReportsBuilder({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const liveLoadedRecordCount = records.length;
+  const resolveStoreDeviceType = useCallback(
+    (store: string): "physical" | "logical" => {
+      if (!getStoreDeviceType) return "logical";
+      return getStoreDeviceType(store);
+    },
+    [getStoreDeviceType]
+  );
 
   useEffect(() => {
     if (!statusMessage) return;
@@ -679,6 +691,7 @@ export default function ReportsBuilder({
           key,
           store: grouping.store || store || "Unassigned store",
           storeCode,
+          storeType: resolveStoreDeviceType(grouping.store || store || "Unassigned store"),
           displayName: buildStoreDisplayName(grouping.store || store, storeCode),
           region: grouping.region,
           groupKey: grouping.groupKey,
@@ -703,7 +716,7 @@ export default function ReportsBuilder({
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [employees, includeInactiveProfiles]);
+  }, [employees, includeInactiveProfiles, resolveStoreDeviceType]);
 
   const storeSelectionGroups = useMemo(() => {
     const counts = new Map<string, { key: string; label: string; count: number }>();
@@ -937,6 +950,7 @@ export default function ReportsBuilder({
 
       const store = normalizeText(employee?.store) || rosterSource?.storeName || attendanceSamples[0]?.store || "Unassigned store";
       const storeCode = normalizeText(employee?.store_code) || rosterSource?.storeCode || attendanceSamples[0]?.store_code || "";
+      const storeType = resolveStoreDeviceType(store);
       const region = normalizeText(employee?.region) || attendanceSamples[0]?.region || "Unassigned region";
       const employeeName =
         `${normalizeText(employee?.first_name)} ${normalizeText(employee?.last_name)}`.trim() ||
@@ -997,6 +1011,7 @@ export default function ReportsBuilder({
           key: sectionKey,
           store,
           storeCode,
+          storeType,
           region,
           employees: [],
         });
@@ -1024,7 +1039,7 @@ export default function ReportsBuilder({
         ),
       }))
       .sort((a, b) => a.store.localeCompare(b.store));
-  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, attendanceByEmployeeDateAndStore, employeeMap, generatedCriteria, generatedDateKeys, holidayTitleByDate, leaveLookup, rosterSourcesByEmployee, weekLabelByDate]);
+  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, attendanceByEmployeeDateAndStore, employeeMap, generatedCriteria, generatedDateKeys, holidayTitleByDate, leaveLookup, resolveStoreDeviceType, rosterSourcesByEmployee, weekLabelByDate]);
 
   const generatedTotals = useMemo(() => {
     return generatedSections.reduce(
@@ -1079,6 +1094,7 @@ export default function ReportsBuilder({
             employeeName: employee.employeeName,
             store: section.store,
             storeCode: section.storeCode,
+            storeType: section.storeType,
             region: section.region,
             department: employee.department,
             currentAwolStreak: currentStreak,
@@ -1238,12 +1254,13 @@ export default function ReportsBuilder({
         styles: { fontSize: 8, cellPadding: 4, valign: "middle" },
         headStyles: { fillColor: [241, 245, 249], textColor: 60 },
         theme: "grid",
-        head: [["Rank", "Employee Code", "Employee", "Store", "Streak", "AWOL Dates", "Last Day At Work"]],
+        head: [["Rank", "Employee Code", "Employee", "Store", "Type", "Streak", "AWOL Dates", "Last Day At Work"]],
         body: generatedAwolRows.map((row, index) => [
           String(index + 1),
           row.employeeCode,
           row.employeeName,
           row.storeCode ? `${row.storeCode} - ${row.store}` : row.store,
+          row.storeType === "physical" ? "Physical" : "Logical",
           String(row.currentAwolStreak),
           row.awolDates.map((dateKey) => formatLongDate(dateKey)).join(" | "),
           row.lastDayAtWorkLabel,
@@ -1294,7 +1311,7 @@ export default function ReportsBuilder({
       doc.setFontSize(8.5);
       doc.setTextColor(100, 116, 139);
       doc.text(
-        `${formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} | Region: ${section.region} | ${section.employees.length} Team Member${section.employees.length === 1 ? "" : "s"}`,
+        `${formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} | Region: ${section.region} | Type: ${section.storeType === "physical" ? "Physical" : "Logical"} | ${section.employees.length} Team Member${section.employees.length === 1 ? "" : "s"}`,
         marginX + 12,
         topY + 32
       );
@@ -1532,6 +1549,7 @@ export default function ReportsBuilder({
               <td>${escapeHtml(row.employeeCode)}</td>
               <td>${escapeHtml(row.employeeName)}</td>
               <td>${escapeHtml(row.storeCode ? `${row.storeCode} - ${row.store}` : row.store)}</td>
+              <td>${escapeHtml(row.storeType === "physical" ? "Physical" : "Logical")}</td>
               <td>${row.currentAwolStreak}</td>
               <td>${escapeHtml(row.awolDates.map((dateKey) => formatLongDate(dateKey)).join(" | "))}</td>
               <td>${escapeHtml(row.lastDayAtWorkLabel)}</td>
@@ -1569,6 +1587,7 @@ export default function ReportsBuilder({
                   <th>Employee Code</th>
                   <th>Employee</th>
                   <th>Store</th>
+                  <th>Type</th>
                   <th>Streak</th>
                   <th>AWOL Dates</th>
                   <th>Last Day At Work</th>
@@ -1610,6 +1629,7 @@ export default function ReportsBuilder({
               <div class="meta">
                 <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
                 <span>Region: ${escapeHtml(section.region)}</span>
+                <span>Type: ${escapeHtml(section.storeType === "physical" ? "Physical" : "Logical")}</span>
                 <span>${totalEmployees} Team Member${totalEmployees !== 1 ? 's' : ''}</span>
               </div>
             </div>
@@ -2193,6 +2213,7 @@ export default function ReportsBuilder({
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Rank</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Employee</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Store</th>
+                          <th className="border-b border-slate-200 px-3 py-3 text-center">Type</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-center">AWOL Days In A Row</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">AWOL Dates</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Last Day At Work</th>
@@ -2210,6 +2231,11 @@ export default function ReportsBuilder({
                             </td>
                             <td className="border-b border-slate-200 px-3 py-3 text-sm text-slate-700">
                               {row.storeCode ? `${row.storeCode} - ${row.store}` : row.store}
+                            </td>
+                            <td className="border-b border-slate-200 px-3 py-3 text-center">
+                              <Badge className={row.storeType === "physical" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}>
+                                {row.storeType === "physical" ? "Physical" : "Logical"}
+                              </Badge>
                             </td>
                             <td className="border-b border-slate-200 px-3 py-3 text-center">
                               <Badge className="bg-red-100 text-red-700">{row.currentAwolStreak}</Badge>
@@ -2271,7 +2297,7 @@ export default function ReportsBuilder({
                             Shift Date Range: {formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} • Grouped By: Store
                           </div>
                           <div className="mt-1 text-sm text-slate-300">
-                            Region: {section.region} • {section.employees.length} merchandiser{section.employees.length === 1 ? "" : "s"}
+                            Region: {section.region} • Type: {section.storeType === "physical" ? "Physical" : "Logical"} • {section.employees.length} merchandiser{section.employees.length === 1 ? "" : "s"}
                           </div>
                         </div>
 

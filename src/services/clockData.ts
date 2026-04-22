@@ -684,21 +684,44 @@ function matchesEmployeeClockProfile(event: BiometricClockEvent, employee: Pick<
   );
 }
 
-function findClockHeaderRow(rows: unknown[][]) {
-  return rows.findIndex((row) => {
-    const keys = row.map((cell) => normalizeHeaderKey(cell));
-    const hasPrimaryColumns = keys.includes("date") && keys.includes("time");
-    const hasIdentityColumns =
-      keys.includes("employee") ||
-      keys.includes("employee_1") ||
-      keys.includes("emp") ||
-      keys.includes("first_name") ||
-      keys.includes("last_name") ||
-      keys.includes("lastname") ||
-      keys.includes("alias");
+function isClockHeaderRow(row: unknown[]) {
+  const keys = row.map((cell) => normalizeHeaderKey(cell)).filter(Boolean);
+  if (keys.length === 0) return false;
 
-    return hasPrimaryColumns && hasIdentityColumns;
-  });
+  const hasDateLikeColumn = keys.some((key) => ["date", "clock_date", "clocked_at", "clock_datetime"].includes(key));
+  const hasTimeLikeColumn = keys.some((key) => ["time", "clock_time"].includes(key));
+  const hasIdentityColumns = keys.some((key) =>
+    [
+      "employee",
+      "employee_1",
+      "employee_number",
+      "employee_code",
+      "employee_no",
+      "employee_num",
+      "emp",
+      "emp_no",
+      "emp_number",
+      "first_name",
+      "last_name",
+      "lastname",
+      "surname",
+      "alias",
+      "national_id",
+      "id_number",
+    ].includes(key)
+  );
+
+  return (hasDateLikeColumn || hasTimeLikeColumn) && hasIdentityColumns;
+}
+
+function findClockHeaderRow(rows: unknown[][]) {
+  const detected = rows.findIndex((row) => isClockHeaderRow(row || []));
+  if (detected >= 0) return detected;
+  // Common payroll exports place headers in row 5 (1-based).
+  if (rows.length >= 5 && isClockHeaderRow(rows[4] || [])) {
+    return 4;
+  }
+  return -1;
 }
 
 function expandWorksheetRange(sheet: XLSX.WorkSheet) {
@@ -736,6 +759,14 @@ function toNormalizedEntries(row: Record<string, unknown>) {
   }, {});
 }
 
+function firstNonEmptyEntry(entries: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = entries[key];
+    if (normalizeText(value)) return value;
+  }
+  return "";
+}
+
 function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): ParsedClockWorkbookRow[] {
    const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
    if (workbook.SheetNames.length === 0) return [];
@@ -757,16 +788,39 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
      return rows
        .map((row, index) => {
          const entries = toNormalizedEntries(row);
-         const rawEmployeeCode = isUsableMatchToken(entries.employee || entries.employee_number || entries.employee_1)
-           ? normalizeEmployeeCode(entries.employee || entries.employee_number || entries.employee_1)
-           : isUsableMatchToken(entries.emp)
-             ? normalizeEmployeeCode(entries.emp)
-             : "";
-         const rawEmployeeNumber = normalizeText(entries.employee || entries.employee_number || entries.employee_1 || entries.emp || rawEmployeeCode);
-         const rawIdNumber = isUsableMatchToken(entries.national_id || entries.id_number) ? normalizeMatchToken(entries.national_id || entries.id_number) : "";
+         const rawEmployeeCodeSource = firstNonEmptyEntry(entries, [
+           "employee",
+           "employee_code",
+           "employee_number",
+           "employee_1",
+           "employee_no",
+           "employee_num",
+           "emp",
+           "emp_no",
+           "emp_number",
+         ]);
+         const rawEmployeeCode = isUsableMatchToken(rawEmployeeCodeSource)
+           ? normalizeEmployeeCode(rawEmployeeCodeSource)
+           : "";
+         const rawEmployeeNumber = normalizeText(
+           firstNonEmptyEntry(entries, [
+             "employee_number",
+             "employee",
+             "employee_1",
+             "employee_code",
+             "emp",
+             "emp_no",
+             "emp_number",
+           ]) || rawEmployeeCode
+         );
+         const rawIdNumberSource = firstNonEmptyEntry(entries, ["national_id", "id_number", "id_no", "sa_id"]);
+         const rawIdNumber = isUsableMatchToken(rawIdNumberSource) ? normalizeMatchToken(rawIdNumberSource) : "";
 
-         const { clockedAt, clockDate, clockTime } = combineDateTime(entries.date, entries.time);
-         const deviceName = normalizeText(entries.device_name || entries.device);
+         const { clockedAt, clockDate, clockTime } = combineDateTime(
+           firstNonEmptyEntry(entries, ["date", "clock_date", "clocked_at", "clock_datetime"]),
+           firstNonEmptyEntry(entries, ["time", "clock_time", "clocked_at", "clock_datetime"])
+         );
+         const deviceName = normalizeText(firstNonEmptyEntry(entries, ["device_name", "device"]));
          const reasonDeclined = normalizeText(entries.reason_declined);
          const parsedStore = parseRegionStore(deviceName);
 
@@ -779,8 +833,8 @@ function parseClockWorkbookRows(buffer: ArrayBuffer, sourceFileName: string): Pa
            raw_id_number: rawIdNumber,
            employee_code: rawEmployeeCode,
            employee_number: rawEmployeeNumber,
-           first_name: normalizeText(entries.first_name),
-           last_name: normalizeText(entries.lastname || entries.last_name),
+           first_name: normalizeText(firstNonEmptyEntry(entries, ["first_name", "firstname", "name"])),
+           last_name: normalizeText(firstNonEmptyEntry(entries, ["last_name", "lastname", "surname"])),
            alias: normalizeText(entries.alias),
            id_number: rawIdNumber,
            device_name: deviceName,
