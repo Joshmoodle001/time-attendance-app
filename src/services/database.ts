@@ -1273,6 +1273,83 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
   }
 }
 
+// Strict import path used by critical upload flows where remote Supabase write must succeed.
+// This still refreshes local cache first for UI continuity, but returns success=false when remote upsert fails.
+export async function importEmployeesRemoteOverwrite(
+  employees: EmployeeInput[]
+): Promise<{ success: boolean; error?: string; count?: number }> {
+  try {
+    const now = new Date().toISOString()
+    const processedEmployees = employees.map(emp => ({
+      ...normalizeEmployeePayload(emp),
+      created_at: now,
+      updated_at: now,
+    }))
+
+    const existingEmployees = await loadStoredEmployees()
+    const localMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+
+    processedEmployees.forEach((employee) => {
+      const normalizedCode = normalizeEmployeeCode(employee.employee_code)
+      const existing = localMap.get(normalizedCode)
+      localMap.set(normalizedCode, {
+        id: existing?.id || randomId(),
+        employee_code: normalizedCode,
+        first_name: employee.first_name,
+        last_name: employee.last_name,
+        gender: employee.gender || '',
+        title: employee.title || '',
+        alias: employee.alias || '',
+        id_number: employee.id_number || '',
+        email: employee.email || '',
+        phone: employee.phone || '',
+        job_title: employee.job_title || '',
+        department: employee.department || '',
+        region: employee.region || '',
+        store: employee.store || '',
+        store_code: employee.store_code || '',
+        hire_date: parseExcelDate(employee.hire_date),
+        person_type: employee.person_type || '',
+        fingerprints_enrolled: employee.fingerprints_enrolled ?? null,
+        company: employee.company || '',
+        branch: employee.branch || '',
+        business_unit: employee.business_unit || '',
+        cost_center: employee.cost_center || '',
+        team: employee.team || '',
+        ta_integration_id_1: employee.ta_integration_id_1 || '',
+        ta_integration_id_2: employee.ta_integration_id_2 || '',
+        access_profile: employee.access_profile || '',
+        ta_enabled: employee.ta_enabled ?? null,
+        permanent: employee.permanent ?? null,
+        active: employee.active ?? employee.status === 'active',
+        termination_reason: employee.termination_reason || '',
+        termination_date: parseExcelDate(employee.termination_date),
+        status: normalizeEmployeeStatus(employee.status),
+        created_at: existing?.created_at || now,
+        updated_at: now,
+      })
+    })
+    await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
+
+    const { data, error } = await supabase
+      .from('employees')
+      .upsert(processedEmployees, { onConflict: 'employee_code' })
+      .select('id')
+
+    if (error) {
+      const message = getEmployeeStorageErrorMessage(error)
+      console.error('Import employees remote overwrite failed:', message)
+      return { success: false, error: message }
+    }
+
+    return { success: true, count: data?.length || processedEmployees.length }
+  } catch (err) {
+    const message = getEmployeeStorageErrorMessage(err)
+    console.error('Import employees remote overwrite failed:', message)
+    return { success: false, error: message }
+  }
+}
+
 export async function getEmployeeStats(): Promise<{
   total: number
   active: number

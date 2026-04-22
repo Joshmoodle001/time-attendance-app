@@ -179,9 +179,31 @@ function normalizeCompare(value: unknown) {
   return normalizeText(value).toLowerCase();
 }
 
-function isEmployeeReportable(employee: Employee | undefined | null) {
+function hasPhysicalDeviceForStoreInReports(
+  storeDeviceMap: Map<string, StoreDeviceEntry>,
+  storeCode: unknown,
+  storeName: unknown
+) {
+  if (!storeDeviceMap || storeDeviceMap.size === 0) return true;
+  const normalizedCode = normalizeCompare(storeCode);
+  if (normalizedCode) {
+    const byCode = storeDeviceMap.get(normalizedCode);
+    return byCode?.hasDevice === true;
+  }
+
+  const normalizedStoreName = normalizeCompare(storeName);
+  if (!normalizedStoreName) return false;
+
+  const byName = Array.from(storeDeviceMap.values()).find(
+    (entry) => normalizeCompare(entry.storeName) === normalizedStoreName
+  );
+  return byName?.hasDevice === true;
+}
+
+function isEmployeeReportable(employee: Employee | undefined | null, storeDeviceMap: Map<string, StoreDeviceEntry>) {
    if (!employee) return false;
    if (employee.active === false) return false;
+   if (!hasPhysicalDeviceForStoreInReports(storeDeviceMap, employee.store_code, employee.store)) return false;
    return normalizeCompare(employee.status) !== "inactive";
  }
 
@@ -193,10 +215,15 @@ function getEmployeeProfileState(employee: Employee | undefined | null) {
    return "active";
  }
 
-function isEmployeeIncludedInBuilder(employee: Employee | undefined | null, includeInactiveProfiles: boolean) {
+function isEmployeeIncludedInBuilder(
+  employee: Employee | undefined | null,
+  includeInactiveProfiles: boolean,
+  storeDeviceMap: Map<string, StoreDeviceEntry>
+) {
    if (!employee) return false;
+   if (!hasPhysicalDeviceForStoreInReports(storeDeviceMap, employee.store_code, employee.store)) return false;
    if (includeInactiveProfiles) return true;
-   return isEmployeeReportable(employee);
+   return isEmployeeReportable(employee, storeDeviceMap);
  }
 
 function buildStoreKey(store: unknown, storeCode: unknown) {
@@ -563,10 +590,12 @@ export default function ReportsBuilder({
   reportDateRangeLabel,
   storeDeviceMap = new Map(),
 }: ReportsBuilderProps) {
-  const getStoreDeviceLabel = (storeCode: string): string => {
+  const getStoreDeviceLabel = (storeCode: string, storeName?: string): string => {
     const code = (storeCode || "").toLowerCase().trim();
-    if (!code || storeDeviceMap.size === 0) return "";
-    const entry = storeDeviceMap.get(code);
+    if (storeDeviceMap.size === 0) return "";
+    const entry = code
+      ? storeDeviceMap.get(code)
+      : Array.from(storeDeviceMap.values()).find((item) => normalizeCompare(item.storeName) === normalizeCompare(storeName));
     if (!entry) return "";
     return entry.hasDevice ? "Physical Store (Has Device)" : "Logical Store (No Device)";
   };
@@ -636,7 +665,7 @@ export default function ReportsBuilder({
     const values = new Map<string, StoreOption>();
 
     employees.forEach((employee) => {
-      if (!isEmployeeIncludedInBuilder(employee, includeInactiveProfiles)) return;
+      if (!isEmployeeIncludedInBuilder(employee, includeInactiveProfiles, storeDeviceMap)) return;
 
       const store = normalizeText(employee.store);
       const storeCode = normalizeText(employee.store_code);
@@ -670,7 +699,7 @@ export default function ReportsBuilder({
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [employees, includeInactiveProfiles]);
+  }, [employees, includeInactiveProfiles, storeDeviceMap]);
 
   const storeBrandGroups = useMemo(() => {
     const brands = ["Shoprite", "Checkers"];
@@ -702,14 +731,14 @@ export default function ReportsBuilder({
   const employeeOptions = useMemo(
     () =>
       [...employees]
-        .filter((employee) => isEmployeeIncludedInBuilder(employee, includeInactiveProfiles))
+        .filter((employee) => isEmployeeIncludedInBuilder(employee, includeInactiveProfiles, storeDeviceMap))
         .sort(
           (a, b) =>
             normalizeText(a.store).localeCompare(normalizeText(b.store)) ||
             normalizeText(a.last_name).localeCompare(normalizeText(b.last_name)) ||
             normalizeText(a.first_name).localeCompare(normalizeText(a.first_name))
         ),
-    [employees, includeInactiveProfiles]
+    [employees, includeInactiveProfiles, storeDeviceMap]
   );
 
   const selectedStoreOptions = useMemo(
@@ -833,7 +862,7 @@ export default function ReportsBuilder({
     generatedCriteria.employeeCodes.forEach((employeeCode) => {
       const normalizedEmployeeCode = normalizeEmployeeCode(employeeCode);
       const employee = employeeMap.get(normalizedEmployeeCode);
-      if (!isEmployeeReportable(employee)) return;
+      if (!isEmployeeReportable(employee, storeDeviceMap)) return;
       const attendanceSamples = attendanceByEmployeeCode.get(normalizedEmployeeCode) || [];
       const rosterSource = employee
         ? matchRosterSource(employee, rosterSourcesByEmployee.get(normalizedEmployeeCode) || [])
@@ -923,7 +952,7 @@ export default function ReportsBuilder({
         ),
       }))
       .sort((a, b) => a.store.localeCompare(b.store));
-  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, employeeMap, generatedCalendarEvents, generatedCriteria, generatedDateKeys, leaveLookup, rosterSourcesByEmployee]);
+  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, employeeMap, generatedCalendarEvents, generatedCriteria, generatedDateKeys, leaveLookup, rosterSourcesByEmployee, storeDeviceMap]);
 
   const generatedTotals = useMemo(() => {
     return generatedSections.reduce(
@@ -1051,10 +1080,10 @@ export default function ReportsBuilder({
     try {
       const normalizedEmployeeCodes = Array.from(
         new Set(
-          employeeCodes
-            .map((code) => normalizeEmployeeCode(code))
-            .filter(Boolean)
-            .filter((code) => isEmployeeIncludedInBuilder(employeeMap.get(code), includeInactiveProfiles))
+            employeeCodes
+              .map((code) => normalizeEmployeeCode(code))
+              .filter(Boolean)
+            .filter((code) => isEmployeeIncludedInBuilder(employeeMap.get(code), includeInactiveProfiles, storeDeviceMap))
         )
       );
       if (normalizedEmployeeCodes.length === 0) {
@@ -1205,7 +1234,7 @@ export default function ReportsBuilder({
 
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(16);
-      const storeDeviceLabel = getStoreDeviceLabel(section.storeCode);
+        const storeDeviceLabel = getStoreDeviceLabel(section.storeCode, section.store);
       const storeHeading = section.storeCode ? `${section.storeCode} - ${section.store}` : section.store;
       doc.text(
         storeHeading,
@@ -1525,7 +1554,7 @@ export default function ReportsBuilder({
           <section class="store-section">
             <div class="store-header">
               <div class="eyebrow">Attendance Report</div>
-              <h1>${escapeHtml(section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}${getStoreDeviceLabel(section.storeCode) ? `<span class="device-badge ${getStoreDeviceLabel(section.storeCode).includes('Physical') ? 'physical' : 'logical'}">${escapeHtml(getStoreDeviceLabel(section.storeCode))}</span>` : ''}</h1>
+        <h1>${escapeHtml(section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}${getStoreDeviceLabel(section.storeCode, section.store) ? `<span class="device-badge ${getStoreDeviceLabel(section.storeCode, section.store).includes('Physical') ? 'physical' : 'logical'}">${escapeHtml(getStoreDeviceLabel(section.storeCode, section.store))}</span>` : ''}</h1>
               <div class="meta">
                 <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
                 <span>Region: ${escapeHtml(section.region)}</span>
@@ -2097,7 +2126,7 @@ export default function ReportsBuilder({
                             </td>
                             <td className="border-b border-slate-200 px-3 py-3 text-sm text-slate-700">
                               {row.storeCode ? `${row.storeCode} - ${row.store}` : row.store}
-                              {(() => { const l = getStoreDeviceLabel(row.storeCode); if (!l) return null; return <span className={`ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.includes("Physical") ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>{l}</span>; })()}
+                              {(() => { const l = getStoreDeviceLabel(row.storeCode, row.store); if (!l) return null; return <span className={`ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.includes("Physical") ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>{l}</span>; })()}
                             </td>
                             <td className="border-b border-slate-200 px-3 py-3 text-center">
                               <Badge className="bg-red-100 text-red-700">{row.currentAwolStreak}</Badge>
@@ -2155,7 +2184,7 @@ export default function ReportsBuilder({
                           <div className="mt-2 text-2xl font-bold tracking-tight flex items-center gap-3">
                             {section.storeCode ? `${section.storeCode} - ${section.store}` : section.store}
                             {(() => {
-                              const label = getStoreDeviceLabel(section.storeCode);
+                              const label = getStoreDeviceLabel(section.storeCode, section.store);
                               if (!label) return null;
                               const isPhysical = label.includes("Physical");
                               return (

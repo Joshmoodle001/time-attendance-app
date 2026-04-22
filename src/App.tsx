@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useCallback, useDeferredValue, useMemo, useRef, useState, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { uploadAttendanceFile } from "@/services/storage";
-import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployees, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
+import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployeesRemoteOverwrite, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
 import type { Employee, EmployeeInput } from "@/services/database";
 import { getConfig, saveConfig, testConnection, getSyncLogs, syncFromIpulse, clearSyncLogs, startAutoSync, stopAutoSync, IPULSE_SETUP_SQL } from "@/services/ipulse";
 import type { IpulseConfig, SyncLog } from "@/services/ipulse";
@@ -151,6 +151,8 @@ const QUICK_RANGE_OPTIONS = [
 ] as const;
 
 const LAST_ATTENDANCE_DATE_STORAGE_KEY = "last-attendance-date-v1";
+const DEVICE_RECORDS_STORAGE_KEY = "device-records-v1";
+const DEVICE_IMPORT_DATE_STORAGE_KEY = "device-import-date-v1";
   const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
   const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
 
@@ -1359,6 +1361,38 @@ export default function App() {
     return map;
   }, [deviceRecords]);
 
+  const storeDeviceNameMap = useMemo<Map<string, StoreDeviceStatus>>(() => {
+    const map = new Map<string, StoreDeviceStatus>();
+    for (const d of deviceRecords) {
+      const nameKey = String(d.storeName || "").toLowerCase().trim();
+      if (!nameKey) continue;
+      const isPhysical = d.deviceType.toLowerCase().includes("physical");
+      map.set(nameKey, {
+        storeCode: d.storeCode,
+        storeName: d.storeName,
+        hasDevice: isPhysical,
+        deviceStatus: d.status,
+        deviceName: d.name,
+      });
+    }
+    return map;
+  }, [deviceRecords]);
+
+  const hasPhysicalDeviceForStore = useCallback((storeCode: unknown, storeName?: unknown): boolean => {
+    if (storeDeviceMap.size === 0 && storeDeviceNameMap.size === 0) return true;
+    const code = String(storeCode || "").toLowerCase().trim();
+    if (code) {
+      const entry = storeDeviceMap.get(code);
+      return entry?.hasDevice === true;
+    }
+    const nameKey = String(storeName || "").toLowerCase().trim();
+    if (nameKey) {
+      const entry = storeDeviceNameMap.get(nameKey);
+      return entry?.hasDevice === true;
+    }
+    return false;
+  }, [storeDeviceMap, storeDeviceNameMap]);
+
   const storeHasDevice = useCallback((storeCode: string): boolean | null => {
     const code = storeCode.toLowerCase().trim();
     if (!code || storeDeviceMap.size === 0) return null;
@@ -1710,49 +1744,33 @@ export default function App() {
         ]);
       console.log(`[OVERVIEW] Step 1 - ALL parallel queries: ${(performance.now() - t1).toFixed(0)}ms (emp=${employeeProfiles.length}, shifts=${shiftRosters.length}, dayAtt=${dayAttendance.length}, rangeAtt=${rangeAttendance.length}, dayClock=${dayClockEvents.length}, rangeClock=${rangeClockEvents.length})`);
 
-      const filteredEmployeeProfiles = storeDeviceMap.size > 0
-        ? employeeProfiles.filter((emp) => {
-            const code = (emp.store_code || "").toLowerCase().trim();
-            if (!code) return true;
-            const deviceInfo = storeDeviceMap.get(code);
-            if (deviceInfo === undefined) return true;
-            return deviceInfo.hasDevice;
-          })
+      const filteredEmployeeProfiles = deviceRecords.length > 0
+        ? employeeProfiles.filter((emp) => hasPhysicalDeviceForStore(emp.store_code, emp.store))
         : employeeProfiles;
 
-      const filteredRangeAttendance = storeDeviceMap.size > 0
-        ? rangeAttendance.filter((rec) => {
-            const code = (rec.store_code || "").toLowerCase().trim();
-            if (!code) return true;
-            const deviceInfo = storeDeviceMap.get(code);
-            if (deviceInfo === undefined) return true;
-            return deviceInfo.hasDevice;
-          })
+      const filteredRangeAttendance = deviceRecords.length > 0
+        ? rangeAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
         : rangeAttendance;
 
-      const filteredDayAttendance = storeDeviceMap.size > 0
-        ? dayAttendance.filter((rec) => {
-            const code = (rec.store_code || "").toLowerCase().trim();
-            if (!code) return true;
-            const deviceInfo = storeDeviceMap.get(code);
-            if (deviceInfo === undefined) return true;
-            return deviceInfo.hasDevice;
-          })
+      const filteredDayAttendance = deviceRecords.length > 0
+        ? dayAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
         : dayAttendance;
 
-      const filteredDayClockEvents = storeDeviceMap.size > 0
+      const filteredEmployeeCodes = new Set(
+        filteredEmployeeProfiles.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
+      );
+
+      const filteredDayClockEvents = deviceRecords.length > 0
         ? dayClockEvents.filter((ev) => {
-            const code = (ev.employee_code || "").toLowerCase().trim();
-            const emp = filteredEmployeeProfiles.find((e) => e.employee_code?.toLowerCase().trim() === code);
-            return emp !== undefined;
+            const code = normalizeEmployeeCode(ev.employee_code);
+            return filteredEmployeeCodes.has(code);
           })
         : dayClockEvents;
 
-      const filteredRangeClockEvents = storeDeviceMap.size > 0
+      const filteredRangeClockEvents = deviceRecords.length > 0
         ? rangeClockEvents.filter((ev) => {
-            const code = (ev.employee_code || "").toLowerCase().trim();
-            const emp = filteredEmployeeProfiles.find((e) => e.employee_code?.toLowerCase().trim() === code);
-            return emp !== undefined;
+            const code = normalizeEmployeeCode(ev.employee_code);
+            return filteredEmployeeCodes.has(code);
           })
         : rangeClockEvents;
       // STEP 5: Data processing
@@ -1874,7 +1892,7 @@ export default function App() {
       };
       setIsLoadingOverview(false);
     }
-  }, [employees, overviewEndDate, overviewStartDate, selectedOverviewDate, storeDeviceMap]);
+  }, [deviceRecords.length, employees, hasPhysicalDeviceForStore, overviewEndDate, overviewStartDate, selectedOverviewDate]);
 
   const loadAttendanceForDate = async (date: string, options?: { silent?: boolean }) => {
     if (!date) return [];
@@ -1940,6 +1958,24 @@ export default function App() {
     let alive = true;
 
     const hydrateSavedData = async () => {
+      if (typeof window !== "undefined") {
+        try {
+          const rawDevices = window.localStorage.getItem(DEVICE_RECORDS_STORAGE_KEY);
+          const rawDeviceImportDate = window.localStorage.getItem(DEVICE_IMPORT_DATE_STORAGE_KEY) || "";
+          if (rawDevices) {
+            const parsedDevices = JSON.parse(rawDevices) as DeviceRecord[];
+            if (Array.isArray(parsedDevices)) {
+              setDeviceRecords(parsedDevices);
+            }
+          }
+          if (rawDeviceImportDate) {
+            setDeviceImportDate(rawDeviceImportDate);
+          }
+        } catch (error) {
+          console.error("Failed to hydrate stored device data:", error);
+        }
+      }
+
       // Load essential data - dates first
       const dates = await getAvailableDates();
       if (!alive) return;
@@ -2352,7 +2388,11 @@ export default function App() {
 
     setRollingBackEmergencyUploadId(log.id);
     try {
-      const result = await importEmployees(log.rollback_employees);
+      const result = await importEmployeesRemoteOverwrite(log.rollback_employees);
+      if (!result.success) {
+        setSaveMessage(`Rollback failed before Supabase sync completed: ${result.error}`);
+        return;
+      }
       const rolledBackAt = new Date().toISOString();
       const rollbackLogResult = await markEmployeeUpdateUploadLogRolledBack(log.id, rolledBackAt);
       await loadEmployees();
@@ -2378,7 +2418,7 @@ export default function App() {
       setSaveMessage(
         result.error
           ? `Emergency upload rolled back. ${result.error}`
-          : "Emergency upload rolled back successfully."
+          : "Emergency upload rolled back successfully and synced to Supabase."
       );
     } finally {
       setRollingBackEmergencyUploadId(null);
@@ -2622,18 +2662,16 @@ export default function App() {
       setPayrollUploadProgress(60);
       setPayrollUploadStage(`Importing ${newEmployees.length} employees to database...`);
       
-      const result = await importEmployees(newEmployees);
+      const result = await importEmployeesRemoteOverwrite(newEmployees);
       
       setPayrollUploadProgress(90);
       setPayrollUploadStage("Finalizing import...");
       if (result.success) {
-        const msg = result.error 
-          ? `Imported ${result.count} employee profiles from ${file.name}. ${result.error}` 
-          : `Imported ${result.count} employee profiles from ${file.name}`;
+        const msg = `Imported ${result.count} employee profiles from ${file.name} and synced to Supabase.`;
         setSaveMessage(msg);
         await loadEmployees();
       } else {
-        const msg = `Import error: ${result.error}`;
+        const msg = `Import failed before Supabase sync completed: ${result.error}`;
         setSaveMessage(msg);
       }
       setPayrollUploadProgress(100);
@@ -2743,7 +2781,7 @@ export default function App() {
 
       setStaffListUploadProgress(65);
       setStaffListUploadStage("Applying staff list updates to employee profiles...");
-      const result = await importEmployees(analysis.updatesToApply);
+      const result = await importEmployeesRemoteOverwrite(analysis.updatesToApply);
       if (result.success) {
         const logResult = await saveEmployeeUpdateUploadLog({
           file_name: file.name,
@@ -2753,7 +2791,7 @@ export default function App() {
           inactive_profiles: analysis.inactiveProfiles,
           unchanged_profiles: analysis.unchangedProfiles,
           unmatched_rows: analysis.unmatchedRows,
-          remote_message: result.error || "",
+          remote_message: "",
           items: analysis.reportItems,
           rollback_employees: analysis.rollbackEmployees,
         });
@@ -2767,21 +2805,21 @@ export default function App() {
           unchangedCount: analysis.unchangedProfiles,
           unmatchedCount: analysis.unmatchedRows,
           reportItems: analysis.reportItems,
-          remoteMessage: result.error || logResult.error,
+          remoteMessage: logResult.error,
         });
         setStaffListUploadProgress(100);
         setStaffListUploadStage("Employee profiles updated successfully.");
         setSaveMessage(
           result.error
             ? `Updated ${analysis.updatedProfiles} matching employee profile${analysis.updatedProfiles === 1 ? "" : "s"} from ${file.name}. ${analysis.inactiveProfiles} profile${analysis.inactiveProfiles === 1 ? "" : "s"} were marked inactive from termination data. ${result.error}`
-            : `Updated ${analysis.updatedProfiles} matching employee profile${analysis.updatedProfiles === 1 ? "" : "s"} from ${file.name}. ${analysis.inactiveProfiles} profile${analysis.inactiveProfiles === 1 ? "" : "s"} were marked inactive from termination data.`
+            : `Updated ${analysis.updatedProfiles} matching employee profile${analysis.updatedProfiles === 1 ? "" : "s"} from ${file.name}. ${analysis.inactiveProfiles} profile${analysis.inactiveProfiles === 1 ? "" : "s"} were marked inactive from termination data and synced to Supabase.`
         );
         await loadEmployees();
         await loadEmployeeUpdateLogs();
       } else {
         setStaffListUploadProgress(100);
         setStaffListUploadStage("Employee update import failed.");
-        setSaveMessage(`Employee update import error: ${result.error}`);
+        setSaveMessage(`Employee update import failed before Supabase sync completed: ${result.error}`);
       }
     } catch (err) {
       console.error("Employee staff list update error:", err);
@@ -3216,7 +3254,7 @@ export default function App() {
           isMatch = record.dayOff;
           break;
         case "other":
-          isMatch = !record.atWork && !record.problem && !record.leave && !record.dayOff && record.scheduled;
+          isMatch = !record.atWork && !record.problem && !record.leave && !record.dayOff;
           break;
       }
       if (isMatch) {
@@ -3664,8 +3702,13 @@ export default function App() {
         return;
       }
 
+      const importStamp = new Date().toLocaleDateString();
       setDeviceRecords(parsed);
-      setDeviceImportDate(new Date().toLocaleDateString());
+      setDeviceImportDate(importStamp);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(DEVICE_RECORDS_STORAGE_KEY, JSON.stringify(parsed));
+        window.localStorage.setItem(DEVICE_IMPORT_DATE_STORAGE_KEY, importStamp);
+      }
       setSaveMessage(`Imported ${parsed.length} device records from ${file.name}`);
     } catch (error) {
       setSaveMessage(`Device upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
