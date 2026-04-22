@@ -818,9 +818,14 @@ function parseExcelDate(value: unknown): string {
   return strValue;
 }
 
+function toSupabaseDate(value: unknown): string | null {
+  const parsed = parseExcelDate(value)
+  return parsed || null
+}
+
 function normalizeEmployeePayload(employee: EmployeeInput) {
-  const normalizedHireDate = parseExcelDate(employee.hire_date)
-  const normalizedTerminationDate = parseExcelDate(employee.termination_date)
+  const normalizedHireDate = toSupabaseDate(employee.hire_date)
+  const normalizedTerminationDate = toSupabaseDate(employee.termination_date)
   const hasTermination = Boolean(normalizedTerminationDate || String(employee.termination_reason || "").trim())
   const requestedStatus = employee.status
     ? normalizeEmployeeStatus(employee.status)
@@ -878,7 +883,7 @@ function normalizeEmployeeUpdatePayload(updates: Partial<EmployeeInput>) {
       return
     }
     if (key === "hire_date" || key === "termination_date") {
-      next[key] = parseExcelDate(value)
+      next[key] = toSupabaseDate(value)
       return
     }
     next[key] = value
