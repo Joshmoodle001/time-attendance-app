@@ -11,6 +11,8 @@ import {
   RefreshCw,
   TimerReset,
   User,
+  UserPlus,
+  Shield,
 } from "lucide-react";
 
 import App from "./App";
@@ -22,6 +24,7 @@ import {
   getAuthSession,
   getDefaultSuperAdminCredentials,
   login,
+  registerRep,
   type AuthSession,
 } from "@/services/auth";
 
@@ -187,6 +190,9 @@ export default function AuthApp() {
   const [isBooting, setIsBooting] = useState(true);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "enrollment" | "signup">("signin");
+  const [enrollmentCode, setEnrollmentCode] = useState("");
+  const [enrollmentError, setEnrollmentError] = useState("");
   const [username, setUsername] = useState(defaults.username);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -194,6 +200,15 @@ export default function AuthApp() {
     type: "info",
     text: "Sign in with your credentials.",
   });
+
+  const [signupData, setSignupData] = useState({
+    name: "",
+    surname: "",
+    username: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
 
   useEffect(() => {
     ensureSuperAdminSeeded();
@@ -219,6 +234,34 @@ export default function AuthApp() {
     setShowWelcome(true);
     setPassword("");
     setBanner({ type: "success", text: `Welcome back, ${result.session.username}!` });
+  };
+
+  const handleSignup = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (signupData.password !== signupData.confirmPassword) {
+      setBanner({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    const result = registerRep({
+      username: signupData.username,
+      password: signupData.password,
+      name: signupData.name,
+      surname: signupData.surname,
+    });
+
+    if (!result.success) {
+      setBanner({ type: "error", text: result.error });
+      return;
+    }
+
+    const loginResult = login(signupData.username, signupData.password);
+    if (loginResult.success) {
+      setSession(loginResult.session);
+      setShowWelcome(true);
+      setBanner({ type: "success", text: `Account created! Welcome, ${loginResult.session.username}!` });
+    }
   };
 
   if (isBooting) {
@@ -303,71 +346,285 @@ export default function AuthApp() {
               <div className="mb-6 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-[0_0_35px_rgba(34,211,238,0.35)]">
-                    <Lock className="h-6 w-6 text-white" />
+                    {authMode === "signin" ? (
+                      <Lock className="h-6 w-6 text-white" />
+                    ) : authMode === "enrollment" ? (
+                      <Shield className="h-6 w-6 text-white" />
+                    ) : (
+                      <UserPlus className="h-6 w-6 text-white" />
+                    )}
                   </div>
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-300">
-                      Secure Portal
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-300">
+                        {authMode === "signin" ? "Secure Portal" : authMode === "enrollment" ? "Company Access" : "Create Account"}
+                      </div>
+                      <div className="text-2xl font-bold">{authMode === "signin" ? "Sign in" : authMode === "enrollment" ? "Enrollment" : "Sign up"}</div>
                     </div>
-                    <div className="text-2xl font-bold">Sign in</div>
-                  </div>
                 </div>
               </div>
 
               <StatusBanner banner={banner} />
 
-              <motion.form
-                key="login"
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.22 }}
-                onSubmit={handleLogin}
-                className="mt-6 space-y-4"
-              >
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300">Username</label>
-                  <div className="relative">
-                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
-                    <Input
-                      value={username}
-                          onChange={(event) => setUsername(event.target.value)}
-                          className="h-12 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500"
-                          placeholder="Super admin username"
-                        />
-                      </div>
+              {authMode === "signin" ? (
+                <motion.form
+                  key="login"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.22 }}
+                  onSubmit={handleLogin}
+                  className="mt-6 space-y-4"
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Email</label>
+                    <div className="relative">
+                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                      <Input
+                        value={username}
+                        onChange={(event) => setUsername(event.target.value)}
+                        className="h-12 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500"
+                        placeholder="your@email.com"
+                      />
                     </div>
+                  </div>
 
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Password</label>
+                    <div className="relative">
+                      <Key className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        className="h-12 border-white/10 bg-white/5 pl-10 pr-12 text-white placeholder:text-slate-500"
+                        placeholder="Enter password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((current) => !current)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-white"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                    Default super admin credentials are seeded automatically for first-time access.
+                  </div>
+
+                  <Button type="submit" size="lg" className="cyber-button button-glow h-12 w-full">
+                    Unlock command center
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-white/10" />
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="bg-slate-950/55 px-3 text-slate-500">or</span>
+                    </div>
+                  </div>
+
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("enrollment");
+                        setEnrollmentCode("");
+                        setEnrollmentError("");
+                        setBanner({ type: "info", text: "Enter your company enrollment code to sign up." });
+                      }}
+                      className="text-sm text-cyan-300 hover:text-cyan-200 transition"
+                    >
+                      Don't have an account? <span className="font-semibold">Sign up</span>
+                    </button>
+                  </div>
+                </motion.form>
+              ) : authMode === "enrollment" ? (
+                <motion.form
+                  key="enrollment"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.22 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const code = enrollmentCode.trim().toUpperCase();
+                    if (code === "PFM") {
+                      setAuthMode("signup");
+                      setBanner({ type: "info", text: "Enrollment verified. Create your rep account." });
+                    } else {
+                      setEnrollmentError("Invalid enrollment code. Contact your company admin.");
+                    }
+                  }}
+                  className="mt-6 space-y-4"
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Enrollment Code</label>
+                    <div className="relative">
+                      <Shield className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                      <Input
+                        value={enrollmentCode}
+                        onChange={(e) => {
+                          setEnrollmentCode(e.target.value);
+                          setEnrollmentError("");
+                        }}
+                        className="h-12 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500 uppercase tracking-widest"
+                        placeholder="Enter code"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  {enrollmentError && (
+                    <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
+                      {enrollmentError}
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                    Enter the enrollment code provided by your company to register for a rep account. This ensures you join the correct organization.
+                  </div>
+
+                  <Button type="submit" size="lg" className="cyber-button button-glow h-12 w-full">
+                    Verify code
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("signin");
+                        setEnrollmentCode("");
+                        setEnrollmentError("");
+                        setBanner({ type: "info", text: "Sign in with your credentials." });
+                      }}
+                      className="text-sm text-cyan-300 hover:text-cyan-200 transition"
+                    >
+                      Already have an account? <span className="font-semibold">Sign in</span>
+                    </button>
+                  </div>
+                </motion.form>
+              ) : (
+                <motion.form
+                  key="signup"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.22 }}
+                  onSubmit={handleSignup}
+                  className="mt-6 space-y-4"
+                >
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-300">Password</label>
-                      <div className="relative">
-                        <Key className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          value={password}
-                          onChange={(event) => setPassword(event.target.value)}
-                          className="h-12 border-white/10 bg-white/5 pl-10 pr-12 text-white placeholder:text-slate-500"
-                          placeholder="Enter password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((current) => !current)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-white"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
+                      <label className="text-sm font-medium text-slate-300">First Name</label>
+                      <Input
+                        value={signupData.name}
+                        onChange={(e) => setSignupData({ ...signupData, name: e.target.value })}
+                        className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                        placeholder="First name"
+                        required
+                      />
                     </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                      Default super admin credentials are seeded automatically for first-time access.
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-300">Surname</label>
+                      <Input
+                        value={signupData.surname}
+                        onChange={(e) => setSignupData({ ...signupData, surname: e.target.value })}
+                        className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                        placeholder="Surname"
+                        required
+                      />
                     </div>
+                  </div>
 
-                    <Button type="submit" size="lg" className="cyber-button button-glow h-12 w-full">
-                      Unlock command center
-                      <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </motion.form>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Email</label>
+                    <div className="relative">
+                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                      <Input
+                        type="email"
+                        value={signupData.username}
+                        onChange={(e) => setSignupData({ ...signupData, username: e.target.value.toLowerCase() })}
+                        className="h-11 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500"
+                        placeholder="your@email.com"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Password</label>
+                    <div className="relative">
+                      <Key className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                      <Input
+                        type={showSignupPassword ? "text" : "password"}
+                        value={signupData.password}
+                        onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
+                        className="h-11 border-white/10 bg-white/5 pl-10 pr-12 text-white placeholder:text-slate-500"
+                        placeholder="Min 4 characters"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSignupPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-white"
+                      >
+                        {showSignupPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Confirm Password</label>
+                    <div className="relative">
+                      <Key className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300" />
+                      <Input
+                        type={showSignupPassword ? "text" : "password"}
+                        value={signupData.confirmPassword}
+                        onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
+                        className="h-11 border-white/10 bg-white/5 pl-10 text-white placeholder:text-slate-500"
+                        placeholder="Re-enter password"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-cyan-200/80">
+                    Signing up creates a <strong>Rep</strong> account with access to Overview, Shifts, and Calendar.
+                  </div>
+
+                  <Button type="submit" size="lg" className="cyber-button button-glow h-12 w-full">
+                    Create account
+                    <UserPlus className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-white/10" />
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="bg-slate-950/55 px-3 text-slate-500">or</span>
+                    </div>
+                  </div>
+
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("signin");
+                        setBanner({ type: "info", text: "Sign in with your credentials." });
+                      }}
+                      className="text-sm text-cyan-300 hover:text-cyan-200 transition"
+                    >
+                      Already have an account? <span className="font-semibold">Sign in</span>
+                    </button>
+                  </div>
+                </motion.form>
+              )}
             </motion.div>
           </div>
         </div>

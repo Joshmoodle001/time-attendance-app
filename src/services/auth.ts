@@ -468,6 +468,42 @@ export function clearLogs() {
   return { success: true };
 }
 
+export function registerRep(userData: { username: string; password: string; name: string; surname: string }) {
+  const key = normalizeUsername(userData.username);
+
+  if (!userData.username || !userData.password || !userData.name || !userData.surname) {
+    return { success: false as const, error: "All fields are required." };
+  }
+
+  if (userData.password.length < 4) {
+    return { success: false as const, error: "Password must be at least 4 characters." };
+  }
+
+  const state = readState();
+
+  if (state.users[key]) {
+    return { success: false as const, error: "An account with this email already exists." };
+  }
+
+  const now = new Date().toISOString();
+  const newUser: AuthUser = {
+    username: userData.username.toLowerCase(),
+    secret: userData.password,
+    role: "rep",
+    name: userData.name,
+    surname: userData.surname,
+    createdAt: now,
+    updatedAt: now,
+    active: true,
+  };
+
+  state.users[key] = newUser;
+  saveState(state);
+
+  addLog("USER_REGISTERED", userData.username, "Self-registered as rep");
+  return { success: true as const, user: newUser };
+}
+
 export function updateUserProfile(username: string, name: string, surname: string) {
   const state = readState();
   const key = normalizeUsername(username);

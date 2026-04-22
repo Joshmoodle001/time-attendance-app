@@ -11,7 +11,7 @@ import {
   type AttendanceRecord,
   type Employee,
 } from "@/services/database";
-import { getClockEvents, type BiometricClockEvent } from "@/services/clockData";
+import { getClockEventsForDateRange, type BiometricClockEvent } from "@/services/clockData";
 import { getCombinedCalendarEvents, getWeekEventForDate } from "@/services/calendar";
 import {
   getShiftRosters,
@@ -63,10 +63,19 @@ type AttendanceRecordLike = {
   reportStatus: string;
 };
 
+type StoreDeviceEntry = {
+  storeCode: string;
+  storeName: string;
+  hasDevice: boolean;
+  deviceStatus: "online" | "offline" | "warning";
+  deviceName: string;
+};
+
 type ReportsBuilderProps = {
   records: AttendanceRecordLike[];
   employees: Employee[];
   reportDateRangeLabel: string;
+  storeDeviceMap?: Map<string, StoreDeviceEntry>;
 };
 
 type SelectionMode = "store" | "employees";
@@ -552,7 +561,16 @@ export default function ReportsBuilder({
   records,
   employees,
   reportDateRangeLabel,
+  storeDeviceMap = new Map(),
 }: ReportsBuilderProps) {
+  const getStoreDeviceLabel = (storeCode: string): string => {
+    const code = (storeCode || "").toLowerCase().trim();
+    if (!code || storeDeviceMap.size === 0) return "";
+    const entry = storeDeviceMap.get(code);
+    if (!entry) return "";
+    return entry.hasDevice ? "Physical Store (Has Device)" : "Logical Store (No Device)";
+  };
+
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [shiftRosters, setShiftRosters] = useState<ShiftRoster[]>([]);
   const [leaveApplications, setLeaveApplications] = useState<LeaveApplication[]>([]);
@@ -1049,10 +1067,7 @@ export default function ReportsBuilder({
       }
       const [rangeRecords, rawClockEvents] = await Promise.all([
         getAttendanceByDateRange(trimmedStart, trimmedEnd),
-        getClockEvents({
-          startDate: trimmedStart,
-          endDate: trimmedEnd,
-        }),
+        getClockEventsForDateRange(trimmedStart, trimmedEnd),
       ]);
       const filteredAttendance = rangeRecords.filter((record) => normalizedEmployeeCodes.includes(normalizeEmployeeCode(record.employee_code)));
       const mergedRecords = mergeAttendanceWithClockEvents(filteredAttendance, rawClockEvents, employeeMap, rosterSourcesByEmployee);
@@ -1190,11 +1205,24 @@ export default function ReportsBuilder({
 
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(16);
+      const storeDeviceLabel = getStoreDeviceLabel(section.storeCode);
+      const storeHeading = section.storeCode ? `${section.storeCode} - ${section.store}` : section.store;
       doc.text(
-        section.storeCode ? `${section.storeCode} - ${section.store}` : section.store,
+        storeHeading,
         marginX + 12,
         topY + 18
       );
+
+      if (storeDeviceLabel) {
+        const isPhysical = storeDeviceLabel.includes("Physical");
+        doc.setFontSize(7.5);
+        doc.setTextColor(isPhysical ? 22 : 185, isPhysical ? 163 : 28, isPhysical ? 74 : 28);
+        doc.text(
+          storeDeviceLabel,
+          marginX + 12 + doc.getTextWidth(storeHeading) + 8,
+          topY + 18
+        );
+      }
 
       doc.setFontSize(8.5);
       doc.setTextColor(100, 116, 139);
@@ -1441,6 +1469,9 @@ export default function ReportsBuilder({
             <style>
               body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
               h1 { margin-bottom: 6px; }
+              .device-badge { display: inline-block; margin-left: 12px; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; vertical-align: middle; }
+              .device-badge.physical { background: #dcfce7; color: #166534; }
+              .device-badge.logical { background: #fef9c3; color: #854d0e; }
               .meta { margin-bottom: 20px; color: #475569; font-size: 14px; }
               table { width: 100%; border-collapse: collapse; font-size: 12px; }
               th, td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; text-align: left; }
@@ -1494,7 +1525,7 @@ export default function ReportsBuilder({
           <section class="store-section">
             <div class="store-header">
               <div class="eyebrow">Attendance Report</div>
-              <h1>${escapeHtml(section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}</h1>
+              <h1>${escapeHtml(section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}${getStoreDeviceLabel(section.storeCode) ? `<span class="device-badge ${getStoreDeviceLabel(section.storeCode).includes('Physical') ? 'physical' : 'logical'}">${escapeHtml(getStoreDeviceLabel(section.storeCode))}</span>` : ''}</h1>
               <div class="meta">
                 <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
                 <span>Region: ${escapeHtml(section.region)}</span>
@@ -1612,6 +1643,9 @@ export default function ReportsBuilder({
             }
             .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em; color: #06b6d4; font-weight: 600; margin-bottom: 8px; }
             h1 { font-size: 28px; font-weight: 700; color: #fafafa; margin-bottom: 8px; letter-spacing: -0.02em; }
+            .device-badge { display: inline-block; margin-left: 12px; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; vertical-align: middle; }
+            .device-badge.physical { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+            .device-badge.logical { background: #422006; color: #fbbf24; border: 1px solid #854d0e; }
             .meta { font-size: 13px; color: #a1a1aa; display: flex; gap: 16px; flex-wrap: wrap; }
             .meta span { display: flex; align-items: center; gap: 6px; }
             .employee-block { 
@@ -2063,6 +2097,7 @@ export default function ReportsBuilder({
                             </td>
                             <td className="border-b border-slate-200 px-3 py-3 text-sm text-slate-700">
                               {row.storeCode ? `${row.storeCode} - ${row.store}` : row.store}
+                              {(() => { const l = getStoreDeviceLabel(row.storeCode); if (!l) return null; return <span className={`ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.includes("Physical") ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>{l}</span>; })()}
                             </td>
                             <td className="border-b border-slate-200 px-3 py-3 text-center">
                               <Badge className="bg-red-100 text-red-700">{row.currentAwolStreak}</Badge>
@@ -2117,8 +2152,18 @@ export default function ReportsBuilder({
                       <section key={section.key} className="overflow-hidden rounded-[28px] border border-gray-300 bg-slate-950/45 shadow-[0_24px_60px_rgba(2,6,23,0.28)]">
                         <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-6 py-5 text-white">
                           <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-600">Attendance Report</div>
-                          <div className="mt-2 text-2xl font-bold tracking-tight">
+                          <div className="mt-2 text-2xl font-bold tracking-tight flex items-center gap-3">
                             {section.storeCode ? `${section.storeCode} - ${section.store}` : section.store}
+                            {(() => {
+                              const label = getStoreDeviceLabel(section.storeCode);
+                              if (!label) return null;
+                              const isPhysical = label.includes("Physical");
+                              return (
+                                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${isPhysical ? "bg-green-900/60 text-green-400 border border-green-700" : "bg-amber-900/60 text-amber-400 border border-amber-700"}`}>
+                                  {label}
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div className="mt-2 text-sm text-slate-200">
                             Shift Date Range: {formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} • Grouped By: Store

@@ -299,8 +299,7 @@ export async function saveAttendanceRecords(
 }
 
 export async function getAttendanceByDate(date: string): Promise<AttendanceRecord[]> {
-  const localRecords = loadLocalAttendanceRecords().filter((record) => record.upload_date === date)
-
+  const t0 = performance.now();
   try {
     const { data, error } = await supabase
       .from('attendance_records')
@@ -312,31 +311,20 @@ export async function getAttendanceByDate(date: string): Promise<AttendanceRecor
 
     if (error) {
       console.error('Get attendance error:', error)
-      return localRecords
+      return loadLocalAttendanceRecords().filter((record) => record.upload_date === date)
     }
 
-    const merged = mergeAttendanceCollections(
-      localRecords,
-      (data || []).map((record) => normalizeAttendanceRecord(record as AttendanceRecord))
-    )
-
-    if (merged.length > 0) {
-      const outsideDate = loadLocalAttendanceRecords().filter((record) => record.upload_date !== date)
-      saveLocalAttendanceRecords(mergeAttendanceCollections(outsideDate, merged))
-    }
-
-    return merged
+    const remote = (data || []).map((record) => normalizeAttendanceRecord(record as AttendanceRecord))
+    console.log(`[database] getAttendanceByDate(${date}): ${(performance.now() - t0).toFixed(0)}ms (${remote.length} records)`);
+    return remote
   } catch (err) {
     console.error('Get attendance error:', err)
-    return localRecords
+    return loadLocalAttendanceRecords().filter((record) => record.upload_date === date)
   }
 }
 
 export async function getAttendanceByDateRange(startDate: string, endDate: string): Promise<AttendanceRecord[]> {
-  const localRange = loadLocalAttendanceRecords().filter(
-    (record) => record.upload_date >= startDate && record.upload_date <= endDate
-  )
-
+  const t0 = performance.now();
   try {
     const { data, error } = await supabase
       .from('attendance_records')
@@ -349,25 +337,19 @@ export async function getAttendanceByDateRange(startDate: string, endDate: strin
 
     if (error) {
       console.error('Get attendance range error:', error)
-      return localRange
-    }
-
-    const merged = mergeAttendanceCollections(
-      localRange,
-      (data || []).map((record) => normalizeAttendanceRecord(record as AttendanceRecord))
-    )
-
-    if (merged.length > 0) {
-      const outsideRange = loadLocalAttendanceRecords().filter(
-        (record) => record.upload_date < startDate || record.upload_date > endDate
+      return loadLocalAttendanceRecords().filter(
+        (record) => record.upload_date >= startDate && record.upload_date <= endDate
       )
-      saveLocalAttendanceRecords(mergeAttendanceCollections(outsideRange, merged))
     }
 
-    return merged
+    const remote = (data || []).map((record) => normalizeAttendanceRecord(record as AttendanceRecord))
+    console.log(`[database] getAttendanceByDateRange(${startDate}..${endDate}): ${(performance.now() - t0).toFixed(0)}ms (${remote.length} records)`);
+    return remote
   } catch (err) {
     console.error('Get attendance range error:', err)
-    return localRange
+    return loadLocalAttendanceRecords().filter(
+      (record) => record.upload_date >= startDate && record.upload_date <= endDate
+    )
   }
 }
 
@@ -1028,8 +1010,7 @@ export async function getEmployees(filters?: {
   store?: string
   status?: string
 }): Promise<Employee[]> {
-  const localEmployees = await loadStoredEmployees()
-
+  const t0 = performance.now();
   try {
     let query = supabase.from('employees').select('*').order('last_name').order('first_name')
 
@@ -1051,15 +1032,16 @@ export async function getEmployees(filters?: {
 
     if (error) {
       console.warn('Get employees warning:', getEmployeeStorageErrorMessage(error))
+      const localEmployees = await loadStoredEmployees()
       return filterEmployees(localEmployees, filters)
     }
 
     const remote = (data || []) as Employee[]
-    const merged = mergeEmployeeCollections(remote, localEmployees)
-    if (merged.length > 0) await saveStoredEmployees(merged)
-    return filterEmployees(merged.length > 0 ? merged : localEmployees, filters)
+    console.log(`[database] getEmployees: ${(performance.now() - t0).toFixed(0)}ms (${remote.length} from Supabase)`);
+    return remote
   } catch (err) {
     console.warn('Get employees warning:', getEmployeeStorageErrorMessage(err))
+    const localEmployees = await loadStoredEmployees()
     return filterEmployees(localEmployees, filters)
   }
 }

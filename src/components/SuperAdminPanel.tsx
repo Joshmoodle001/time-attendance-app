@@ -16,6 +16,10 @@ import {
   Clock,
   ShieldCheck,
   LayoutGrid,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +46,8 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
   const [showEditModal, setShowEditModal] = useState<AuthUser | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
+  const [copiedPassword, setCopiedPassword] = useState<string | null>(null);
 
   const loadData = () => {
     setUsers(getUsers());
@@ -146,21 +152,58 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
               <Card key={user.username} className="bg-slate-800/50 border-slate-700">
                 <CardContent className="pt-4">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-full ${user.active ? "bg-cyan-500/20" : "bg-slate-700"}`}>
-                        {user.active ? (
-                          <ShieldCheck className="h-5 w-5 text-cyan-400" />
-                        ) : (
-                          <XCircle className="h-5 w-5 text-slate-500" />
-                        )}
+                      <div className="flex items-center gap-3">
+                        <div className={`flex h-10 w-10 items-center justify-center rounded-full ${user.active ? "bg-cyan-500/20" : "bg-slate-700"}`}>
+                          {user.active ? (
+                            <ShieldCheck className="h-5 w-5 text-cyan-400" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-slate-500" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium text-white">{user.name} {user.surname}</div>
+                          <div className="text-xs text-slate-400">{user.username}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-medium text-white">{user.name} {user.surname}</div>
-                        <div className="text-xs text-slate-400">{user.username}</div>
+                      <Badge className={ROLE_COLORS[user.role]}>{getRoleLabel(user.role)}</Badge>
+                    </div>
+                    <div className="mb-3 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <Key className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                          {visiblePasswords.has(user.username) ? (
+                            <span className="text-sm text-slate-200 font-mono truncate">{user.secret}</span>
+                          ) : (
+                            <span className="text-sm text-slate-500 font-mono tracking-widest">••••••••</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => {
+                              const next = new Set(visiblePasswords);
+                              if (next.has(user.username)) next.delete(user.username);
+                              else next.add(user.username);
+                              setVisiblePasswords(next);
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition"
+                            title={visiblePasswords.has(user.username) ? "Hide password" : "Show password"}
+                          >
+                            {visiblePasswords.has(user.username) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(user.secret);
+                              setCopiedPassword(user.username);
+                              setTimeout(() => setCopiedPassword(null), 1500);
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition"
+                            title="Copy password"
+                          >
+                            {copiedPassword === user.username ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <Badge className={ROLE_COLORS[user.role]}>{getRoleLabel(user.role)}</Badge>
-                  </div>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"

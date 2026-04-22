@@ -5,7 +5,7 @@ import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAtten
 import type { Employee, EmployeeInput } from "@/services/database";
 import { getConfig, saveConfig, testConnection, getSyncLogs, syncFromIpulse, clearSyncLogs, startAutoSync, stopAutoSync, IPULSE_SETUP_SQL } from "@/services/ipulse";
 import type { IpulseConfig, SyncLog } from "@/services/ipulse";
-import { getClockEvents, getClockEventsForEmployeeProfile, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
+import { getClockEventsForDateRange, getClockEventsForEmployeeProfile, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
 import { getEmployeeUpdateUploadLogs, saveEmployeeUpdateUploadLog, markEmployeeUpdateUploadLogRolledBack, clearEmployeeUpdateUploadLogs, type EmployeeUpdateReportItem, type EmployeeUpdateUploadLog } from "@/services/employeeUpdateLogs";
 import { getCombinedCalendarEvents, getWeekCycleLabel, loadCalendarEvents } from "@/services/calendar";
 import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/services/leave";
@@ -213,15 +213,6 @@ type AttendanceRecord = {
   reportStatus: string;
 };
 
-type DeviceRecord = {
-  id: string;
-  name: string;
-  region: string;
-  store: string;
-  status: "online" | "offline" | "warning";
-  lastSeen: string;
-};
-
 type OverviewDatum = {
   key: string;
   name: string;
@@ -229,6 +220,27 @@ type OverviewDatum = {
   count: number;
   percentage: number;
   detail: string;
+};
+
+type DeviceRecord = {
+  id: string;
+  name: string;
+  description: string;
+  storeCode: string;
+  storeName: string;
+  deviceType: string;
+  readerType: string;
+  status: "online" | "offline" | "warning";
+  connected: string;
+  hasTimeAndAttendance: boolean;
+};
+
+type StoreDeviceStatus = {
+  storeCode: string;
+  storeName: string;
+  hasDevice: boolean;
+  deviceStatus: "online" | "offline" | "warning";
+  deviceName: string;
 };
 
 type OverviewModuleSnapshot = {
@@ -1193,7 +1205,6 @@ function buildOverviewTrendSeriesFromSources({
     attendanceByDate.set(dateKey, current);
   }
 
-  const employeeMap = new Map(employeeProfiles.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]));
   const activeEmployeeCodes = new Set(
     employeeProfiles
       .filter((employee) => employee.status === "active")
@@ -1230,10 +1241,10 @@ function buildOverviewTrendSeriesFromSources({
         const existing = existingMap.get(employeeCode);
         const roster = rosterLookup.get(employeeCode);
         const incomingClockings = clockingsByEmployee.get(employeeCode) || [];
-        const clockings = Array.from(new Set([...(existing?.clockings || []), ...incomingClockings])).sort((a, b) => a.localeCompare(b));
+        const hasClocks = existing?.atWork || incomingClockings.length > 0;
 
         const recScheduled = Boolean(existing?.scheduled || roster?.scheduled || existing?.atWork || existing?.leave || existing?.dayOff || existing?.problem);
-        const recAtWork = Boolean(existing?.atWork || clockings.length > 0);
+        const recAtWork = Boolean(hasClocks);
         let recLeave = Boolean(existing?.leave || roster?.leave || dayLeaveCodes.has(employeeCode));
         let recDayOff = Boolean(existing?.dayOff || roster?.dayOff);
         let recProblem = Boolean(existing?.problem);
@@ -1247,13 +1258,8 @@ function buildOverviewTrendSeriesFromSources({
           recProblem = false;
         } else if (recDayOff) {
           recProblem = false;
-        } else if (recScheduled) {
-          // Keep existing logic but don't double count
-        } else {
-          // Handle unscheduled cases
         }
 
-        // Final counting logic - only count once per employee
         if (recAtWork) atWork++;
         else if (recProblem) awol++;
         else if (recLeave) leave++;
@@ -1312,11 +1318,6 @@ function mapDatabaseAttendanceRecord(
 export default function App() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const deviceUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const employeeUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const employeeUpdateUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const clockProfileEventCacheRef = useRef<Map<string, BiometricClockEvent[]>>(new Map());
-  const ipulseAutoSyncRunningRef = useRef(false);
-
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [deviceRecords, setDeviceRecords] = useState<DeviceRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -1328,10 +1329,13 @@ export default function App() {
 
   const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
 
+  const isRepOnly = session?.role === "rep";
   const sidebarItems = useMemo(() => {
     if (!session) return ALL_SIDEBAR_ITEMS;
     if (session.role === "super_admin" || session.role === "admin") return ALL_SIDEBAR_ITEMS.filter((i) => i.key !== "myportal");
-    // Field roles (rep, regional, divisional) show My Portal instead of full admin
+    // Rep role: only Overview, Shifts, Calendar
+    if (session.role === "rep") return ALL_SIDEBAR_ITEMS.filter((i) => ["overview", "shifts", "calendar"].includes(i.key));
+    // Other field roles (regional, divisional) show My Portal instead of full admin
     return ALL_SIDEBAR_ITEMS.filter((i) => !["admin", "superadmin", "devices"].includes(i.key));
   }, [session?.role]);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
@@ -1341,6 +1345,30 @@ export default function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportDate, setDeviceImportDate] = useState("");
+
+  const storeDeviceMap = useMemo<Map<string, StoreDeviceStatus>>(() => {
+    const map = new Map<string, StoreDeviceStatus>();
+    for (const d of deviceRecords) {
+      const code = d.storeCode.toLowerCase().trim();
+      if (!code) continue;
+      const isPhysical = d.deviceType.toLowerCase().includes("physical");
+      map.set(code, {
+        storeCode: d.storeCode,
+        storeName: d.storeName,
+        hasDevice: isPhysical,
+        deviceStatus: d.status,
+        deviceName: d.name,
+      });
+    }
+    return map;
+  }, [deviceRecords]);
+
+  const storeHasDevice = useCallback((storeCode: string): boolean | null => {
+    const code = storeCode.toLowerCase().trim();
+    if (!code || storeDeviceMap.size === 0) return null;
+    const entry = storeDeviceMap.get(code);
+    return entry ? entry.hasDevice : null;
+  }, [storeDeviceMap]);
   const [saveMessage, setSaveMessage] = useState("");
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
@@ -1382,6 +1410,10 @@ export default function App() {
   });
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
   const [overviewLastUpdatedAt, setOverviewLastUpdatedAt] = useState("");
+  const employeeUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const employeeUpdateUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const clockProfileEventCacheRef = useRef<Map<string, BiometricClockEvent[]>>(new Map());
+  const ipulseAutoSyncRunningRef = useRef(false);
 
   // Employee state
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -1580,21 +1612,19 @@ export default function App() {
   }, []);
 
   const loadOverviewDashboard = useCallback(async (options?: { force?: boolean }) => {
+    const t0 = performance.now();
     const overviewQueryKey = `${selectedOverviewDate || "none"}__${overviewStartDate || "none"}__${overviewEndDate || "none"}`;
     const now = Date.now();
     
-    // Check if we have valid cached data that covers the requested range
     const cache = overviewDataCacheRef.current;
     const cacheAge = cache ? now - cache.fetchedAt : Infinity;
     const isCacheValid = cache && cacheAge < OVERVIEW_REFRESH_TTL_MS;
     
-    // If same query, cache valid, and not forcing, skip
     if (
       !options?.force &&
       overviewRequestRef.current.key === overviewQueryKey &&
       isCacheValid
     ) {
-      // Still need to rebuild trend series for date range change but skip API calls
       if (overviewStartDate && overviewEndDate && cache) {
         const rangeStartDate = parseDateValue(overviewStartDate);
         const rangeEndDate = parseDateValue(overviewEndDate);
@@ -1612,7 +1642,6 @@ export default function App() {
           const rangeLeaveCodesByDate = buildLeaveCodesByDate(cache.leaveApplicationsForRange);
           const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(cache.shiftRosters, rangeStartDate, rangeEndDate);
           
-          // Cache contains already-mapped AttendanceRecord, build IDs from the dates stored in id
           const derivedTrendSeries = buildOverviewTrendSeriesFromSources({
             startDateValue: overviewStartDate,
             endDateValue: overviewEndDate,
@@ -1651,7 +1680,6 @@ export default function App() {
       return;
     }
 
-    // Allow force refresh even if previous request is still in flight
     if (overviewRequestRef.current.inFlight && !options?.force) {
       return;
     }
@@ -1660,21 +1688,19 @@ export default function App() {
     setIsLoadingOverview(true);
 
     try {
-      // Use cached employees/shifts/leaves if available and not forcing
+      // ALL queries in parallel — no sequential awaits before Promise.all
       const shouldFetchEmployees = !cache || options?.force;
-      const employeeProfiles = shouldFetchEmployees 
-        ? (employees.length > 0 ? employees : await getEmployees())
-        : cache.employees;
-      
       const shouldFetchShifts = !cache || options?.force;
-      const shiftRosters = shouldFetchShifts ? await getShiftRosters() : cache.shiftRosters;
-      
       const shouldFetchLeaveUploads = !cache || options?.force;
-      const leaveUploads = shouldFetchLeaveUploads ? await getLeaveUploads() : cache.leaveUploads;
-      
-      // Always fetch fresh attendance/clock/leave data for the date range
-      const [dayAttendance, rangeAttendance, leaveApplicationsForDate, leaveApplicationsForRange, latestSyncLogs, dayClockEvents, rangeClockEvents] =
+
+      const t1 = performance.now();
+      const [employeeProfiles, shiftRosters, leaveUploads, dayAttendance, rangeAttendance, leaveApplicationsForDate, leaveApplicationsForRange, latestSyncLogs, dayClockEvents, rangeClockEvents, shiftSyncSettings, latestConfig] =
         await Promise.all([
+          shouldFetchEmployees
+            ? (employees.length > 0 ? Promise.resolve(employees) : getEmployees())
+            : Promise.resolve(cache!.employees),
+          shouldFetchShifts ? getShiftRosters() : Promise.resolve(cache!.shiftRosters),
+          shouldFetchLeaveUploads ? getLeaveUploads() : Promise.resolve(cache!.leaveUploads),
           selectedOverviewDate ? getAttendanceByDate(selectedOverviewDate) : Promise.resolve([]),
           overviewStartDate && overviewEndDate ? getAttendanceByDateRange(overviewStartDate, overviewEndDate) : Promise.resolve([]),
           selectedOverviewDate
@@ -1685,20 +1711,69 @@ export default function App() {
             : Promise.resolve([]),
           getSyncLogs(10),
           selectedOverviewDate
-            ? getClockEvents({ startDate: selectedOverviewDate, endDate: selectedOverviewDate })
+            ? getClockEventsForDateRange(selectedOverviewDate, selectedOverviewDate)
             : Promise.resolve([]),
           overviewStartDate && overviewEndDate
-            ? getClockEvents({ startDate: overviewStartDate, endDate: overviewEndDate })
+            ? getClockEventsForDateRange(overviewStartDate, overviewEndDate)
             : Promise.resolve([]),
+          loadShiftSyncSettings(),
+          getConfig(),
         ]);
+      console.log(`[OVERVIEW] Step 1 - ALL parallel queries: ${(performance.now() - t1).toFixed(0)}ms (emp=${employeeProfiles.length}, shifts=${shiftRosters.length}, dayAtt=${dayAttendance.length}, rangeAtt=${rangeAttendance.length}, dayClock=${dayClockEvents.length}, rangeClock=${rangeClockEvents.length})`);
 
-      // Update cache
+      const filteredEmployeeProfiles = storeDeviceMap.size > 0
+        ? employeeProfiles.filter((emp) => {
+            const code = (emp.store_code || "").toLowerCase().trim();
+            if (!code) return true;
+            const deviceInfo = storeDeviceMap.get(code);
+            if (deviceInfo === undefined) return true;
+            return deviceInfo.hasDevice;
+          })
+        : employeeProfiles;
+
+      const filteredRangeAttendance = storeDeviceMap.size > 0
+        ? rangeAttendance.filter((rec) => {
+            const code = (rec.store_code || "").toLowerCase().trim();
+            if (!code) return true;
+            const deviceInfo = storeDeviceMap.get(code);
+            if (deviceInfo === undefined) return true;
+            return deviceInfo.hasDevice;
+          })
+        : rangeAttendance;
+
+      const filteredDayAttendance = storeDeviceMap.size > 0
+        ? dayAttendance.filter((rec) => {
+            const code = (rec.store_code || "").toLowerCase().trim();
+            if (!code) return true;
+            const deviceInfo = storeDeviceMap.get(code);
+            if (deviceInfo === undefined) return true;
+            return deviceInfo.hasDevice;
+          })
+        : dayAttendance;
+
+      const filteredDayClockEvents = storeDeviceMap.size > 0
+        ? dayClockEvents.filter((ev) => {
+            const code = (ev.employee_code || "").toLowerCase().trim();
+            const emp = filteredEmployeeProfiles.find((e) => e.employee_code?.toLowerCase().trim() === code);
+            return emp !== undefined;
+          })
+        : dayClockEvents;
+
+      const filteredRangeClockEvents = storeDeviceMap.size > 0
+        ? rangeClockEvents.filter((ev) => {
+            const code = (ev.employee_code || "").toLowerCase().trim();
+            const emp = filteredEmployeeProfiles.find((e) => e.employee_code?.toLowerCase().trim() === code);
+            return emp !== undefined;
+          })
+        : rangeClockEvents;
+      // STEP 5: Data processing
+      const t5 = performance.now();
       overviewDataCacheRef.current = {
-        employees: employeeProfiles,
+        employees: filteredEmployeeProfiles,
         shiftRosters,
         leaveUploads,
-        rangeAttendance,
-        rangeClockEvents,
+        rangeAttendance: filteredRangeAttendance,
+        rangeClockEvents: filteredRangeClockEvents,
         leaveApplicationsForRange,
         fetchedAt: now,
       };
@@ -1713,39 +1788,19 @@ export default function App() {
           eventDate.getMonth() === selectedDate.getMonth()
         );
       });
-      const shiftSyncSettings = await loadShiftSyncSettings();
-      const latestConfig = await getConfig();
-      const mappedDayAttendance = dayAttendance.map(mapDatabaseAttendanceRecord);
-      const mappedRangeAttendance = rangeAttendance.map(mapDatabaseAttendanceRecord);
+      const mappedDayAttendance = filteredDayAttendance.map(mapDatabaseAttendanceRecord);
 
       const dayRosterLookup = buildRosterStatusLookup(shiftRosters, selectedOverviewDate);
       const dayClockingsByEmployee = buildClockingsByEmployee(dayClockEvents);
       const dayLeaveCodes = buildLeaveCodesByDate(leaveApplicationsForDate).get(selectedOverviewDate) || new Set<string>();
 
-      const rangeStartDate = parseDateValue(overviewStartDate);
-      const rangeEndDate = parseDateValue(overviewEndDate);
-      const rangeClocksByDate = (() => {
-        const m = new Map<string, BiometricClockEvent[]>();
-        for (let i = 0; i < rangeClockEvents.length; i++) {
-          const event = rangeClockEvents[i];
-          const current = m.get(event.clock_date) || [];
-          current.push(event);
-          m.set(event.clock_date, current);
-        }
-        return m;
-      })();
-      const rangeLeaveCodesByDate = buildLeaveCodesByDate(leaveApplicationsForRange);
-      const rangeRosterLookupsByDate = rangeStartDate && rangeEndDate 
-        ? buildRosterStatusLookupsForRange(shiftRosters, rangeStartDate, rangeEndDate)
-        : new Map();
-
       const derivedOverviewRecords = selectedOverviewDate
         ? buildOverviewAttendanceRecordsFromSources({
             dateValue: selectedOverviewDate,
             existingRecords: mappedDayAttendance,
-            employeeProfiles,
+            employeeProfiles: filteredEmployeeProfiles,
             shiftRosters,
-            clockEvents: dayClockEvents,
+            clockEvents: filteredDayClockEvents,
             leaveApplications: leaveApplicationsForDate,
             precomputedLookups: {
               rosterLookup: dayRosterLookup,
@@ -1754,35 +1809,51 @@ export default function App() {
             },
           })
         : [];
-      const derivedTrendSeries =
-        overviewStartDate && overviewEndDate
-          ? buildOverviewTrendSeriesFromSources({
-              startDateValue: overviewStartDate,
-              endDateValue: overviewEndDate,
-              existingRecords: mappedRangeAttendance.map((record, index) => ({
-                ...record,
-                id: `${rangeAttendance[index]?.upload_date || ""}__${record.employeeCode}`,
-              })),
-              employeeProfiles,
-              shiftRosters,
-              clockEvents: rangeClockEvents,
-              leaveApplications: leaveApplicationsForRange,
-              precomputedLookups: {
-                rosterLookupsByDate: rangeRosterLookupsByDate,
-                clocksByDate: rangeClocksByDate,
-                leaveCodesByDate: rangeLeaveCodesByDate,
-              },
-            })
-          : [];
 
+      const rangeStartDate = parseDateValue(overviewStartDate);
+      const rangeEndDate = parseDateValue(overviewEndDate);
+      let derivedTrendSeries: Array<Record<string, number | string>> = [];
+      if (overviewStartDate && overviewEndDate && rangeStartDate && rangeEndDate) {
+        const rangeClocksByDate = new Map<string, BiometricClockEvent[]>();
+        for (let i = 0; i < filteredRangeClockEvents.length; i++) {
+          const event = filteredRangeClockEvents[i];
+          const current = rangeClocksByDate.get(event.clock_date) || [];
+          current.push(event);
+          rangeClocksByDate.set(event.clock_date, current);
+        }
+        const rangeLeaveCodesByDate = buildLeaveCodesByDate(leaveApplicationsForRange);
+        const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(shiftRosters, rangeStartDate, rangeEndDate);
+
+        derivedTrendSeries = buildOverviewTrendSeriesFromSources({
+          startDateValue: overviewStartDate,
+          endDateValue: overviewEndDate,
+          existingRecords: filteredRangeAttendance.map(mapDatabaseAttendanceRecord).map((record, index) => ({
+            ...record,
+            id: `${filteredRangeAttendance[index]?.upload_date || ""}__${record.employeeCode}`,
+          })),
+          employeeProfiles: filteredEmployeeProfiles,
+          shiftRosters,
+          clockEvents: filteredRangeClockEvents,
+          leaveApplications: leaveApplicationsForRange,
+          precomputedLookups: {
+            rosterLookupsByDate: rangeRosterLookupsByDate,
+            clocksByDate: rangeClocksByDate,
+            leaveCodesByDate: rangeLeaveCodesByDate,
+          },
+        });
+      }
+      console.log(`[OVERVIEW] Step 2 - Processing: ${(performance.now() - t5).toFixed(0)}ms (derived=${derivedOverviewRecords.length}, trendDays=${derivedTrendSeries.length})`);
+
+      // STEP 6: State updates
+      const t6 = performance.now();
       setOverviewAttendanceRecords(derivedOverviewRecords);
       setOverviewTrendSeries(derivedTrendSeries);
-      setOverviewEmployeeProfiles(employeeProfiles);
+      setOverviewEmployeeProfiles(filteredEmployeeProfiles);
       setOverviewModuleSnapshot({
-        employeeProfiles: employeeProfiles.length,
-        activeEmployees: employeeProfiles.filter((employee) => employee.status === "active").length,
-        inactiveEmployees: employeeProfiles.filter((employee) => employee.status === "inactive").length,
-        terminatedEmployees: employeeProfiles.filter((employee) => employee.status === "terminated").length,
+        employeeProfiles: filteredEmployeeProfiles.length,
+        activeEmployees: filteredEmployeeProfiles.filter((employee) => employee.status === "active").length,
+        inactiveEmployees: filteredEmployeeProfiles.filter((employee) => employee.status === "inactive").length,
+        terminatedEmployees: filteredEmployeeProfiles.filter((employee) => employee.status === "terminated").length,
         shiftRosters: shiftRosters.length,
         shiftRows: shiftRosters.reduce((sum, roster) => sum + roster.rows.length, 0),
         enabledShiftSyncs: shiftSyncSettings.sections.filter((section) => section.url).length,
@@ -1799,6 +1870,9 @@ export default function App() {
         syncErrorsOpen: latestSyncLogs.filter((log) => log.status === "error" || log.status === "partial").length,
       });
       setOverviewLastUpdatedAt(new Date().toISOString());
+      console.log(`[OVERVIEW] Step 6 - State updates: ${(performance.now() - t6).toFixed(0)}ms`);
+      
+      console.log(`[OVERVIEW] TOTAL: ${(performance.now() - t0).toFixed(0)}ms`);
       overviewRequestRef.current = {
         key: overviewQueryKey,
         fetchedAt: Date.now(),
@@ -1811,7 +1885,7 @@ export default function App() {
       };
       setIsLoadingOverview(false);
     }
-  }, [employees, overviewEndDate, overviewStartDate, selectedOverviewDate]);
+  }, [employees, overviewEndDate, overviewStartDate, selectedOverviewDate, storeDeviceMap]);
 
   const loadAttendanceForDate = async (date: string, options?: { silent?: boolean }) => {
     if (!date) return [];
@@ -3297,15 +3371,6 @@ export default function App() {
     });
   }, [attendanceRecords, searchTerm, selectedRegion, selectedStore]);
 
-  const deviceStats = useMemo(() => {
-    return {
-      total: deviceRecords.length,
-      online: deviceRecords.filter(d => d.status === "online").length,
-      offline: deviceRecords.filter(d => d.status === "offline").length,
-      warning: deviceRecords.filter(d => d.status === "warning").length,
-    };
-  }, [deviceRecords]);
-
   const reportDateRangeLabel = useMemo(() => {
     if (availableDates.length > 1) {
       const sorted = [...availableDates].sort();
@@ -3510,38 +3575,6 @@ export default function App() {
     return rows as AttendanceRecord[];
   };
 
-  const parseDeviceWorkbook = (workbook: WorkBook, xlsx: XlsxRuntime): DeviceRecord[] => {
-    const firstSheetName = workbook.SheetNames[0];
-    if (!firstSheetName) return [];
-    const sheet = workbook.Sheets[firstSheetName];
-    const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-
-    return rows
-      .map((row, index) => {
-        const entries = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
-          acc[String(key).trim().toLowerCase()] = value;
-          return acc;
-        }, {});
-
-        const name = entries.name || entries.device || entries["device name"] || "";
-        if (!name) return null;
-
-        const offline = Number(entries.offline || 0) === 1;
-        const warning = Number(entries.warning || 0) === 1;
-        const status: "online" | "offline" | "warning" = offline ? "offline" : warning ? "warning" : "online";
-
-        return {
-          id: String(entries.id || entries.deviceid || `DEV-${String(index + 1).padStart(4, "0")}`),
-          name: String(name),
-          region: String(entries.region || "Unassigned Region"),
-          store: String(entries.store || "Unassigned Store"),
-          status,
-          lastSeen: String(entries.lastseen || entries["last seen"] || new Date().toISOString()),
-        } satisfies DeviceRecord;
-      })
-      .filter(Boolean) as DeviceRecord[];
-  };
-
   const handleAttendanceUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -3612,6 +3645,55 @@ export default function App() {
     }
   };
 
+  const parseDeviceWorkbook = (workbook: WorkBook, xlsx: XlsxRuntime): DeviceRecord[] => {
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) return [];
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+    return rows
+      .map((row, index) => {
+        const entries = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
+          acc[String(key).trim().toLowerCase()] = value;
+          return acc;
+        }, {});
+
+        const name = String(entries.devicename || entries["device name"] || entries.device || entries.name || "").trim();
+        if (!name) return null;
+
+        const serial = String(entries.serialnumber || entries.serial || entries["serial number"] || "").trim();
+        const description = String(entries.description || "").trim();
+        const deviceType = String(entries.devicetype || entries["device type"] || entries.type || "").trim();
+        const readerType = String(entries.readertype || entries["reader type"] || "").trim();
+        const rawStatus = String(entries.devicestatus || entries["device status"] || entries.status || "").trim().toLowerCase();
+        const connected = String(entries.connected || "").trim();
+        const hasTA = String(entries.timeandattendance || entries["time and attendance"] || "").trim().toLowerCase() === "true";
+
+        const status: "online" | "offline" | "warning" =
+          rawStatus === "online" ? "online" :
+          rawStatus === "offline" || connected.toLowerCase() === "inactive" ? "offline" :
+          "warning";
+
+        const parsed = parseRegionStore(name);
+        const storeCode = parsed.storeCode || "";
+        const storeName = parsed.store || description || name;
+
+        return {
+          id: serial || storeCode || `DEV-${String(index + 1).padStart(4, "0")}`,
+          name,
+          description,
+          storeCode,
+          storeName,
+          deviceType,
+          readerType,
+          status,
+          connected,
+          hasTimeAndAttendance: hasTA,
+        } satisfies DeviceRecord;
+      })
+      .filter(Boolean) as DeviceRecord[];
+  };
+
   const handleDeviceUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -3636,6 +3718,8 @@ export default function App() {
       event.target.value = "";
     }
   };
+
+
 
   const exportAttendance = () => {
     const csv = [
@@ -4399,9 +4483,6 @@ export default function App() {
             <Button onClick={() => uploadInputRef.current?.click()}>
               <Upload className="w-4 h-4 mr-2" /> Upload Attendance Excel
             </Button>
-            <Button variant="outline" onClick={() => deviceUploadInputRef.current?.click()}>
-              <Monitor className="w-4 h-4 mr-2" /> Upload Device Data
-            </Button>
             
             {/* Date Selector for saved data */}
             {availableDates.length > 0 && (
@@ -4431,13 +4512,6 @@ export default function App() {
             accept=".xlsx,.xls,.csv"
             className="hidden"
             onChange={handleAttendanceUpload}
-          />
-          <input
-            ref={deviceUploadInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={handleDeviceUpload}
           />
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -4559,6 +4633,7 @@ export default function App() {
         records={filteredRecords}
         employees={employees}
         reportDateRangeLabel={reportDateRangeLabel}
+        storeDeviceMap={storeDeviceMap}
       />
     </Suspense>
   );
@@ -4585,89 +4660,124 @@ export default function App() {
   );
 
   // ==================== RENDER DEVICES ====================
-  const renderDevices = () => (
-    <div className="space-y-6">
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Device Status</CardTitle>
-          <CardDescription>
-            {deviceImportDate ? `Last import: ${deviceImportDate}` : "Upload device data to see status"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="p-4 bg-slate-100 rounded-xl text-center">
-              <div className="text-2xl font-bold">{deviceStats.total}</div>
-              <div className="text-sm text-slate-600">Total Devices</div>
-            </div>
-            <div className="p-4 bg-green-50 rounded-xl text-center">
-              <div className="text-2xl font-bold text-green-700">{deviceStats.online}</div>
-              <div className="text-sm text-green-600">Online</div>
-            </div>
-            <div className="p-4 bg-yellow-50 rounded-xl text-center">
-              <div className="text-2xl font-bold text-yellow-700">{deviceStats.warning}</div>
-              <div className="text-sm text-yellow-600">Warning (&lt;24h)</div>
-            </div>
-            <div className="p-4 bg-red-50 rounded-xl text-center">
-              <div className="text-2xl font-bold text-red-700">{deviceStats.offline}</div>
-              <div className="text-sm text-red-600">Offline (&gt;24h)</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+  const renderDevices = () => {
+    const onlineCount = deviceRecords.filter(d => d.status === "online").length;
+    const offlineCount = deviceRecords.filter(d => d.status === "offline").length;
+    const warningCount = deviceRecords.filter(d => d.status === "warning").length;
+    const physicalCount = deviceRecords.filter(d => d.deviceType.toLowerCase().includes("physical")).length;
+    const logicalCount = deviceRecords.filter(d => d.deviceType.toLowerCase().includes("logical")).length;
 
-      {deviceRecords.length > 0 && (
+    return (
+      <div className="space-y-6">
         <Card className="rounded-2xl">
           <CardHeader>
-            <CardTitle>Device List</CardTitle>
+            <CardTitle>Device Status</CardTitle>
+            <CardDescription>
+              {deviceImportDate ? `Last import: ${deviceImportDate}` : "Upload device data to see status"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-xl border overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Device</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Region</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deviceRecords.map((device) => (
-                    <tr key={device.id} className="border-t hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{device.name}</div>
-                        <div className="text-xs text-slate-500">{device.id}</div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">{device.region}</td>
-                      <td className="px-4 py-3 text-sm">{device.store}</td>
-                      <td className="px-4 py-3 text-center">
-                        {device.status === "online" && (
-                          <Badge className="bg-green-100 text-green-700">
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Online
-                          </Badge>
-                        )}
-                        {device.status === "warning" && (
-                          <Badge className="bg-yellow-100 text-yellow-700">
-                            <AlertTriangle className="w-3 h-3 mr-1" /> Warning
-                          </Badge>
-                        )}
-                        {device.status === "offline" && (
-                          <Badge className="bg-red-100 text-red-700">
-                            <XCircle className="w-3 h-3 mr-1" /> Offline
-                          </Badge>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap gap-4 items-center mb-4">
+              <Button variant="outline" onClick={() => deviceUploadInputRef.current?.click()}>
+                <Monitor className="w-4 h-4 mr-2" /> Upload Device Data
+              </Button>
             </div>
+            <input
+              ref={deviceUploadInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleDeviceUpload}
+            />
+            {deviceRecords.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <Monitor className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                <p className="text-sm">No device data imported yet</p>
+                <p className="text-xs text-slate-500 mt-1">Use the Upload Device Data button to import a workbook</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-5">
+                  <div className="p-4 bg-slate-100 rounded-xl text-center">
+                    <div className="text-2xl font-bold">{deviceRecords.length}</div>
+                    <div className="text-sm text-slate-600">Total Stores</div>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-xl text-center">
+                    <div className="text-2xl font-bold text-green-700">{physicalCount}</div>
+                    <div className="text-sm text-green-600">With Device</div>
+                  </div>
+                  <div className="p-4 bg-amber-50 rounded-xl text-center">
+                    <div className="text-2xl font-bold text-amber-700">{logicalCount}</div>
+                    <div className="text-sm text-amber-600">No Device</div>
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-xl text-center">
+                    <div className="text-2xl font-bold text-blue-700">{onlineCount}</div>
+                    <div className="text-sm text-blue-600">Online</div>
+                  </div>
+                  <div className="p-4 bg-red-50 rounded-xl text-center">
+                    <div className="text-2xl font-bold text-red-700">{offlineCount + warningCount}</div>
+                    <div className="text-sm text-red-600">Offline / Warning</div>
+                  </div>
+                </div>
+                <div className="rounded-xl border overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Store Code</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Serial</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium">Has Device</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Reader</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deviceRecords.map((device) => (
+                        <tr key={device.id} className="border-t hover:bg-slate-50">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-sm">{device.storeName || device.name}</div>
+                            <div className="text-xs text-slate-500">{device.name}</div>
+                          </td>
+                          <td className="px-4 py-3 text-sm font-mono">{device.storeCode || "—"}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{device.id}</td>
+                          <td className="px-4 py-3 text-center">
+                            {device.deviceType.toLowerCase().includes("physical") ? (
+                              <Badge className="bg-green-100 text-green-700">
+                                <CheckCircle2 className="w-3 h-3 mr-1" /> Yes
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-amber-100 text-amber-700">
+                                <XCircle className="w-3 h-3 mr-1" /> No
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm">{device.readerType}</td>
+                          <td className="px-4 py-3 text-center">
+                            {device.status === "online" && (
+                              <Badge className="bg-green-100 text-green-700">Online</Badge>
+                            )}
+                            {device.status === "warning" && (
+                              <Badge className="bg-yellow-100 text-yellow-700">
+                                <AlertTriangle className="w-3 h-3 mr-1" /> Warning
+                              </Badge>
+                            )}
+                            {device.status === "offline" && (
+                              <Badge className="bg-red-100 text-red-700">Offline</Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-slate-400">{physicalCount} stores with devices ({onlineCount} online, {offlineCount + warningCount} offline/warning) • {logicalCount} stores without devices (excluded from overview)</p>
+              </div>
+            )}
           </CardContent>
         </Card>
-      )}
-    </div>
-  );
+      </div>
+    );
+  };
 
   const renderEmployees = () => {
     return (

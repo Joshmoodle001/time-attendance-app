@@ -1038,6 +1038,55 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
   }
 }
 
+export async function getClockEventsForDateRange(startDate: string, endDate: string, employeeCodes?: string[]): Promise<BiometricClockEvent[]> {
+  if (!startDate || !endDate) return [];
+
+  const applyLocalFallback = async () => {
+    const t0 = performance.now();
+    const localEvents = await loadLocalClockEvents();
+    const filtered = localEvents.filter((event) => {
+      const matchesDate = event.clock_date >= startDate && event.clock_date <= endDate;
+      if (!employeeCodes || employeeCodes.length === 0) return matchesDate;
+      return matchesDate && employeeCodes.includes(normalizeEmployeeCode(event.employee_code));
+    });
+    console.log(`[clockData] getClockEventsForDateRange FALLBACK ${startDate}-${endDate}: ${(performance.now() - t0).toFixed(0)}ms (${filtered.length} events)`);
+    return filtered;
+  };
+
+  try {
+    const t0 = performance.now();
+    const isAvailable = await checkRemoteClockTableAvailability();
+    if (!isAvailable) {
+      return applyLocalFallback();
+    }
+
+    let query = supabase
+      .from("biometric_clock_events")
+      .select("*")
+      .gte("clock_date", startDate)
+      .lte("clock_date", endDate)
+      .order("clocked_at", { ascending: false });
+
+    if (employeeCodes && employeeCodes.length > 0) {
+      query = query.in("employee_code", employeeCodes);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn("Get clock events for date range warning:", getClockStorageErrorMessage(error));
+      return applyLocalFallback();
+    }
+
+    const remoteEvents = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+    console.log(`[clockData] getClockEventsForDateRange ${startDate}-${endDate}: ${(performance.now() - t0).toFixed(0)}ms (${remoteEvents.length} events from Supabase)`);
+    return remoteEvents;
+  } catch (error) {
+    console.warn("Get clock events for date range warning:", getClockStorageErrorMessage(error));
+    return applyLocalFallback();
+  }
+}
+
 export async function getClockEventsForEmployeeProfile(
   employee: Pick<Employee, "employee_code" | "id_number" | "first_name" | "last_name">
 ) {

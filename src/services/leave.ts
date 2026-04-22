@@ -518,11 +518,9 @@ function applicationOverlapsRange(application: LeaveApplication, startDate?: str
 }
 
 export async function getLeaveApplications(filters?: GetLeaveApplicationFilters) {
-  const localApplications = loadLocalLeaveApplications();
-  const normalizedEmployeeCodes = filters?.employeeCodes?.map((code) => normalizeEmployeeCode(code)).filter(Boolean) || [];
-
   const applyFilters = (items: LeaveApplication[]) =>
     items.filter((item) => {
+      const normalizedEmployeeCodes = filters?.employeeCodes?.map((code) => normalizeEmployeeCode(code)).filter(Boolean) || [];
       const matchesUpload = !filters?.uploadBatchId || item.upload_batch_id === filters.uploadBatchId;
       const matchesStatus = !filters?.status || item.apply_status === filters.status;
       const matchesEmployee =
@@ -532,29 +530,28 @@ export async function getLeaveApplications(filters?: GetLeaveApplicationFilters)
     });
 
   try {
-    // Force schema refresh by using raw query first
-    await supabase.from("leave_applications").select("id").limit(1);
-    
     let query = supabase.from("leave_applications").select("*").order("created_at", { ascending: false });
 
     if (filters?.uploadBatchId) query = query.eq("upload_batch_id", filters.uploadBatchId);
     if (filters?.status) query = query.eq("apply_status", filters.status);
     if (filters?.startDate) query = query.lte("leave_start_date", filters.endDate || "9999-12-31");
     if (filters?.endDate) query = query.gte("leave_end_date", filters.startDate || "0001-01-01");
-    if (normalizedEmployeeCodes.length > 0) query = query.in("matched_employee_code", normalizedEmployeeCodes);
+    if (filters?.employeeCodes && filters.employeeCodes.length > 0) {
+      const normalizedEmployeeCodes = filters.employeeCodes.map((code) => normalizeEmployeeCode(code)).filter(Boolean);
+      if (normalizedEmployeeCodes.length > 0) query = query.in("matched_employee_code", normalizedEmployeeCodes);
+    }
 
     const { data, error } = await query;
     if (error) {
       console.warn("Get leave applications warning:", getLeaveStorageErrorMessage(error));
-      return applyFilters(localApplications);
+      return applyFilters(loadLocalLeaveApplications());
     }
 
-    const merged = mergeLeaveApplications(localApplications, (data || []).map((item) => normalizeLeaveApplication(item as LeaveApplication)));
-    saveLocalLeaveApplications(merged);
-    return applyFilters(merged);
+    const remote = (data || []).map((item) => normalizeLeaveApplication(item as LeaveApplication));
+    return applyFilters(remote);
   } catch (error) {
     console.warn("Get leave applications warning:", getLeaveStorageErrorMessage(error));
-    return applyFilters(localApplications);
+    return applyFilters(loadLocalLeaveApplications());
   }
 }
 
