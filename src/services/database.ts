@@ -1012,31 +1012,47 @@ export async function getEmployees(filters?: {
 }): Promise<Employee[]> {
   const t0 = performance.now();
   try {
-    let query = supabase.from('employees').select('*').order('last_name').order('first_name')
+    const PAGE_SIZE = 1000
+    const allRows: Employee[] = []
+    let page = 0
+    let hasMore = true
 
-    if (filters?.search) {
-      const search = filters.search.replace(/,/g, '')
-      query = query.or(`employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,id_number.ilike.%${search}%,alias.ilike.%${search}%,email.ilike.%${search}%,ta_integration_id_1.ilike.%${search}%,ta_integration_id_2.ilike.%${search}%`)
-    }
-    if (filters?.region) {
-      query = query.eq('region', filters.region)
-    }
-    if (filters?.store) {
-      query = query.eq('store', filters.store)
-    }
-    if (filters?.status) {
-      query = query.eq('status', filters.status)
+    while (hasMore) {
+      let query = supabase
+        .from('employees')
+        .select('*')
+        .order('last_name')
+        .order('first_name')
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+      if (filters?.search) {
+        const search = filters.search.replace(/,/g, '')
+        query = query.or(`employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,id_number.ilike.%${search}%,alias.ilike.%${search}%,email.ilike.%${search}%,ta_integration_id_1.ilike.%${search}%,ta_integration_id_2.ilike.%${search}%`)
+      }
+      if (filters?.region) {
+        query = query.eq('region', filters.region)
+      }
+      if (filters?.store) {
+        query = query.eq('store', filters.store)
+      }
+      if (filters?.status) {
+        query = query.eq('status', filters.status)
+      }
+
+      const { data, error } = await query
+      if (error) {
+        console.warn('Get employees warning:', getEmployeeStorageErrorMessage(error))
+        const localEmployees = await loadStoredEmployees()
+        return filterEmployees(localEmployees, filters)
+      }
+
+      const pageRows = (data || []) as Employee[]
+      allRows.push(...pageRows)
+      hasMore = pageRows.length === PAGE_SIZE
+      page += 1
     }
 
-    const { data, error } = await query
-
-    if (error) {
-      console.warn('Get employees warning:', getEmployeeStorageErrorMessage(error))
-      const localEmployees = await loadStoredEmployees()
-      return filterEmployees(localEmployees, filters)
-    }
-
-    const remote = (data || []) as Employee[]
+    const remote = allRows
     console.log(`[database] getEmployees: ${(performance.now() - t0).toFixed(0)}ms (${remote.length} from Supabase)`);
     return remote
   } catch (err) {

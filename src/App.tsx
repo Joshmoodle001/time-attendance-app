@@ -15,7 +15,6 @@ import { performOneTimeTrialReset } from "@/services/trialReset";
 import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
-import type { CommunicationAutomation, CommunicationProfile, ReportTemplate } from "@/types/workflows";
 import type { WorkBook } from "xlsx";
 import {
   TimerReset,
@@ -89,7 +88,7 @@ const ALL_SIDEBAR_ITEMS = [
   { key: "clockData", label: "Clock Data", icon: Clock },
   { key: "calendar", label: "Calendar", icon: Calendar },
   { key: "roster", label: "Roster", icon: Table2 },
-  { key: "communications", label: "Comms Hub", icon: Globe },
+  { key: "coversheet", label: "Coversheet", icon: FileSpreadsheet },
   { key: "devices", label: "Devices", icon: Server },
   { key: "admin", label: "Admin", icon: Settings },
   { key: "superadmin", label: "Super Admin", icon: Shield },
@@ -102,7 +101,7 @@ const ShiftBuilder = lazy(() => import("@/components/ShiftBuilder"));
 const CalendarBuilder = lazy(() => import("@/components/CalendarBuilder"));
 const RosterBuilder = lazy(() => import("@/components/RosterBuilder"));
 const ReportsBuilder = lazy(() => import("@/components/ReportsBuilder"));
-const CommunicationsHub = lazy(() => import("@/components/CommunicationsHub"));
+const CoversheetHub = lazy(() => import("@/components/CoversheetHub"));
 const ClockDataHub = lazy(() => import("@/components/ClockDataHub"));
 const LeaveHub = lazy(() => import("@/components/LeaveHub"));
 const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"));
@@ -151,9 +150,6 @@ const QUICK_RANGE_OPTIONS = [
   { label: "31 Day", days: 31 },
 ] as const;
 
-const REPORT_TEMPLATES_STORAGE_KEY = "report-templates-v1";
-const COMMUNICATION_PROFILES_STORAGE_KEY = "communication-profiles-v1";
-const COMMUNICATION_AUTOMATIONS_STORAGE_KEY = "communication-automations-v1";
 const LAST_ATTENDANCE_DATE_STORAGE_KEY = "last-attendance-date-v1";
   const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
   const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
@@ -1479,13 +1475,6 @@ export default function App() {
   const [staffListUploadLogs, setStaffListUploadLogs] = useState<EmployeeUpdateUploadLog[]>([]);
   const [expandedStaffListLogDates, setExpandedStaffListLogDates] = useState<Set<string>>(new Set());
   const [rollingBackEmergencyUploadId, setRollingBackEmergencyUploadId] = useState<string | null>(null);
-  const [reportTemplates] = useState<ReportTemplate[]>(() => loadLocalArrayState<ReportTemplate>(REPORT_TEMPLATES_STORAGE_KEY));
-  const [communicationProfiles, setCommunicationProfiles] = useState<CommunicationProfile[]>(() =>
-    loadLocalArrayState<CommunicationProfile>(COMMUNICATION_PROFILES_STORAGE_KEY)
-  );
-  const [communicationAutomations, setCommunicationAutomations] = useState<CommunicationAutomation[]>(() =>
-    loadLocalArrayState<CommunicationAutomation>(COMMUNICATION_AUTOMATIONS_STORAGE_KEY)
-  );
   const [employeeFormData, setEmployeeFormData] = useState<EmployeeInput>({
     employee_code: "",
     first_name: "",
@@ -1977,7 +1966,7 @@ export default function App() {
 
   useEffect(() => {
     if (!trialResetReady) return;
-    if (activeNav === "employees" || activeNav === "communications" || activeNav === "reports" || activeNav === "clockData" || activeNav === "leave") {
+    if (activeNav === "employees" || activeNav === "reports" || activeNav === "clockData" || activeNav === "leave") {
       void loadEmployees();
     }
   }, [activeNav, loadEmployees, trialResetReady]);
@@ -2034,40 +2023,6 @@ export default function App() {
     if (activeNav !== "overview") return;
     loadOverviewDashboard({ force: true });
   }, [overviewStartDate, overviewEndDate, trialResetReady, activeNav, loadOverviewDashboard]);
-
-  const lastSavedReportTemplates = useRef<string>("");
-  const lastSavedCommunicationProfiles = useRef<string>("");
-  const lastSavedCommunicationAutomations = useRef<string>("");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!trialResetReady) return;
-    const serialized = JSON.stringify(reportTemplates);
-    if (lastSavedReportTemplates.current !== serialized) {
-      lastSavedReportTemplates.current = serialized;
-      window.localStorage.setItem(REPORT_TEMPLATES_STORAGE_KEY, serialized);
-    }
-  }, [reportTemplates, trialResetReady]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!trialResetReady) return;
-    const serialized = JSON.stringify(communicationProfiles);
-    if (lastSavedCommunicationProfiles.current !== serialized) {
-      lastSavedCommunicationProfiles.current = serialized;
-      window.localStorage.setItem(COMMUNICATION_PROFILES_STORAGE_KEY, serialized);
-    }
-  }, [communicationProfiles, trialResetReady]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!trialResetReady) return;
-    const serialized = JSON.stringify(communicationAutomations);
-    if (lastSavedCommunicationAutomations.current !== serialized) {
-      lastSavedCommunicationAutomations.current = serialized;
-      window.localStorage.setItem(COMMUNICATION_AUTOMATIONS_STORAGE_KEY, serialized);
-    }
-  }, [communicationAutomations, trialResetReady]);
 
   const employeesWithClockHistory = clockOverview.employeesWithClocks;
 
@@ -2854,7 +2809,7 @@ export default function App() {
   const [isSavingIpulseConfig, setIsSavingIpulseConfig] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; error?: string; response_time?: number } | null>(null);
-  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data">("attendance");
+  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data" | "coversheet">("attendance");
 
   // Load iPulse config
   const loadIpulseConfig = async () => {
@@ -4638,15 +4593,22 @@ export default function App() {
     </Suspense>
   );
 
-  const renderCommunications = () => (
-    <CommunicationsHub
-      employees={employees}
-      reportTemplates={reportTemplates}
-      profiles={communicationProfiles}
-      automations={communicationAutomations}
-      onProfilesChange={setCommunicationProfiles}
-      onAutomationsChange={setCommunicationAutomations}
-    />
+  const renderCoversheet = (mode: "admin" | "view") => (
+    <Suspense fallback={
+      <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
+        <CardContent className="tech-loader p-8 text-center text-slate-300">
+          <div className="orb-loader mx-auto mb-4 w-fit">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="font-medium text-white">Loading coversheet</div>
+          <div className="mt-1 text-xs text-slate-400">Preparing grouped route and status view...</div>
+        </CardContent>
+      </Card>
+    }>
+      <CoversheetHub mode={mode} />
+    </Suspense>
   );
 
   const renderClockData = () => (
@@ -4903,6 +4865,19 @@ export default function App() {
               <div className="flex items-center justify-center gap-2">
                 <Database className="w-4 h-4" />
                 Data Tools
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveAdminTab("coversheet")}
+              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
+                activeAdminTab === "coversheet"
+                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                  : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <FileSpreadsheet className="w-4 h-4" />
+                Coversheet
               </div>
             </button>
           </div>
@@ -5335,6 +5310,8 @@ export default function App() {
           <AdminDataToolsPanel onStatusMessage={setSaveMessage} />
         </Suspense>
       )}
+
+      {activeAdminTab === "coversheet" && renderCoversheet("admin")}
     </div>
     );
   };
@@ -5373,7 +5350,7 @@ export default function App() {
     if (activeNav === "roster") return <RosterBuilder />;
     if (activeNav === "leave") return <LeaveHub employees={employees} />;
     if (activeNav === "clockData") return renderClockData();
-    if (activeNav === "communications") return renderCommunications();
+    if (activeNav === "coversheet") return renderCoversheet("view");
     if (activeNav === "employees") return renderEmployees();
     if (activeNav === "admin") return renderAdmin();
     if (activeNav === "reports") return renderReports();
@@ -5681,7 +5658,7 @@ export default function App() {
                     {activeNav === "roster" && "Generate yearly roster output by marrying shifts with calendar weeks and holidays"}
                     {activeNav === "leave" && "Upload merchandiser leave workbooks, apply them to roster output, and track which rows matched"}
                     {activeNav === "clockData" && "Read-only biometric clock events linked to employee profiles by employee code"}
-                    {activeNav === "communications" && "Manage recipients, report automations, and the reporting organogram"}
+                    {activeNav === "coversheet" && "View grouped route coversheets with terminated, maternity, and hold statuses"}
                     {activeNav === "employees" && "Manage employee profiles and records"}
                     {activeNav === "admin" && "Configure iPulse API and sync settings"}
                     {activeNav === "reports" && "Build custom reports from criteria and save reusable report templates"}
@@ -5720,6 +5697,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
