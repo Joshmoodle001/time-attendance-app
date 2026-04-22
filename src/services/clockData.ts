@@ -158,6 +158,7 @@ const CLOCK_INDEXED_DB_NAME = "time-attendance-clock-db";
 const CLOCK_INDEXED_DB_VERSION = 1;
 const CLOCK_INDEXED_DB_STORE = "biometric_clock_events";
 const CLOCK_WRITE_CHUNK_SIZE = 1000;
+const CLOCK_REMOTE_READ_PAGE_SIZE = 1000;
 
 export const CLOCK_DATA_SETUP_SQL = `
 CREATE TABLE IF NOT EXISTS biometric_clock_events (
@@ -699,6 +700,35 @@ function getClockStorageErrorMessage(error: unknown) {
   return message;
 }
 
+async function fetchAllClockEventsPaged(
+  fetchPage: (
+    from: number,
+    to: number
+  ) => PromiseLike<{ data: unknown[] | null; error: unknown }> | { data: unknown[] | null; error: unknown }
+) {
+  const events: BiometricClockEvent[] = [];
+
+  for (let from = 0; ; from += CLOCK_REMOTE_READ_PAGE_SIZE) {
+    const to = from + CLOCK_REMOTE_READ_PAGE_SIZE - 1;
+    const { data, error } = await fetchPage(from, to);
+    if (error) {
+      return {
+        events,
+        error: getClockStorageErrorMessage(error),
+      };
+    }
+
+    const normalizedBatch = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+    events.push(...normalizedBatch);
+
+    if (normalizedBatch.length < CLOCK_REMOTE_READ_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return { events, error: "" };
+}
+
 function matchesEmployeeClockProfile(event: BiometricClockEvent, employee: Pick<Employee, "employee_code" | "id_number" | "first_name" | "last_name">) {
   const primaryCode = normalizeEmployeeCode(employee.employee_code);
   const fallbackIdNumber = normalizeText(employee.id_number);
@@ -1012,24 +1042,26 @@ export async function getClockEvents(filters?: GetClockEventsFilters) {
     });
 
   try {
-    let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false });
-    if (filters?.store) query = query.eq("store", filters.store);
-    if ((filters as GetClockEventsFilters | undefined)?.startDate) query = query.gte("clock_date", (filters as GetClockEventsFilters).startDate!);
-    if ((filters as GetClockEventsFilters | undefined)?.endDate) query = query.lte("clock_date", (filters as GetClockEventsFilters).endDate!);
-    if (filters?.search) {
-      const search = filters.search.replace(/,/g, "");
-      query = query.or(
-        `employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,alias.ilike.%${search}%,id_number.ilike.%${search}%,device_name.ilike.%${search}%,store.ilike.%${search}%`
-      );
-    }
+    const remote = await fetchAllClockEventsPaged(async (from, to) => {
+      let query = supabase.from("biometric_clock_events").select("*").order("clocked_at", { ascending: false });
+      if (filters?.store) query = query.eq("store", filters.store);
+      if ((filters as GetClockEventsFilters | undefined)?.startDate) query = query.gte("clock_date", (filters as GetClockEventsFilters).startDate!);
+      if ((filters as GetClockEventsFilters | undefined)?.endDate) query = query.lte("clock_date", (filters as GetClockEventsFilters).endDate!);
+      if (filters?.search) {
+        const search = filters.search.replace(/,/g, "");
+        query = query.or(
+          `employee_code.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,alias.ilike.%${search}%,id_number.ilike.%${search}%,device_name.ilike.%${search}%,store.ilike.%${search}%`
+        );
+      }
+      return query.range(from, to);
+    });
 
-    const { data, error } = await query;
-    if (error) {
-      console.warn("Get clock events warning:", getClockStorageErrorMessage(error));
+    if (remote.error) {
+      console.warn("Get clock events warning:", remote.error);
       return applyFilters(localEvents);
     }
 
-    const merged = mergeClockEvents(localEvents, (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent)));
+    const merged = mergeClockEvents(localEvents, remote.events);
     await saveLocalClockEvents(merged);
     return applyFilters(merged);
   } catch (error) {
@@ -1060,25 +1092,27 @@ export async function getClockEventsForDateRange(startDate: string, endDate: str
       return applyLocalFallback();
     }
 
-    let query = supabase
-      .from("biometric_clock_events")
-      .select("*")
-      .gte("clock_date", startDate)
-      .lte("clock_date", endDate)
-      .order("clocked_at", { ascending: false });
+    const remote = await fetchAllClockEventsPaged(async (from, to) => {
+      let query = supabase
+        .from("biometric_clock_events")
+        .select("*")
+        .gte("clock_date", startDate)
+        .lte("clock_date", endDate)
+        .order("clocked_at", { ascending: false });
 
-    if (employeeCodes && employeeCodes.length > 0) {
-      query = query.in("employee_code", employeeCodes);
-    }
+      if (employeeCodes && employeeCodes.length > 0) {
+        query = query.in("employee_code", employeeCodes);
+      }
 
-    const { data, error } = await query;
+      return query.range(from, to);
+    });
 
-    if (error) {
-      console.warn("Get clock events for date range warning:", getClockStorageErrorMessage(error));
+    if (remote.error) {
+      console.warn("Get clock events for date range warning:", remote.error);
       return applyLocalFallback();
     }
 
-    const remoteEvents = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+    const remoteEvents = remote.events;
     console.log(`[clockData] getClockEventsForDateRange ${startDate}-${endDate}: ${(performance.now() - t0).toFixed(0)}ms (${remoteEvents.length} events from Supabase)`);
     return remoteEvents;
   } catch (error) {
@@ -1101,49 +1135,58 @@ export async function getClockEventsForEmployeeProfile(
     let remoteMatches: BiometricClockEvent[] = [];
 
     if (primaryCode) {
-      const { data, error } = await supabase
-        .from("biometric_clock_events")
-        .select("*")
-        .eq("employee_code", primaryCode)
-        .order("clocked_at", { ascending: false });
+      const remote = await fetchAllClockEventsPaged((from, to) =>
+        supabase
+          .from("biometric_clock_events")
+          .select("*")
+          .eq("employee_code", primaryCode)
+          .order("clocked_at", { ascending: false })
+          .range(from, to)
+      );
 
-      if (error) {
-        console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
+      if (remote.error) {
+        console.warn("Get employee clock profile warning:", remote.error);
         return mergeClockEvents(localMatches);
       }
 
-      remoteMatches = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+      remoteMatches = remote.events;
     }
 
     if (remoteMatches.length === 0 && fallbackIdNumber) {
-      const { data, error } = await supabase
-        .from("biometric_clock_events")
-        .select("*")
-        .eq("id_number", fallbackIdNumber)
-        .order("clocked_at", { ascending: false });
+      const remote = await fetchAllClockEventsPaged((from, to) =>
+        supabase
+          .from("biometric_clock_events")
+          .select("*")
+          .eq("id_number", fallbackIdNumber)
+          .order("clocked_at", { ascending: false })
+          .range(from, to)
+      );
 
-      if (error) {
-        console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
+      if (remote.error) {
+        console.warn("Get employee clock profile warning:", remote.error);
         return mergeClockEvents(localMatches);
       }
 
-      remoteMatches = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+      remoteMatches = remote.events;
     }
 
     if (remoteMatches.length === 0 && fallbackFirstName && fallbackLastName) {
-      const { data, error } = await supabase
-        .from("biometric_clock_events")
-        .select("*")
-        .ilike("first_name", fallbackFirstName)
-        .ilike("last_name", fallbackLastName)
-        .order("clocked_at", { ascending: false });
+      const remote = await fetchAllClockEventsPaged((from, to) =>
+        supabase
+          .from("biometric_clock_events")
+          .select("*")
+          .ilike("first_name", fallbackFirstName)
+          .ilike("last_name", fallbackLastName)
+          .order("clocked_at", { ascending: false })
+          .range(from, to)
+      );
 
-      if (error) {
-        console.warn("Get employee clock profile warning:", getClockStorageErrorMessage(error));
+      if (remote.error) {
+        console.warn("Get employee clock profile warning:", remote.error);
         return mergeClockEvents(localMatches);
       }
 
-      remoteMatches = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+      remoteMatches = remote.events;
     }
 
     const merged = mergeClockEvents(localMatches, remoteMatches.filter((event) => matchesEmployeeClockProfile(event, employee)));
