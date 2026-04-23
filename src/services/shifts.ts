@@ -595,6 +595,31 @@ function appendShiftRosterHistory(
 
 function materializeRosterSnapshots(currentRosters: ShiftRoster[], historyEntries: ShiftRosterHistoryEntry[]) {
   const normalizedHistory = mergeShiftRosterHistoryCollections(historyEntries);
+  const seededHistoryBaselines: ShiftRosterHistoryEntry[] = [];
+
+  // Backfill legacy periods before history tracking began by extending the
+  // earliest known snapshot back to 1900-01-01 for each sheet.
+  const historyBySheet = new Map<string, ShiftRosterHistoryEntry[]>();
+  normalizedHistory.forEach((entry) => {
+    if (!historyBySheet.has(entry.sheet_name)) historyBySheet.set(entry.sheet_name, []);
+    historyBySheet.get(entry.sheet_name)!.push(entry);
+  });
+
+  historyBySheet.forEach((entries) => {
+    const sorted = [...entries].sort((a, b) => a.effective_from.localeCompare(b.effective_from));
+    const earliest = sorted[0];
+    if (!earliest || earliest.effective_from <= "1900-01-01") return;
+
+    seededHistoryBaselines.push({
+      ...earliest,
+      id: randomId(),
+      snapshot_key: buildShiftRosterSnapshotKey(earliest.sheet_name, "1900-01-01"),
+      effective_from: "1900-01-01",
+      effective_to: shiftDateKey(earliest.effective_from, -1),
+      changed_at: earliest.changed_at || earliest.updated_at || new Date().toISOString(),
+    });
+  });
+
   const openHistorySheets = new Set(
     normalizedHistory.filter((entry) => entry.effective_to === null).map((entry) => entry.sheet_name)
   );
@@ -604,7 +629,7 @@ function materializeRosterSnapshots(currentRosters: ShiftRoster[], historyEntrie
       createShiftRosterHistoryEntry(roster, "1900-01-01", null, roster.updated_at || new Date().toISOString())
     );
 
-  return mergeShiftRosterHistoryCollections(normalizedHistory, fallbackSnapshots);
+  return mergeShiftRosterHistoryCollections(normalizedHistory, seededHistoryBaselines, fallbackSnapshots);
 }
 
 function normalizeKey(value: string) {
