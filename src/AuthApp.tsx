@@ -327,6 +327,7 @@ export default function AuthApp() {
   const [signupSelectedStores, setSignupSelectedStores] = useState<string[]>([]);
   const [signupRepDirectory, setSignupRepDirectory] = useState<RepDirectoryEntry[]>([]);
   const [signupRepSearch, setSignupRepSearch] = useState("");
+  const [signupRepAssignedStores, setSignupRepAssignedStores] = useState<string[]>([]);
 
   useEffect(() => {
     ensureSuperAdminSeeded();
@@ -478,18 +479,26 @@ export default function AuthApp() {
     setSignupSelectedStores((current) => current.filter((key) => key !== storeKey));
   };
 
+  const clearSignupRepSelection = () => {
+    setSignupData((current) => ({ ...current, coversheetCode: "" }));
+    setSignupRepSearch("");
+    setSignupSelectedStores((current) => current.filter((key) => !signupRepAssignedStores.includes(key)));
+    setSignupRepAssignedStores([]);
+  };
+
   const handleSignupSelectRep = (entry: RepDirectoryEntry) => {
+    const nextRepStores = entry.storeKeys.filter(Boolean);
     setSignupData((current) => ({
       ...current,
       coversheetCode: entry.repCode || current.coversheetCode,
     }));
     setSignupSelectedStores((current) => {
-      const next = new Set(current);
-      entry.storeKeys.forEach((storeKey) => {
-        if (storeKey) next.add(storeKey);
-      });
+      const withoutPreviousRepStores = current.filter((key) => !signupRepAssignedStores.includes(key));
+      const next = new Set(withoutPreviousRepStores);
+      nextRepStores.forEach((storeKey) => next.add(storeKey));
       return Array.from(next);
     });
+    setSignupRepAssignedStores(nextRepStores);
     setSignupRepSearch(entry.repLabel);
   };
 
@@ -836,10 +845,25 @@ export default function AuthApp() {
                     <label className="text-sm font-medium text-slate-300">Find Your Rep Code (Coversheet Rep List)</label>
                     <Input
                       value={signupRepSearch}
-                      onChange={(e) => setSignupRepSearch(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setSignupRepSearch(value);
+                        if (!normalizeText(value) && signupRepAssignedStores.length > 0) {
+                          clearSignupRepSelection();
+                        }
+                      }}
                       className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
                       placeholder="Search by rep value, code, or store"
                     />
+                    {(signupRepAssignedStores.length > 0 || signupData.coversheetCode) && (
+                      <button
+                        type="button"
+                        onClick={clearSignupRepSelection}
+                        className="text-xs font-medium text-rose-300 transition hover:text-rose-200"
+                      >
+                        Remove selected rep and auto-added stores
+                      </button>
+                    )}
                     <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
                       {signupRepDirectory.length === 0 ? (
                         <div className="px-2 py-1 text-xs text-slate-400">No coversheet rep values found yet. Upload coversheet data in Admin first.</div>
