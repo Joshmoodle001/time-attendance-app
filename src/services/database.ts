@@ -326,23 +326,39 @@ export async function getAttendanceByDate(date: string): Promise<AttendanceRecor
 export async function getAttendanceByDateRange(startDate: string, endDate: string): Promise<AttendanceRecord[]> {
   const t0 = performance.now();
   try {
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select('*')
-      .gte('upload_date', startDate)
-      .lte('upload_date', endDate)
-      .order('upload_date')
-      .order('store')
-      .order('name')
+    const PAGE_SIZE = 1000
+    const remoteRows: AttendanceRecord[] = []
+    let page = 0
 
-    if (error) {
-      console.error('Get attendance range error:', error)
-      return loadLocalAttendanceRecords().filter(
-        (record) => record.upload_date >= startDate && record.upload_date <= endDate
-      )
+    while (true) {
+      const from = page * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
+      const { data, error } = await supabase
+        .from('attendance_records')
+        .select('*')
+        .gte('upload_date', startDate)
+        .lte('upload_date', endDate)
+        .order('upload_date')
+        .order('store')
+        .order('name')
+        .range(from, to)
+
+      if (error) {
+        console.error('Get attendance range error:', error)
+        return loadLocalAttendanceRecords().filter(
+          (record) => record.upload_date >= startDate && record.upload_date <= endDate
+        )
+      }
+
+      const pageRows = (data || []) as AttendanceRecord[]
+      if (pageRows.length === 0) break
+      remoteRows.push(...pageRows)
+
+      if (pageRows.length < PAGE_SIZE) break
+      page += 1
     }
 
-    const remote = (data || []).map((record) => normalizeAttendanceRecord(record as AttendanceRecord))
+    const remote = remoteRows.map((record) => normalizeAttendanceRecord(record as AttendanceRecord))
     console.log(`[database] getAttendanceByDateRange(${startDate}..${endDate}): ${(performance.now() - t0).toFixed(0)}ms (${remote.length} records)`);
     return remote
   } catch (err) {

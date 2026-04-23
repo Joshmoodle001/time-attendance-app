@@ -530,24 +530,42 @@ export async function getLeaveApplications(filters?: GetLeaveApplicationFilters)
     });
 
   try {
-    let query = supabase.from("leave_applications").select("*").order("created_at", { ascending: false });
+    const PAGE_SIZE = 1000;
+    const normalizedEmployeeCodes = filters?.employeeCodes?.map((code) => normalizeEmployeeCode(code)).filter(Boolean) || [];
+    const remoteRows: LeaveApplication[] = [];
+    let page = 0;
 
-    if (filters?.uploadBatchId) query = query.eq("upload_batch_id", filters.uploadBatchId);
-    if (filters?.status) query = query.eq("apply_status", filters.status);
-    if (filters?.startDate) query = query.lte("leave_start_date", filters.endDate || "9999-12-31");
-    if (filters?.endDate) query = query.gte("leave_end_date", filters.startDate || "0001-01-01");
-    if (filters?.employeeCodes && filters.employeeCodes.length > 0) {
-      const normalizedEmployeeCodes = filters.employeeCodes.map((code) => normalizeEmployeeCode(code)).filter(Boolean);
+    while (true) {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      let query = supabase
+        .from("leave_applications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (filters?.uploadBatchId) query = query.eq("upload_batch_id", filters.uploadBatchId);
+      if (filters?.status) query = query.eq("apply_status", filters.status);
+      if (filters?.startDate) query = query.lte("leave_start_date", filters.endDate || "9999-12-31");
+      if (filters?.endDate) query = query.gte("leave_end_date", filters.startDate || "0001-01-01");
       if (normalizedEmployeeCodes.length > 0) query = query.in("matched_employee_code", normalizedEmployeeCodes);
+
+      const { data, error } = await query;
+      if (error) {
+        console.warn("Get leave applications warning:", getLeaveStorageErrorMessage(error));
+        return applyFilters(loadLocalLeaveApplications());
+      }
+
+      const pageRows = (data || []) as LeaveApplication[];
+      if (pageRows.length === 0) break;
+      remoteRows.push(...pageRows);
+
+      if (pageRows.length < PAGE_SIZE) break;
+      page += 1;
     }
 
-    const { data, error } = await query;
-    if (error) {
-      console.warn("Get leave applications warning:", getLeaveStorageErrorMessage(error));
-      return applyFilters(loadLocalLeaveApplications());
-    }
-
-    const remote = (data || []).map((item) => normalizeLeaveApplication(item as LeaveApplication));
+    const remote = remoteRows.map((item) => normalizeLeaveApplication(item as LeaveApplication));
     return applyFilters(remote);
   } catch (error) {
     console.warn("Get leave applications warning:", getLeaveStorageErrorMessage(error));

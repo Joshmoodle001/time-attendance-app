@@ -1095,7 +1095,7 @@ export default function ReportsBuilder({
     }
 
     setIsGenerating(true);
-    setStatusMessage("Generating live attendance report...");
+    setStatusMessage("Generating live attendance report (step 1/4: preparing employee scope)...");
 
     try {
       const normalizedEmployeeCodes = Array.from(
@@ -1114,12 +1114,20 @@ export default function ReportsBuilder({
         );
         return;
       }
-      const [rangeRecords, rawClockEvents] = await Promise.all([
-        getAttendanceByDateRange(trimmedStart, trimmedEnd),
-        getClockEventsForDateRange(trimmedStart, trimmedEnd),
-      ]);
-      const filteredAttendance = rangeRecords.filter((record) => normalizedEmployeeCodes.includes(normalizeEmployeeCode(record.employee_code)));
-      const mergedRecords = mergeAttendanceWithClockEvents(filteredAttendance, rawClockEvents, employeeMap, rosterSourcesByEmployee);
+      const normalizedEmployeeCodeSet = new Set(normalizedEmployeeCodes);
+
+      setStatusMessage("Generating live attendance report (step 2/4: loading attendance range)...");
+      const rangeRecords = await getAttendanceByDateRange(trimmedStart, trimmedEnd);
+
+      setStatusMessage("Generating live attendance report (step 3/4: loading raw clock events, this can take longer on large ranges)...");
+      const rawClockEvents = await getClockEventsForDateRange(trimmedStart, trimmedEnd);
+
+      setStatusMessage("Generating live attendance report (step 4/4: merging attendance, rosters, leave, and clocks)...");
+      const filteredAttendance = rangeRecords.filter((record) => normalizedEmployeeCodeSet.has(normalizeEmployeeCode(record.employee_code)));
+      const filteredClockEvents = rawClockEvents.filter((event) =>
+        normalizedEmployeeCodeSet.has(normalizeEmployeeCode(event.employee_code))
+      );
+      const mergedRecords = mergeAttendanceWithClockEvents(filteredAttendance, filteredClockEvents, employeeMap, rosterSourcesByEmployee);
 
       setGeneratedRecords(mergedRecords);
       setGeneratedCriteria({

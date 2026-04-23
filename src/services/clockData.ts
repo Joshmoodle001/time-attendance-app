@@ -1060,25 +1060,41 @@ export async function getClockEventsForDateRange(startDate: string, endDate: str
       return applyLocalFallback();
     }
 
-    let query = supabase
-      .from("biometric_clock_events")
-      .select("*")
-      .gte("clock_date", startDate)
-      .lte("clock_date", endDate)
-      .order("clocked_at", { ascending: false });
+    const PAGE_SIZE = 1000;
+    const remoteRows: BiometricClockEvent[] = [];
+    let page = 0;
 
-    if (employeeCodes && employeeCodes.length > 0) {
-      query = query.in("employee_code", employeeCodes);
+    while (true) {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      let query = supabase
+        .from("biometric_clock_events")
+        .select("*")
+        .gte("clock_date", startDate)
+        .lte("clock_date", endDate)
+        .order("clocked_at", { ascending: false })
+        .range(from, to);
+
+      if (employeeCodes && employeeCodes.length > 0) {
+        query = query.in("employee_code", employeeCodes);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.warn("Get clock events for date range warning:", getClockStorageErrorMessage(error));
+        return applyLocalFallback();
+      }
+
+      const pageRows = (data || []) as BiometricClockEvent[];
+      if (pageRows.length === 0) break;
+      remoteRows.push(...pageRows);
+
+      if (pageRows.length < PAGE_SIZE) break;
+      page += 1;
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.warn("Get clock events for date range warning:", getClockStorageErrorMessage(error));
-      return applyLocalFallback();
-    }
-
-    const remoteEvents = (data || []).map((event) => normalizeClockEvent(event as BiometricClockEvent));
+    const remoteEvents = remoteRows.map((event) => normalizeClockEvent(event as BiometricClockEvent));
     console.log(`[clockData] getClockEventsForDateRange ${startDate}-${endDate}: ${(performance.now() - t0).toFixed(0)}ms (${remoteEvents.length} events from Supabase)`);
     return remoteEvents;
   } catch (error) {
