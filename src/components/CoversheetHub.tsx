@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown, ChevronRight, Mail, Phone, Store, Upload, UserRound } from "lucide-react";
+import { ChevronDown, ChevronRight, Mail, Phone, Search, Store, Upload, UserRound } from "lucide-react";
 
 type CoversheetStatus = "terminated" | "maternity" | "hold";
 
@@ -389,7 +390,10 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [expandedStoreIds, setExpandedStoreIds] = useState<Set<string>>(new Set());
+  const [storeSearch, setStoreSearch] = useState("");
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const deferredStoreSearch = useDeferredValue(storeSearch);
 
   useEffect(() => {
     let mounted = true;
@@ -398,7 +402,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
         const stored = await loadStoredCoversheetData();
         if (!mounted) return;
         setData(stored);
-        setExpandedStoreIds(new Set((stored?.stores || []).slice(0, 2).map((store) => store.id)));
+        setExpandedStoreIds(new Set());
       } finally {
         if (mounted) setIsHydrating(false);
       }
@@ -454,12 +458,62 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
       const employeeTotal = stores.reduce((sum, store) => sum + store.employees.length, 0);
       await saveStoredCoversheetData(nextData);
       setData(nextData);
-      setExpandedStoreIds(new Set(stores.slice(0, 2).map((store) => store.id)));
+      setExpandedStoreIds(new Set());
+      setSelectedStoreId(null);
+      setStoreSearch("");
       setMessage(`Imported ${employeeTotal} employee row(s) across ${stores.length} store(s).`);
     } catch (error) {
       setMessage(`Upload failed: ${error instanceof Error ? error.message : "Unknown workbook parse error."}`);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedStoreId || !data?.stores?.length) return;
+    const exists = data.stores.some((store) => store.id === selectedStoreId);
+    if (!exists) setSelectedStoreId(null);
+  }, [data, selectedStoreId]);
+
+  const filteredStores = useMemo(() => {
+    const stores = data?.stores || [];
+    const searchQuery = normalizeValue(deferredStoreSearch).toLowerCase();
+    const selectedFiltered = selectedStoreId ? stores.filter((store) => store.id === selectedStoreId) : stores;
+    if (!searchQuery) return selectedFiltered;
+
+    return selectedFiltered.filter((store) => {
+      const storeLabel = `${store.storeCode} ${store.storeName}`.toLowerCase();
+      if (storeLabel.includes(searchQuery)) return true;
+      return store.employees.some((employee) =>
+        [
+          employee.employeeCode,
+          employee.employeeName,
+          employee.phone,
+          employee.email,
+          employee.statuses.join(" "),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(searchQuery)
+      );
+    });
+  }, [data, deferredStoreSearch, selectedStoreId]);
+
+  const storeSearchMatches = useMemo(() => {
+    const stores = data?.stores || [];
+    const searchQuery = normalizeValue(deferredStoreSearch).toLowerCase();
+    if (!searchQuery || selectedStoreId) return [];
+    return stores
+      .filter((store) => `${store.storeCode} ${store.storeName}`.toLowerCase().includes(searchQuery))
+      .slice(0, 8);
+  }, [data, deferredStoreSearch, selectedStoreId]);
+
+  const selectStore = (storeId: string) => {
+    const match = data?.stores.find((store) => store.id === storeId);
+    setSelectedStoreId(storeId);
+    setExpandedStoreIds(new Set([storeId]));
+    if (match) {
+      setStoreSearch(`${match.storeCode ? `${match.storeCode} - ` : ""}${match.storeName}`);
     }
   };
 
@@ -562,7 +616,55 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
         <Badge className={statusBadgeClass("hold")}>{totals.hold} hold</Badge>
       </div>
 
-      {data.stores.map((store) => {
+      <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
+        <CardContent className="space-y-3 p-4">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={storeSearch}
+              onChange={(event) => {
+                setStoreSearch(event.target.value);
+                if (selectedStoreId) setSelectedStoreId(null);
+              }}
+              placeholder="Search stores, employee names, codes, phone, or email..."
+              className="pl-10"
+            />
+          </div>
+
+          {selectedStoreId && (
+            <div className="flex items-center gap-2">
+              <Badge className="border-cyan-500/40 bg-cyan-500/20 text-cyan-300">Store selected</Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedStoreId(null);
+                  setStoreSearch("");
+                }}
+              >
+                Clear selection
+              </Button>
+            </div>
+          )}
+
+          {!selectedStoreId && storeSearchMatches.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {storeSearchMatches.map((store) => (
+                <Button key={store.id} variant="outline" size="sm" onClick={() => selectStore(store.id)}>
+                  {store.storeCode ? `${store.storeCode} - ` : ""}
+                  {store.storeName}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          <div className="text-xs text-slate-400">
+            Showing {filteredStores.length} of {data.stores.length} store(s)
+          </div>
+        </CardContent>
+      </Card>
+
+      {filteredStores.map((store) => {
         const expanded = expandedStoreIds.has(store.id);
         const storeLabel = `${store.storeCode ? `${store.storeCode} - ` : ""}${store.storeName}`.trim();
         return (
@@ -597,18 +699,14 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
                         ))}
                       </div>
                       <div className="mt-1 space-y-1 text-xs text-slate-400">
-                        {employee.phone && (
-                          <div className="flex items-center gap-1.5">
-                            <Phone className="h-3.5 w-3.5" />
-                            <span>{employee.phone}</span>
-                          </div>
-                        )}
-                        {employee.email && (
-                          <div className="flex items-center gap-1.5">
-                            <Mail className="h-3.5 w-3.5" />
-                            <span>{employee.email}</span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="h-3.5 w-3.5" />
+                          <span>{employee.phone || "-"}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="h-3.5 w-3.5" />
+                          <span>{employee.email || "-"}</span>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -618,6 +716,12 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
           </Card>
         );
       })}
+
+      {filteredStores.length === 0 && (
+        <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
+          <CardContent className="py-8 text-center text-slate-400">No stores matched this search.</CardContent>
+        </Card>
+      )}
     </div>
   );
 }
