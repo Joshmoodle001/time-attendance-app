@@ -583,6 +583,18 @@ function normalizeImportKey(value: string) {
     .replace(/^_+|_+$/g, "");
 }
 
+function normalizeDeviceType(value: unknown): "physical" | "logical" | "unknown" {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "unknown";
+  if (normalized.includes("physical")) return "physical";
+  if (normalized.includes("logical")) return "logical";
+  return "unknown";
+}
+
+function isPhysicalDeviceType(value: unknown) {
+  return normalizeDeviceType(value) === "physical";
+}
+
 function normalizeEmployeeStatusValue(value: unknown): "active" | "inactive" | "terminated" {
   const clean = String(value || "").trim().toLowerCase();
   if (clean === "inactive") return "inactive";
@@ -1462,7 +1474,7 @@ export default function App() {
     for (const d of deviceRecords) {
       const code = d.storeCode.toLowerCase().trim();
       if (!code) continue;
-      const isPhysical = d.deviceType.toLowerCase().includes("physical");
+      const isPhysical = isPhysicalDeviceType(d.deviceType);
       map.set(code, {
         storeCode: d.storeCode,
         storeName: d.storeName,
@@ -1479,7 +1491,7 @@ export default function App() {
     for (const d of deviceRecords) {
       const nameKey = String(d.storeName || "").toLowerCase().trim();
       if (!nameKey) continue;
-      const isPhysical = d.deviceType.toLowerCase().includes("physical");
+      const isPhysical = isPhysicalDeviceType(d.deviceType);
       map.set(nameKey, {
         storeCode: d.storeCode,
         storeName: d.storeName,
@@ -3882,13 +3894,21 @@ export default function App() {
 
         const serial = String(readValue(entries, ["serialnumber", "serial number", "serial", "deviceserial"])).trim();
         const description = String(readValue(entries, ["description", "displayname", "display name"])).trim();
-        const deviceType = String(readValue(entries, ["devicetype", "device type", "type"])).trim();
+        const rawDeviceType = String(readValue(entries, ["devicetype", "device type", "type"])).trim();
         const readerType = String(readValue(entries, ["readertype", "reader type"])).trim();
         const rawStatus = String(readValue(entries, ["devicestatus", "device status", "status"])).trim().toLowerCase();
         const connected = String(readValue(entries, ["connected", "connectionstatus", "connection status"])).trim();
         const normalizedConnected = connected.toLowerCase();
         const hasTA = readBoolean(entries, ["ta", "t&a", "timeandattendance", "time and attendance", "timeattendance"]);
         const enabled = readBoolean(entries, ["enabled", "active", "isactive", "statusenabled"]);
+        const normalizedType = normalizeDeviceType(rawDeviceType);
+        const inferredType: "physical" | "logical" =
+          normalizedType !== "unknown"
+            ? normalizedType
+            : serial
+              ? "physical"
+              : "logical";
+        const deviceType = inferredType === "physical" ? "Physical" : "Logical";
 
         const status: "online" | "offline" | "warning" =
           normalizedConnected.includes("online")
@@ -3898,7 +3918,7 @@ export default function App() {
               : rawStatus === "active" || rawStatus === "online"
                 ? enabled ? "online" : "warning"
                 : rawStatus === "inactive" || rawStatus === "offline"
-                  ? deviceType.toLowerCase().includes("logical")
+                  ? inferredType === "logical"
                     ? "warning"
                     : "offline"
                   : rawStatus.includes("investigation")
@@ -4934,8 +4954,8 @@ export default function App() {
     const onlineCount = deviceRecords.filter(d => d.status === "online").length;
     const offlineCount = deviceRecords.filter(d => d.status === "offline").length;
     const warningCount = deviceRecords.filter(d => d.status === "warning").length;
-    const physicalCount = deviceRecords.filter(d => d.deviceType.toLowerCase().includes("physical")).length;
-    const logicalCount = deviceRecords.filter(d => d.deviceType.toLowerCase().includes("logical")).length;
+    const physicalCount = deviceRecords.filter(d => isPhysicalDeviceType(d.deviceType)).length;
+    const logicalCount = deviceRecords.filter(d => normalizeDeviceType(d.deviceType) === "logical").length;
 
     return (
       <div className="space-y-6">
@@ -4974,11 +4994,11 @@ export default function App() {
                   </div>
                   <div className="p-4 bg-green-50 rounded-xl text-center">
                     <div className="text-2xl font-bold text-green-700">{physicalCount}</div>
-                    <div className="text-sm text-green-600">With Device</div>
+                    <div className="text-sm text-green-600">Physical</div>
                   </div>
                   <div className="p-4 bg-amber-50 rounded-xl text-center">
                     <div className="text-2xl font-bold text-amber-700">{logicalCount}</div>
-                    <div className="text-sm text-amber-600">No Device</div>
+                    <div className="text-sm text-amber-600">Logical</div>
                   </div>
                   <div className="p-4 bg-blue-50 rounded-xl text-center">
                     <div className="text-2xl font-bold text-blue-700">{onlineCount}</div>
@@ -4996,6 +5016,7 @@ export default function App() {
                         <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
                         <th className="px-4 py-3 text-left text-sm font-medium">Store Code</th>
                         <th className="px-4 py-3 text-left text-sm font-medium">Serial</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium">Type</th>
                         <th className="px-4 py-3 text-center text-sm font-medium">Has Device</th>
                         <th className="px-4 py-3 text-left text-sm font-medium">Reader</th>
                         <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
@@ -5008,10 +5029,17 @@ export default function App() {
                             <div className="font-medium text-sm">{device.storeName || device.name}</div>
                             <div className="text-xs text-slate-500">{device.name}</div>
                           </td>
-                          <td className="px-4 py-3 text-sm font-mono">{device.storeCode || "—"}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{device.storeCode || "-"}</td>
                           <td className="px-4 py-3 text-sm font-mono">{device.id}</td>
                           <td className="px-4 py-3 text-center">
-                            {device.deviceType.toLowerCase().includes("physical") ? (
+                            {isPhysicalDeviceType(device.deviceType) ? (
+                              <Badge className="bg-sky-100 text-sky-700">Physical</Badge>
+                            ) : (
+                              <Badge className="bg-violet-100 text-violet-700">Logical</Badge>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {isPhysicalDeviceType(device.deviceType) ? (
                               <Badge className="bg-green-100 text-green-700">
                                 <CheckCircle2 className="w-3 h-3 mr-1" /> Yes
                               </Badge>
@@ -5040,7 +5068,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-xs text-slate-400">{physicalCount} stores with devices ({onlineCount} online, {offlineCount + warningCount} offline/warning) • {logicalCount} stores without devices (excluded from overview)</p>
+                <p className="text-xs text-slate-400">{physicalCount} physical stores ({onlineCount} online, {offlineCount + warningCount} offline/warning) - {logicalCount} logical stores (excluded from overview)</p>
               </div>
             )}
           </CardContent>
