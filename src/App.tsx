@@ -157,6 +157,11 @@ const QUICK_RANGE_OPTIONS = [
 const LAST_ATTENDANCE_DATE_STORAGE_KEY = "last-attendance-date-v1";
 const DEVICE_RECORDS_STORAGE_KEY = "device-records-v1";
 const DEVICE_IMPORT_DATE_STORAGE_KEY = "device-import-date-v1";
+const DEVICE_CACHE_DB_NAME = "time-attendance-device-cache-v1";
+const DEVICE_CACHE_DB_VERSION = 1;
+const DEVICE_CACHE_RECORDS_STORE = "device_records";
+const DEVICE_CACHE_META_STORE = "device_meta";
+const DEVICE_CACHE_META_IMPORT_DATE_KEY = "import_date";
   const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
   const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
 
@@ -281,6 +286,11 @@ type StoreDeviceStatus = {
   hasDevice: boolean;
   deviceStatus: "online" | "offline" | "warning";
   deviceName: string;
+};
+
+type DeviceCachePayload = {
+  records: DeviceRecord[];
+  importDate: string;
 };
 
 type OverviewModuleSnapshot = {
@@ -412,6 +422,154 @@ function loadLocalArrayState<T>(key: string): T[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function isQuotaExceededError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const exception = error as DOMException;
+  if (exception.name === "QuotaExceededError" || exception.name === "NS_ERROR_DOM_QUOTA_REACHED") {
+    return true;
+  }
+  return false;
+}
+
+function normalizeDeviceRecordInput(record: Partial<DeviceRecord> | null | undefined): DeviceRecord | null {
+  if (!record) return null;
+
+  const id = String(record.id || "").trim();
+  const name = String(record.name || "").trim();
+  const storeCode = String(record.storeCode || "").trim();
+
+  if (!id && !name && !storeCode) return null;
+
+  const statusValue = String(record.status || "").toLowerCase();
+  const status: DeviceRecord["status"] =
+    statusValue === "online" || statusValue === "offline" || statusValue === "warning" ? statusValue : "warning";
+
+  return {
+    id: id || storeCode || name || `DEV-${Math.random().toString(36).slice(2, 10)}`,
+    name,
+    description: String(record.description || "").trim(),
+    storeCode,
+    storeName: String(record.storeName || "").trim(),
+    deviceType: String(record.deviceType || "").trim(),
+    readerType: String(record.readerType || "").trim(),
+    status,
+    connected: String(record.connected || "").trim(),
+    hasTimeAndAttendance: Boolean(record.hasTimeAndAttendance),
+  };
+}
+
+function openDeviceCacheDatabase(): Promise<IDBDatabase | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const request = window.indexedDB.open(DEVICE_CACHE_DB_NAME, DEVICE_CACHE_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(DEVICE_CACHE_RECORDS_STORE)) {
+        database.createObjectStore(DEVICE_CACHE_RECORDS_STORE, { keyPath: "id" });
+      }
+      if (!database.objectStoreNames.contains(DEVICE_CACHE_META_STORE)) {
+        database.createObjectStore(DEVICE_CACHE_META_STORE);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      console.error("Open device cache IndexedDB error:", request.error);
+      resolve(null);
+    };
+  });
+}
+
+async function readDeviceCacheFromIndexedDb(): Promise<DeviceCachePayload | null> {
+  const database = await openDeviceCacheDatabase();
+  if (!database) return null;
+
+  return new Promise((resolve) => {
+    const transaction = database.transaction([DEVICE_CACHE_RECORDS_STORE, DEVICE_CACHE_META_STORE], "readonly");
+    const recordsRequest = transaction.objectStore(DEVICE_CACHE_RECORDS_STORE).getAll();
+    const importDateRequest = transaction.objectStore(DEVICE_CACHE_META_STORE).get(DEVICE_CACHE_META_IMPORT_DATE_KEY);
+
+    transaction.oncomplete = () => {
+      const rawRecords = Array.isArray(recordsRequest.result) ? (recordsRequest.result as Partial<DeviceRecord>[]) : [];
+      const normalizedRecords = rawRecords
+        .map((item) => normalizeDeviceRecordInput(item))
+        .filter((item): item is DeviceRecord => Boolean(item));
+      const importDate = typeof importDateRequest.result === "string" ? importDateRequest.result : "";
+      database.close();
+      resolve({ records: normalizedRecords, importDate });
+    };
+
+    transaction.onerror = () => {
+      console.error("Read device cache IndexedDB error:", transaction.error);
+      database.close();
+      resolve(null);
+    };
+  });
+}
+
+async function writeDeviceCacheToIndexedDb(records: DeviceRecord[], importDate: string): Promise<boolean> {
+  const database = await openDeviceCacheDatabase();
+  if (!database) return false;
+
+  return new Promise((resolve) => {
+    const transaction = database.transaction([DEVICE_CACHE_RECORDS_STORE, DEVICE_CACHE_META_STORE], "readwrite");
+    const recordsStore = transaction.objectStore(DEVICE_CACHE_RECORDS_STORE);
+    const metaStore = transaction.objectStore(DEVICE_CACHE_META_STORE);
+
+    recordsStore.clear();
+    records.forEach((record) => {
+      const normalized = normalizeDeviceRecordInput(record);
+      if (normalized) {
+        recordsStore.put(normalized);
+      }
+    });
+    metaStore.put(importDate || "", DEVICE_CACHE_META_IMPORT_DATE_KEY);
+
+    transaction.oncomplete = () => {
+      database.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      console.error("Write device cache IndexedDB error:", transaction.error);
+      database.close();
+      resolve(false);
+    };
+  });
+}
+
+function readLegacyDeviceCacheFromLocalStorage(): DeviceCachePayload | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const rawDevices = window.localStorage.getItem(DEVICE_RECORDS_STORAGE_KEY);
+    const rawDeviceImportDate = window.localStorage.getItem(DEVICE_IMPORT_DATE_STORAGE_KEY) || "";
+    if (!rawDevices) {
+      return rawDeviceImportDate ? { records: [], importDate: rawDeviceImportDate } : null;
+    }
+
+    const parsedDevices = JSON.parse(rawDevices) as Partial<DeviceRecord>[];
+    if (!Array.isArray(parsedDevices)) {
+      return rawDeviceImportDate ? { records: [], importDate: rawDeviceImportDate } : null;
+    }
+
+    const normalizedRecords = parsedDevices
+      .map((item) => normalizeDeviceRecordInput(item))
+      .filter((item): item is DeviceRecord => Boolean(item));
+    return {
+      records: normalizedRecords,
+      importDate: rawDeviceImportDate,
+    };
+  } catch (error) {
+    console.error("Failed to read legacy device cache from localStorage:", error);
+    return null;
   }
 }
 
@@ -1990,21 +2148,31 @@ export default function App() {
     let alive = true;
 
     const hydrateSavedData = async () => {
-      if (typeof window !== "undefined") {
-        try {
-          const rawDevices = window.localStorage.getItem(DEVICE_RECORDS_STORAGE_KEY);
-          const rawDeviceImportDate = window.localStorage.getItem(DEVICE_IMPORT_DATE_STORAGE_KEY) || "";
-          if (rawDevices) {
-            const parsedDevices = JSON.parse(rawDevices) as DeviceRecord[];
-            if (Array.isArray(parsedDevices)) {
-              setDeviceRecords(parsedDevices);
+      const indexedDbDeviceCache = await readDeviceCacheFromIndexedDb();
+      if (!alive) return;
+
+      if (indexedDbDeviceCache?.records.length) {
+        setDeviceRecords(indexedDbDeviceCache.records);
+      }
+      if (indexedDbDeviceCache?.importDate) {
+        setDeviceImportDate(indexedDbDeviceCache.importDate);
+      }
+
+      if (!indexedDbDeviceCache?.records.length) {
+        const legacyCache = readLegacyDeviceCacheFromLocalStorage();
+        if (legacyCache?.records.length) {
+          setDeviceRecords(legacyCache.records);
+          const migrated = await writeDeviceCacheToIndexedDb(legacyCache.records, legacyCache.importDate || "");
+          if (migrated && typeof window !== "undefined") {
+            try {
+              window.localStorage.removeItem(DEVICE_RECORDS_STORAGE_KEY);
+            } catch (error) {
+              console.error("Failed to clear legacy device cache after migration:", error);
             }
           }
-          if (rawDeviceImportDate) {
-            setDeviceImportDate(rawDeviceImportDate);
-          }
-        } catch (error) {
-          console.error("Failed to hydrate stored device data:", error);
+        }
+        if (legacyCache?.importDate) {
+          setDeviceImportDate(legacyCache.importDate);
         }
       }
 
@@ -3738,11 +3906,35 @@ export default function App() {
       const importStamp = new Date().toLocaleDateString();
       setDeviceRecords(parsed);
       setDeviceImportDate(importStamp);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(DEVICE_RECORDS_STORAGE_KEY, JSON.stringify(parsed));
-        window.localStorage.setItem(DEVICE_IMPORT_DATE_STORAGE_KEY, importStamp);
+      const persistedToIndexedDb = await writeDeviceCacheToIndexedDb(parsed, importStamp);
+      let usedLegacyFallback = false;
+
+      if (!persistedToIndexedDb && typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(DEVICE_RECORDS_STORAGE_KEY, JSON.stringify(parsed));
+          window.localStorage.setItem(DEVICE_IMPORT_DATE_STORAGE_KEY, importStamp);
+          usedLegacyFallback = true;
+        } catch (error) {
+          if (!isQuotaExceededError(error)) {
+            console.error("Device localStorage fallback failed:", error);
+          }
+        }
+      } else if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(DEVICE_IMPORT_DATE_STORAGE_KEY, importStamp);
+          window.localStorage.removeItem(DEVICE_RECORDS_STORAGE_KEY);
+        } catch (error) {
+          console.error("Unable to update legacy device localStorage keys:", error);
+        }
       }
-      setSaveMessage(`Imported ${parsed.length} device records from ${file.name}`);
+
+      if (persistedToIndexedDb || usedLegacyFallback) {
+        setSaveMessage(`Imported ${parsed.length} device records from ${file.name}`);
+      } else {
+        setSaveMessage(
+          `Imported ${parsed.length} device records from ${file.name}, but browser storage is full so this upload is only kept for this session.`
+        );
+      }
     } catch (error) {
       setSaveMessage(`Device upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
