@@ -13,6 +13,7 @@ type CoversheetEmployee = {
   employeeName: string;
   phone: string;
   email: string;
+  repLabel: string;
   statuses: CoversheetStatus[];
 };
 
@@ -92,6 +93,7 @@ const EMPLOYEE_NAME_KEYS = [
 
 const FIRST_NAME_KEYS = ["first_name", "firstname", "first"];
 const LAST_NAME_KEYS = ["last_name", "lastname", "surname", "last"];
+const REP_LABEL_KEYS = ["rep", "rep_name", "rep_code", "rep_number", "representative", "representative_name", "route_rep"];
 
 const PHONE_KEYS = ["phone", "phone_number", "cell", "cellphone", "cell_number", "mobile", "mobile_number", "contact_number"];
 const EMAIL_KEYS = ["email", "email_address", "genentity_email_address", "mail", "e_mail"];
@@ -159,6 +161,12 @@ function shouldReplaceEmail(existingValue: string, nextValue: string) {
   if (!nextValue) return false;
   if (!existingValue) return true;
   return isLikelyEmail(nextValue) && !isLikelyEmail(existingValue);
+}
+
+function shouldReplaceRepLabel(existingValue: string, nextValue: string) {
+  if (!nextValue) return false;
+  if (!existingValue) return true;
+  return nextValue.length > existingValue.length;
 }
 
 function deriveKeySet(headers: string[]): CoversheetStatusKeySet & { phone: string[]; email: string[] } {
@@ -478,6 +486,7 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
     const statuses = collectStatuses(entries, keySet);
     const phone = normalizePhoneValue(getEntry(entries, keySet.phone));
     const email = normalizeEmailValue(getEntry(entries, keySet.email));
+    const repLabel = normalizeValue(getEntry(entries, REP_LABEL_KEYS));
     const employeeId = `${storeId}__${(employeeCode || employeeName).toLowerCase()}`;
     const group = storeMap.get(storeId)!;
     const existingEmployee = group.employees.find((employee) => employee.id === employeeId);
@@ -486,6 +495,7 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
       existingEmployee.statuses = Array.from(new Set([...existingEmployee.statuses, ...statuses]));
       if (shouldReplacePhone(existingEmployee.phone, phone)) existingEmployee.phone = phone;
       if (shouldReplaceEmail(existingEmployee.email, email)) existingEmployee.email = email;
+      if (shouldReplaceRepLabel(existingEmployee.repLabel, repLabel)) existingEmployee.repLabel = repLabel;
       continue;
     }
 
@@ -495,6 +505,7 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
       employeeName: employeeName.trim() || employeeCode.trim(),
       phone,
       email,
+      repLabel,
       statuses,
     });
   }

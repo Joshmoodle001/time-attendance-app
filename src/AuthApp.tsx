@@ -19,7 +19,6 @@ import App from "./App";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { getEmployees, type Employee } from "@/services/database";
 import { getAllStores, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import {
   ensureSuperAdminSeeded,
@@ -43,16 +42,114 @@ const floatingArtifacts = [
 ];
 
 type RepDirectoryEntry = {
-  employeeCode: string;
-  fullName: string;
-  firstName: string;
-  surname: string;
-  storeKey: string;
-  storeLabel: string;
+  repCode: string;
+  repLabel: string;
+  storeKeys: string[];
+  storeLabels: string[];
 };
 
 function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
+}
+
+const SIGNUP_COVERSHEET_STORAGE_KEY = "coversheet-data-v1";
+const SIGNUP_COVERSHEET_DB_NAME = "time-attendance-coversheet-db";
+const SIGNUP_COVERSHEET_DB_VERSION = 1;
+const SIGNUP_COVERSHEET_DB_STORE = "coversheet_data";
+const SIGNUP_COVERSHEET_DB_RECORD_ID = "latest";
+
+type SignupCoversheetEmployee = {
+  repLabel?: unknown;
+};
+
+type SignupCoversheetStore = {
+  storeCode?: unknown;
+  storeName?: unknown;
+  employees?: SignupCoversheetEmployee[];
+};
+
+type SignupCoversheetData = {
+  stores?: SignupCoversheetStore[];
+};
+
+type SignupCoversheetIndexedRecord = {
+  id: string;
+  payload: SignupCoversheetData;
+};
+
+function isValidSignupCoversheetData(value: unknown): value is SignupCoversheetData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as SignupCoversheetData;
+  return Array.isArray(data.stores);
+}
+
+function extractRepCode(repLabel: string) {
+  const clean = normalizeText(repLabel);
+  if (!clean) return "";
+  const firstSegment = clean.split("-")[0]?.trim() || "";
+  return firstSegment.toUpperCase();
+}
+
+function openSignupCoversheetIndexedDb(): Promise<IDBDatabase | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const request = window.indexedDB.open(SIGNUP_COVERSHEET_DB_NAME, SIGNUP_COVERSHEET_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(SIGNUP_COVERSHEET_DB_STORE)) {
+        database.createObjectStore(SIGNUP_COVERSHEET_DB_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+  });
+}
+
+async function readSignupCoversheetFromIndexedDb(): Promise<SignupCoversheetData | null> {
+  const database = await openSignupCoversheetIndexedDb();
+  if (!database) return null;
+
+  return new Promise((resolve) => {
+    if (!database.objectStoreNames.contains(SIGNUP_COVERSHEET_DB_STORE)) {
+      resolve(null);
+      return;
+    }
+    const transaction = database.transaction(SIGNUP_COVERSHEET_DB_STORE, "readonly");
+    const store = transaction.objectStore(SIGNUP_COVERSHEET_DB_STORE);
+    const request = store.get(SIGNUP_COVERSHEET_DB_RECORD_ID);
+
+    request.onsuccess = () => {
+      const record = request.result as SignupCoversheetIndexedRecord | undefined;
+      if (record && isValidSignupCoversheetData(record.payload)) {
+        resolve(record.payload);
+        return;
+      }
+      resolve(null);
+    };
+    request.onerror = () => resolve(null);
+  });
+}
+
+function readSignupCoversheetFromLocalStorage(): SignupCoversheetData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SIGNUP_COVERSHEET_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return isValidSignupCoversheetData(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSignupCoversheetData(): Promise<SignupCoversheetData | null> {
+  const indexed = await readSignupCoversheetFromIndexedDb();
+  if (indexed) return indexed;
+  return readSignupCoversheetFromLocalStorage();
 }
 
 function StatusBanner({ banner }: { banner: Banner | null }) {
@@ -247,30 +344,59 @@ export default function AuthApp() {
     let alive = true;
     void (async () => {
       try {
-        const [stores, employees] = await Promise.all([getAllStores(), getEmployees()]);
+        const [stores, coversheetData] = await Promise.all([getAllStores(), loadSignupCoversheetData()]);
         if (!alive) return;
         setSignupStoreUniverse(stores);
 
-        const directory = employees
-          .filter((employee: Employee) => normalizeText(employee.employee_code) && (normalizeText(employee.first_name) || normalizeText(employee.last_name)))
-          .map((employee: Employee) => {
-            const firstName = normalizeText(employee.first_name);
-            const surname = normalizeText(employee.last_name);
-            const fullName = `${firstName} ${surname}`.trim();
-            const storeKey = `${normalizeText(employee.store_code)} - ${normalizeText(employee.store)}`;
-            return {
-              employeeCode: normalizeText(employee.employee_code),
-              fullName,
-              firstName,
-              surname,
-              storeKey,
-              storeLabel: `${normalizeText(employee.store_code)} - ${normalizeText(employee.store)}`,
-            } satisfies RepDirectoryEntry;
-          })
-          .sort((a, b) => a.fullName.localeCompare(b.fullName) || a.employeeCode.localeCompare(b.employeeCode));
+        const directoryMap = new Map<
+          string,
+          { repCode: string; repLabel: string; storeKeys: Set<string>; storeLabels: Set<string> }
+        >();
+
+        (coversheetData?.stores || []).forEach((store) => {
+          const storeCode = normalizeText(store.storeCode);
+          const storeName = normalizeText(store.storeName);
+          const storeKey = [storeCode, storeName].filter(Boolean).join(" - ");
+          const storeLabel = storeKey || "Unknown Store";
+
+          (store.employees || []).forEach((employee) => {
+            const repLabel = normalizeText(employee.repLabel);
+            if (!repLabel) return;
+            const mapKey = repLabel.toLowerCase();
+            const repCode = extractRepCode(repLabel);
+            const existing = directoryMap.get(mapKey);
+            if (existing) {
+              if (!existing.repCode && repCode) existing.repCode = repCode;
+              if (storeKey) existing.storeKeys.add(storeKey);
+              existing.storeLabels.add(storeLabel);
+              return;
+            }
+
+            const storeKeys = new Set<string>();
+            if (storeKey) storeKeys.add(storeKey);
+            directoryMap.set(mapKey, {
+              repCode,
+              repLabel,
+              storeKeys,
+              storeLabels: new Set<string>([storeLabel]),
+            });
+          });
+        });
+
+        const directory = Array.from(directoryMap.values())
+          .map(
+            (entry) =>
+              ({
+                repCode: entry.repCode,
+                repLabel: entry.repLabel,
+                storeKeys: Array.from(entry.storeKeys),
+                storeLabels: Array.from(entry.storeLabels),
+              }) satisfies RepDirectoryEntry
+          )
+          .sort((a, b) => a.repLabel.localeCompare(b.repLabel) || a.repCode.localeCompare(b.repCode));
         setSignupRepDirectory(directory);
       } catch {
-        if (alive) setBanner({ type: "error", text: "Could not load store and rep directory data for signup." });
+        if (alive) setBanner({ type: "error", text: "Could not load store and coversheet rep data for signup." });
       }
     })();
 
@@ -292,7 +418,7 @@ export default function AuthApp() {
     const query = normalizeText(signupRepSearch).toLowerCase();
     if (!query) return signupRepDirectory.slice(0, 8);
     return signupRepDirectory
-      .filter((entry) => `${entry.employeeCode} ${entry.fullName} ${entry.storeLabel}`.toLowerCase().includes(query))
+      .filter((entry) => `${entry.repCode} ${entry.repLabel} ${entry.storeLabels.join(" ")}`.toLowerCase().includes(query))
       .slice(0, 8);
   }, [signupRepDirectory, signupRepSearch]);
 
@@ -355,14 +481,16 @@ export default function AuthApp() {
   const handleSignupSelectRep = (entry: RepDirectoryEntry) => {
     setSignupData((current) => ({
       ...current,
-      name: entry.firstName || current.name,
-      surname: entry.surname || current.surname,
-      coversheetCode: entry.employeeCode || current.coversheetCode,
+      coversheetCode: entry.repCode || current.coversheetCode,
     }));
-    if (entry.storeKey && !signupSelectedStores.includes(entry.storeKey)) {
-      setSignupSelectedStores((current) => [...current, entry.storeKey]);
-    }
-    setSignupRepSearch(entry.fullName);
+    setSignupSelectedStores((current) => {
+      const next = new Set(current);
+      entry.storeKeys.forEach((storeKey) => {
+        if (storeKey) next.add(storeKey);
+      });
+      return Array.from(next);
+    });
+    setSignupRepSearch(entry.repLabel);
   };
 
   if (isBooting) {
@@ -705,26 +833,33 @@ export default function AuthApp() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-300">Find Your Rep Profile (Database Search)</label>
+                    <label className="text-sm font-medium text-slate-300">Find Your Rep Code (Coversheet Rep List)</label>
                     <Input
                       value={signupRepSearch}
                       onChange={(e) => setSignupRepSearch(e.target.value)}
                       className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
-                      placeholder="Search by rep name, code, or store"
+                      placeholder="Search by rep value, code, or store"
                     />
                     <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
-                      {signupRepMatches.length === 0 ? (
+                      {signupRepDirectory.length === 0 ? (
+                        <div className="px-2 py-1 text-xs text-slate-400">No coversheet rep values found yet. Upload coversheet data in Admin first.</div>
+                      ) : signupRepMatches.length === 0 ? (
                         <div className="px-2 py-1 text-xs text-slate-400">No rep matches found.</div>
                       ) : (
                         signupRepMatches.map((entry) => (
                           <button
-                            key={`${entry.employeeCode}-${entry.storeKey}`}
+                            key={entry.repLabel}
                             type="button"
                             onClick={() => handleSignupSelectRep(entry)}
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-white/10"
                           >
-                            <div className="font-semibold text-cyan-200">{entry.employeeCode} - {entry.fullName}</div>
-                            <div className="text-slate-400">{entry.storeLabel}</div>
+                            <div className="font-semibold text-cyan-200">{entry.repLabel}</div>
+                            <div className="text-slate-400">
+                              {entry.storeLabels.length > 0
+                                ? entry.storeLabels.slice(0, 2).join(" • ")
+                                : "No store linked"}
+                              {entry.storeLabels.length > 2 ? ` • +${entry.storeLabels.length - 2} more` : ""}
+                            </div>
                           </button>
                         ))
                       )}
