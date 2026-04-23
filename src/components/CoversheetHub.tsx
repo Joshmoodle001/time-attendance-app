@@ -23,6 +23,13 @@ type CoversheetStoreGroup = {
   employees: CoversheetEmployee[];
 };
 
+type CoversheetStatusKeySet = {
+  status: string[];
+  terminated: string[];
+  maternity: string[];
+  hold: string[];
+};
+
 type CoversheetData = {
   fileName: string;
   uploadedAt: string;
@@ -106,13 +113,69 @@ function normalizeValue(value: unknown) {
   return String(value).trim();
 }
 
+function normalizeNumericString(value: string) {
+  const compact = value.replace(/[,\s]/g, "");
+  if (/^\d+(\.0+)?$/.test(compact)) return compact.replace(/\.0+$/g, "");
+  if (/^\d+(\.\d+)?e\+\d+$/i.test(compact)) {
+    const numeric = Number(compact);
+    if (Number.isFinite(numeric)) return Math.trunc(numeric).toString();
+  }
+  return value.trim();
+}
+
+function normalizePhoneValue(value: unknown) {
+  const text = normalizeValue(value);
+  if (!text) return "";
+  return normalizeNumericString(text).replace(/\s+/g, " ").trim();
+}
+
+function normalizeEmailValue(value: unknown) {
+  const text = normalizeValue(value).replace(/\s+/g, "");
+  if (!text) return "";
+  return text.replace(/[;,]+$/g, "").toLowerCase();
+}
+
 function parseTruthy(value: unknown) {
   const clean = normalizeValue(value).toLowerCase();
   return ["1", "y", "yes", "true", "active", "hold", "terminated", "maternity", "appointed"].includes(clean);
 }
 
+function isLikelyEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function phoneDigitCount(value: string) {
+  return value.replace(/\D/g, "").length;
+}
+
+function shouldReplacePhone(existingValue: string, nextValue: string) {
+  if (!nextValue) return false;
+  if (!existingValue) return true;
+  return phoneDigitCount(nextValue) > phoneDigitCount(existingValue);
+}
+
+function shouldReplaceEmail(existingValue: string, nextValue: string) {
+  if (!nextValue) return false;
+  if (!existingValue) return true;
+  return isLikelyEmail(nextValue) && !isLikelyEmail(existingValue);
+}
+
+function deriveKeySet(headers: string[]): CoversheetStatusKeySet & { phone: string[]; email: string[] } {
+  const extendKeys = (baseKeys: string[], matcher: (header: string) => boolean) =>
+    Array.from(new Set([...baseKeys, ...headers.filter((header) => matcher(header))]));
+
+  return {
+    phone: extendKeys(PHONE_KEYS, (header) => /(^|_)(phone|cell|mobile|contact|tel|whatsapp)(_|$)/.test(header)),
+    email: extendKeys(EMAIL_KEYS, (header) => /(email|mail)/.test(header)),
+    status: extendKeys(STATUS_KEYS, (header) => header === "rep" || /status/.test(header)),
+    terminated: extendKeys(TERMINATED_KEYS, (header) => /terminat/.test(header)),
+    maternity: extendKeys(MATERNITY_KEYS, (header) => /maternity/.test(header)),
+    hold: extendKeys(HOLD_KEYS, (header) => /hold/.test(header)),
+  };
+}
+
 function normalizePhoneForActions(value: string) {
-  const raw = normalizeValue(value).replace(/[^\d+]/g, "");
+  const raw = normalizePhoneValue(value).replace(/[^\d+]/g, "");
   if (!raw) return { tel: "", whatsapp: "" };
 
   if (raw.startsWith("+")) {
@@ -187,17 +250,17 @@ function getEntry(entries: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
-function collectStatuses(entries: Record<string, unknown>): CoversheetStatus[] {
+function collectStatuses(entries: Record<string, unknown>, keySet: CoversheetStatusKeySet): CoversheetStatus[] {
   const statuses: CoversheetStatus[] = [];
 
-  const statusText = STATUS_KEYS.map((key) => normalizeValue(entries[key])).join(" ").toLowerCase();
-  if (statusText.includes("terminated")) statuses.push("terminated");
-  if (statusText.includes("maternity")) statuses.push("maternity");
-  if (statusText.includes("hold")) statuses.push("hold");
+  const statusText = keySet.status.map((key) => normalizeValue(entries[key])).join(" ").toLowerCase();
+  if (/terminat/.test(statusText)) statuses.push("terminated");
+  if (/maternity|mat(?:ernity)?(?:_|\s|-)?leave/.test(statusText)) statuses.push("maternity");
+  if (/hold/.test(statusText)) statuses.push("hold");
 
-  if (TERMINATED_KEYS.some((key) => parseTruthy(entries[key]))) statuses.push("terminated");
-  if (MATERNITY_KEYS.some((key) => parseTruthy(entries[key]))) statuses.push("maternity");
-  if (HOLD_KEYS.some((key) => parseTruthy(entries[key]))) statuses.push("hold");
+  if (keySet.terminated.some((key) => parseTruthy(entries[key]))) statuses.push("terminated");
+  if (keySet.maternity.some((key) => parseTruthy(entries[key]))) statuses.push("maternity");
+  if (keySet.hold.some((key) => parseTruthy(entries[key]))) statuses.push("hold");
 
   return Array.from(new Set(statuses));
 }
@@ -342,6 +405,7 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
     const key = normalizeKey(normalizeValue(cell));
     return key || `column_${index + 1}`;
   });
+  const keySet = deriveKeySet(headers);
 
   const storeMap = new Map<string, CoversheetStoreGroup>();
 
@@ -380,17 +444,17 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
       });
     }
 
-    const statuses = collectStatuses(entries);
-    const phone = getEntry(entries, PHONE_KEYS);
-    const email = getEntry(entries, EMAIL_KEYS);
+    const statuses = collectStatuses(entries, keySet);
+    const phone = normalizePhoneValue(getEntry(entries, keySet.phone));
+    const email = normalizeEmailValue(getEntry(entries, keySet.email));
     const employeeId = `${storeId}__${(employeeCode || employeeName).toLowerCase()}`;
     const group = storeMap.get(storeId)!;
     const existingEmployee = group.employees.find((employee) => employee.id === employeeId);
 
     if (existingEmployee) {
       existingEmployee.statuses = Array.from(new Set([...existingEmployee.statuses, ...statuses]));
-      if (!existingEmployee.phone && phone) existingEmployee.phone = phone;
-      if (!existingEmployee.email && email) existingEmployee.email = email;
+      if (shouldReplacePhone(existingEmployee.phone, phone)) existingEmployee.phone = phone;
+      if (shouldReplaceEmail(existingEmployee.email, email)) existingEmployee.email = email;
       continue;
     }
 
@@ -398,8 +462,8 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
       id: employeeId,
       employeeCode: employeeCode.trim(),
       employeeName: employeeName.trim() || employeeCode.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
+      phone,
+      email,
       statuses,
     });
   }
@@ -488,12 +552,14 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
         stores,
       };
       const employeeTotal = stores.reduce((sum, store) => sum + store.employees.length, 0);
+      const phoneTotal = stores.reduce((sum, store) => sum + store.employees.filter((employee) => Boolean(employee.phone)).length, 0);
+      const emailTotal = stores.reduce((sum, store) => sum + store.employees.filter((employee) => Boolean(employee.email)).length, 0);
       await saveStoredCoversheetData(nextData);
       setData(nextData);
       setExpandedStoreIds(new Set());
       setSelectedStoreId(null);
       setStoreSearch("");
-      setMessage(`Imported ${employeeTotal} employee row(s) across ${stores.length} store(s).`);
+      setMessage(`Imported ${employeeTotal} employee row(s) across ${stores.length} store(s), ${phoneTotal} phone(s), and ${emailTotal} email(s).`);
     } catch (error) {
       setMessage(`Upload failed: ${error instanceof Error ? error.message : "Unknown workbook parse error."}`);
     } finally {
@@ -716,35 +782,41 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
 
               {expanded && (
                 <div className="space-y-2 border-t border-slate-700/60 px-4 py-3">
-                  {store.employees.map((employee) => (
-                    <div key={employee.id} className="rounded-lg border border-slate-700/70 bg-slate-950/40 px-3 py-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <UserRound className="h-3.5 w-3.5 text-slate-400" />
-                        <span className="font-medium text-slate-100">
-                          {employee.employeeCode ? `${employee.employeeCode} - ` : ""}
-                          {employee.employeeName}
-                        </span>
-                        {employee.statuses.map((status) => (
-                          <Badge key={`${employee.id}_${status}`} className={statusBadgeClass(status)}>
-                            {status}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="mt-1 space-y-1 text-xs text-slate-400">
-                        <div className="flex items-center gap-1.5">
-                          <Phone className="h-3.5 w-3.5" />
-                          <span>{employee.phone || "-"}</span>
-                          {employee.phone ? (
-                            <>
+                  {store.employees.map((employee) => {
+                    const phoneActions = normalizePhoneForActions(employee.phone);
+                    const normalizedEmail = normalizeEmailValue(employee.email);
+                    const emailAction = isLikelyEmail(normalizedEmail) ? normalizedEmail : "";
+
+                    return (
+                      <div key={employee.id} className="rounded-lg border border-slate-700/70 bg-slate-950/40 px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <UserRound className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="font-medium text-slate-100">
+                            {employee.employeeCode ? `${employee.employeeCode} - ` : ""}
+                            {employee.employeeName}
+                          </span>
+                          {employee.statuses.map((status) => (
+                            <Badge key={`${employee.id}_${status}`} className={statusBadgeClass(status)}>
+                              {status}
+                            </Badge>
+                          ))}
+                        </div>
+                        <div className="mt-1 space-y-1 text-xs text-slate-400">
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5" />
+                            <span>{employee.phone || "-"}</span>
+                            {phoneActions.tel ? (
                               <a
-                                href={`tel:${normalizePhoneForActions(employee.phone).tel}`}
+                                href={`tel:${phoneActions.tel}`}
                                 className="ml-2 inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/25"
                               >
                                 <PhoneCall className="h-3 w-3" />
                                 Call
                               </a>
+                            ) : null}
+                            {phoneActions.whatsapp ? (
                               <a
-                                href={`https://wa.me/${normalizePhoneForActions(employee.phone).whatsapp}`}
+                                href={`https://wa.me/${phoneActions.whatsapp}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2 py-0.5 text-[11px] font-medium text-green-300 hover:bg-green-500/25"
@@ -752,25 +824,25 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
                                 <MessageCircle className="h-3 w-3" />
                                 WhatsApp
                               </a>
-                            </>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Mail className="h-3.5 w-3.5" />
-                          <span>{employee.email || "-"}</span>
-                          {employee.email ? (
-                            <a
-                              href={`mailto:${employee.email}`}
-                              className="ml-2 inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/25"
-                            >
-                              <Send className="h-3 w-3" />
-                              Email
-                            </a>
-                          ) : null}
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Mail className="h-3.5 w-3.5" />
+                            <span>{normalizedEmail || "-"}</span>
+                            {emailAction ? (
+                              <a
+                                href={`mailto:${emailAction}`}
+                                className="ml-2 inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/25"
+                              >
+                                <Send className="h-3 w-3" />
+                                Email
+                              </a>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
