@@ -51,7 +51,6 @@ import {
   Play,
   FileSpreadsheet,
   Search,
-  Filter,
   X,
   User,
   Pencil,
@@ -154,16 +153,6 @@ const QUICK_RANGE_OPTIONS = [
   { label: "14 Day", days: 14 },
   { label: "31 Day", days: 31 },
 ] as const;
-
-const OVERVIEW_SCOPE_OPTIONS = [
-  { value: "all", label: "All Stores" },
-  { value: "checkers_local", label: "All Checkers (Local)" },
-  { value: "shoprite_local", label: "All Shoprite (Local)" },
-  { value: "checkers_country", label: "All Checkers Country" },
-] as const;
-
-type OverviewScopeFilter = (typeof OVERVIEW_SCOPE_OPTIONS)[number]["value"];
-const COUNTRY_REGION_CODES = new Set(["lim", "lv", "nw", "fnw", "hv"]);
 
 const LAST_ATTENDANCE_DATE_STORAGE_KEY = "last-attendance-date-v1";
 const DEVICE_RECORDS_STORAGE_KEY = "device-records-v1";
@@ -1088,56 +1077,6 @@ function normalizeOverviewCompare(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
-function normalizeRegionCodeTokens(...values: unknown[]) {
-  const tokens = new Set<string>();
-  values.forEach((value) => {
-    const normalized = normalizeOverviewCompare(value);
-    if (!normalized) return;
-    normalized.split(/[^a-z0-9]+/).filter(Boolean).forEach((token) => tokens.add(token));
-    tokens.add(normalized.replace(/[^a-z0-9]+/g, ""));
-  });
-  return tokens;
-}
-
-function isCountryRegion(region: unknown, regionCode?: unknown) {
-  const tokens = normalizeRegionCodeTokens(regionCode, region);
-  if (!tokens.size) return false;
-  if (Array.from(tokens).some((token) => COUNTRY_REGION_CODES.has(token))) return true;
-
-  // Cover full-name or prefixed values without requiring exact code.
-  return (
-    tokens.has("limpopo") ||
-    Array.from(tokens).some((token) => token.startsWith("lim"))
-  );
-}
-
-function getStoreBrand(store: unknown) {
-  const normalized = normalizeOverviewCompare(store);
-  if (!normalized) return "other" as const;
-  if (normalized.includes("checkers") || normalized.startsWith("cc ") || normalized.startsWith("cc-")) {
-    return "checkers" as const;
-  }
-  if (normalized.includes("shoprite") || normalized.startsWith("sh ") || normalized.startsWith("sh-")) {
-    return "shoprite" as const;
-  }
-  return "other" as const;
-}
-
-function matchesOverviewScopeFilter(
-  scope: OverviewScopeFilter,
-  item: { store: unknown; region?: unknown; regionCode?: unknown }
-) {
-  if (scope === "all") return true;
-
-  const brand = getStoreBrand(item.store);
-  const isCountry = isCountryRegion(item.region, item.regionCode);
-
-  if (scope === "checkers_country") return brand === "checkers" && isCountry;
-  if (scope === "checkers_local") return brand === "checkers" && !isCountry;
-  if (scope === "shoprite_local") return brand === "shoprite" && !isCountry;
-  return true;
-}
-
 function isOverviewEmployeeReportable(employee: Employee | undefined | null) {
   if (!employee) return false;
   if (employee.active === false) return false;
@@ -1253,10 +1192,10 @@ function buildOverviewAttendanceRecordsFromSources({
 
   const allCodes = new Set<string>([
     ...activeEmployeeCodes,
-    ...existingRecords.map((record) => normalizeEmployeeCode(record.employeeCode)).filter((code) => activeEmployeeCodes.has(code)),
-    ...Array.from(clockingsByEmployee.keys()).filter((code) => activeEmployeeCodes.has(code)),
-    ...Array.from(rosterLookup.keys()).filter((code) => activeEmployeeCodes.has(code)),
-    ...Array.from(leaveCodes).filter((code) => activeEmployeeCodes.has(code)),
+    ...existingRecords.map((record) => normalizeEmployeeCode(record.employeeCode)).filter(Boolean),
+    ...Array.from(clockingsByEmployee.keys()).filter(Boolean),
+    ...Array.from(rosterLookup.keys()).filter(Boolean),
+    ...Array.from(leaveCodes).filter(Boolean),
   ]);
 
   const synthesized: AttendanceRecord[] = [];
@@ -1404,10 +1343,10 @@ function buildOverviewTrendSeriesFromSources({
 
     const allCodes = new Set<string>([
       ...activeEmployeeCodes,
-      ...dayRecords.map((record) => normalizeEmployeeCode(record.employeeCode)).filter((code) => activeEmployeeCodes.has(code)),
-      ...Array.from(clockingsByEmployee.keys()).filter((code) => activeEmployeeCodes.has(code)),
-      ...Array.from(rosterLookup.keys()).filter((code) => activeEmployeeCodes.has(code)),
-      ...Array.from(dayLeaveCodes).filter((code) => activeEmployeeCodes.has(code)),
+      ...dayRecords.map((record) => normalizeEmployeeCode(record.employeeCode)).filter(Boolean),
+      ...Array.from(clockingsByEmployee.keys()).filter(Boolean),
+      ...Array.from(rosterLookup.keys()).filter(Boolean),
+      ...Array.from(dayLeaveCodes).filter(Boolean),
     ]);
 
       let atWork = 0, awol = 0, scheduled = 0, leave = 0, dayOff = 0, other = 0;
@@ -1624,7 +1563,6 @@ export default function App() {
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"pie" | "table">("pie");
   const [selectedOverviewDate, setSelectedOverviewDate] = useState<string>(formatDateValue(new Date()));
-  const [selectedOverviewScope, setSelectedOverviewScope] = useState<OverviewScopeFilter>("all");
   const [selectedOverviewStoreKey, setSelectedOverviewStoreKey] = useState<string>("all");
   const [overviewStoreSearch, setOverviewStoreSearch] = useState("");
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
@@ -3272,8 +3210,6 @@ export default function App() {
 
     overviewEmployeeProfiles.forEach((employee) => {
       if (!isOverviewEmployeeReportable(employee)) return;
-      if (!matchesOverviewScopeFilter(selectedOverviewScope, { store: employee.store, region: employee.region })) return;
-
       const store = String(employee.store || "").trim();
       const storeCode = String(employee.store_code || "").trim();
       if (!store && !storeCode) return;
@@ -3324,7 +3260,7 @@ export default function App() {
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => b.employeeCount - a.employeeCount || a.label.localeCompare(b.label));
-  }, [overviewAttendanceRecords, overviewEmployeeProfiles, selectedOverviewScope]);
+  }, [overviewAttendanceRecords, overviewEmployeeProfiles]);
 
   const selectedOverviewStoreOption = useMemo(
     () => overviewStoreOptions.find((option) => option.key === selectedOverviewStoreKey) || null,
@@ -3360,37 +3296,18 @@ export default function App() {
   };
 
   const filteredOverviewAttendanceRecords = useMemo(() => {
-    const scopedRecords =
-      selectedOverviewScope === "all"
-        ? overviewAttendanceRecords
-        : overviewAttendanceRecords.filter((record) =>
-            matchesOverviewScopeFilter(selectedOverviewScope, {
-              store: record.store,
-              region: record.region,
-              regionCode: record.regionCode,
-            })
-          );
-    if (selectedOverviewStoreKey === "all") return scopedRecords;
-    return scopedRecords.filter((record) =>
+    if (selectedOverviewStoreKey === "all") return overviewAttendanceRecords;
+    return overviewAttendanceRecords.filter((record) =>
       selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode))
     );
-  }, [overviewAttendanceRecords, selectedOverviewScope, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [overviewAttendanceRecords, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
 
   const filteredOverviewEmployeeProfiles = useMemo(() => {
-    const scopedProfiles =
-      selectedOverviewScope === "all"
-        ? overviewEmployeeProfiles
-        : overviewEmployeeProfiles.filter((employee) =>
-            matchesOverviewScopeFilter(selectedOverviewScope, {
-              store: employee.store,
-              region: employee.region,
-            })
-          );
-    if (selectedOverviewStoreKey === "all") return scopedProfiles;
-    return scopedProfiles.filter((employee) =>
+    if (selectedOverviewStoreKey === "all") return overviewEmployeeProfiles;
+    return overviewEmployeeProfiles.filter((employee) =>
       selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(employee.employee_code))
     );
-  }, [overviewEmployeeProfiles, selectedOverviewScope, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [overviewEmployeeProfiles, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
 
   useEffect(() => {
     if (
@@ -3686,45 +3603,24 @@ export default function App() {
 
   const attendanceTrendSeries = useMemo(() => {
     const cache = overviewDataCacheRef.current;
-    if (!cache) return selectedOverviewScope === "all" && selectedOverviewStoreKey === "all" ? overviewTrendSeries : [];
+    if (!cache) return selectedOverviewStoreKey === "all" ? overviewTrendSeries : [];
+    if (selectedOverviewStoreKey === "all") return overviewTrendSeries;
+    if (selectedOverviewStoreEmployeeCodes.size === 0) return [];
 
-    if (selectedOverviewScope === "all" && selectedOverviewStoreKey === "all") {
-      return overviewTrendSeries;
-    }
-
-    const scopedEmployees = cache.employees.filter((employee) =>
-      matchesOverviewScopeFilter(selectedOverviewScope, {
-        store: employee.store,
-        region: employee.region,
-      })
-    );
-    const scopedEmployeeCodes = new Set(
-      scopedEmployees.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
-    );
-
-    const targetEmployeeCodes =
-      selectedOverviewStoreKey === "all"
-        ? scopedEmployeeCodes
-        : new Set(
-            Array.from(selectedOverviewStoreEmployeeCodes).filter((employeeCode) => scopedEmployeeCodes.has(employeeCode))
-          );
-
-    if (targetEmployeeCodes.size === 0) return [];
-
-    const selectedEmployees = scopedEmployees.filter((employee) =>
-      targetEmployeeCodes.has(normalizeEmployeeCode(employee.employee_code))
+    const selectedEmployees = cache.employees.filter((employee) =>
+      selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(employee.employee_code))
     );
 
     const filteredRangeAttendance = cache.rangeAttendance
       .map(mapDatabaseAttendanceRecord)
-      .filter((record) => targetEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode)));
+      .filter((record) => selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode)));
 
     const filteredRangeClockEvents = cache.rangeClockEvents.filter((event) =>
-      targetEmployeeCodes.has(normalizeEmployeeCode(event.employee_code))
+      selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(event.employee_code))
     );
 
     const filteredLeaveApplications = cache.leaveApplicationsForRange.filter((application) =>
-      targetEmployeeCodes.has(normalizeEmployeeCode(application.matched_employee_code))
+      selectedOverviewStoreEmployeeCodes.has(normalizeEmployeeCode(application.matched_employee_code))
     );
 
     return buildOverviewTrendSeriesFromSources({
@@ -3737,7 +3633,7 @@ export default function App() {
       clockEvents: filteredRangeClockEvents,
       leaveApplications: filteredLeaveApplications,
     });
-  }, [overviewTrendSeries, overviewStartDate, overviewEndDate, selectedOverviewScope, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
+  }, [overviewTrendSeries, overviewStartDate, overviewEndDate, selectedOverviewStoreEmployeeCodes, selectedOverviewStoreKey]);
   
   const companyOverviewData = useMemo(
     () => buildCompanyOverviewDataFromRecords(filteredOverviewAttendanceRecords),
@@ -4247,30 +4143,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Scope Filter */}
-              <div className="flex w-full items-center gap-2 sm:w-auto">
-                <Filter className="w-4 h-4 text-slate-400" />
-                <select
-                  value={selectedOverviewScope}
-                  onChange={(e) => {
-                    const nextScope = e.target.value as OverviewScopeFilter;
-                    setSelectedOverviewScope(nextScope);
-                    setSelectedOverviewStoreKey("all");
-                    setOverviewStoreSearch("");
-                    setSelectedSlice(null);
-                    setExpandedStores(new Set());
-                    setExpandedRegions(new Set());
-                  }}
-                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white cursor-pointer sm:w-auto"
-                >
-                  {OVERVIEW_SCOPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               {/* Date Selector */}
               <div className="flex w-full items-center gap-2 sm:w-auto">
                 <Calendar className="w-4 h-4 text-slate-400" />
@@ -4321,11 +4193,6 @@ export default function App() {
           {selectedOverviewStoreOption ? (
             <Badge className="border-cyan-500/30 bg-cyan-500/15 text-cyan-200">
               Store filter: {selectedOverviewStoreOption.label}
-            </Badge>
-          ) : null}
-          {selectedOverviewScope !== "all" ? (
-            <Badge className="border-emerald-500/30 bg-emerald-500/15 text-emerald-200">
-              Scope: {OVERVIEW_SCOPE_OPTIONS.find((option) => option.value === selectedOverviewScope)?.label || "Custom"}
             </Badge>
           ) : null}
           {overviewLastUpdatedAt ? (
