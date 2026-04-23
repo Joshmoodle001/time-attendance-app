@@ -1899,9 +1899,14 @@ export default function App() {
         ]);
       console.log(`[OVERVIEW] Step 1 - ALL parallel queries: ${(performance.now() - t1).toFixed(0)}ms (emp=${employeeProfiles.length}, shifts=${shiftRosters.length}, dayAtt=${dayAttendance.length}, rangeAtt=${rangeAttendance.length}, dayClock=${dayClockEvents.length}, rangeClock=${rangeClockEvents.length})`);
 
-      const filteredEmployeeProfiles = deviceRecords.length > 0
-        ? employeeProfiles.filter((emp) => hasPhysicalDeviceForStore(emp.store_code, emp.store))
+      const roleStoreMatcher = buildStoreAssignmentMatcher(profileAssignedStoreKeys);
+      const roleScopedEmployeeProfiles = isFieldRole
+        ? employeeProfiles.filter((employee) => roleStoreMatcher(employee.store_code, employee.store))
         : employeeProfiles;
+
+      const scopedEmployeeProfiles = deviceRecords.length > 0
+        ? roleScopedEmployeeProfiles.filter((employee) => hasPhysicalDeviceForStore(employee.store_code, employee.store))
+        : roleScopedEmployeeProfiles;
 
       const filteredRangeAttendance = deviceRecords.length > 0
         ? rangeAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
@@ -1911,10 +1916,6 @@ export default function App() {
         ? dayAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
         : dayAttendance;
 
-      const roleStoreMatcher = buildStoreAssignmentMatcher(profileAssignedStoreKeys);
-      const scopedEmployeeProfiles = isFieldRole
-        ? filteredEmployeeProfiles.filter((employee) => roleStoreMatcher(employee.store_code, employee.store))
-        : filteredEmployeeProfiles;
       const scopedRangeAttendance = isFieldRole
         ? filteredRangeAttendance.filter((record) => roleStoreMatcher(record.store_code, record.store))
         : filteredRangeAttendance;
@@ -2027,10 +2028,10 @@ export default function App() {
       setOverviewTrendSeries(derivedTrendSeries);
       setOverviewEmployeeProfiles(scopedEmployeeProfiles);
       setOverviewModuleSnapshot({
-        employeeProfiles: scopedEmployeeProfiles.length,
-        activeEmployees: scopedEmployeeProfiles.filter((employee) => employee.status === "active").length,
-        inactiveEmployees: scopedEmployeeProfiles.filter((employee) => employee.status === "inactive").length,
-        terminatedEmployees: scopedEmployeeProfiles.filter((employee) => employee.status === "terminated").length,
+        employeeProfiles: roleScopedEmployeeProfiles.length,
+        activeEmployees: roleScopedEmployeeProfiles.filter((employee) => employee.status === "active").length,
+        inactiveEmployees: roleScopedEmployeeProfiles.filter((employee) => employee.status === "inactive").length,
+        terminatedEmployees: roleScopedEmployeeProfiles.filter((employee) => employee.status === "terminated").length,
         shiftRosters: shiftRosters.length,
         shiftRows: shiftRosters.reduce((sum, roster) => sum + roster.rows.length, 0),
         enabledShiftSyncs: shiftSyncSettings.sections.filter((section) => section.url).length,
