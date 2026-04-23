@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,10 @@ type CoversheetHubProps = {
 };
 
 const COVERSHEET_STORAGE_KEY = "coversheet-data-v1";
+const COVERSHEET_DB_NAME = "time-attendance-coversheet-db";
+const COVERSHEET_DB_VERSION = 1;
+const COVERSHEET_DB_STORE = "coversheet_data";
+const COVERSHEET_DB_RECORD_ID = "latest";
 
 const STORE_CODE_KEYS = [
   "store_code",
@@ -165,22 +169,118 @@ function collectStatuses(entries: Record<string, unknown>): CoversheetStatus[] {
   return Array.from(new Set(statuses));
 }
 
-function loadStoredCoversheetData(): CoversheetData | null {
+type CoversheetIndexedRecord = {
+  id: string;
+  payload: CoversheetData;
+};
+
+function isValidCoversheetData(value: unknown): value is CoversheetData {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as CoversheetData;
+  return Boolean(entry.fileName) && Boolean(entry.uploadedAt) && Array.isArray(entry.stores);
+}
+
+function openCoversheetIndexedDb(): Promise<IDBDatabase | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const request = window.indexedDB.open(COVERSHEET_DB_NAME, COVERSHEET_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(COVERSHEET_DB_STORE)) {
+        database.createObjectStore(COVERSHEET_DB_STORE, { keyPath: "id" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+  });
+}
+
+async function readIndexedDbCoversheetData(): Promise<CoversheetData | null> {
+  const database = await openCoversheetIndexedDb();
+  if (!database) return null;
+
+  return new Promise((resolve) => {
+    const transaction = database.transaction(COVERSHEET_DB_STORE, "readonly");
+    const store = transaction.objectStore(COVERSHEET_DB_STORE);
+    const request = store.get(COVERSHEET_DB_RECORD_ID);
+
+    request.onsuccess = () => {
+      const record = request.result as CoversheetIndexedRecord | undefined;
+      if (record && isValidCoversheetData(record.payload)) {
+        resolve(record.payload);
+      } else {
+        resolve(null);
+      }
+    };
+    request.onerror = () => resolve(null);
+  });
+}
+
+async function writeIndexedDbCoversheetData(data: CoversheetData): Promise<boolean> {
+  const database = await openCoversheetIndexedDb();
+  if (!database) return false;
+
+  return new Promise<boolean>((resolve) => {
+    const transaction = database.transaction(COVERSHEET_DB_STORE, "readwrite");
+    const store = transaction.objectStore(COVERSHEET_DB_STORE);
+    store.put({
+      id: COVERSHEET_DB_RECORD_ID,
+      payload: data,
+    } satisfies CoversheetIndexedRecord);
+
+    transaction.oncomplete = () => resolve(true);
+    transaction.onerror = () => resolve(false);
+  });
+}
+
+function readLocalStorageCoversheetData(): CoversheetData | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(COVERSHEET_STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CoversheetData;
-    if (!parsed || !Array.isArray(parsed.stores)) return null;
-    return parsed;
+    const parsed = JSON.parse(raw) as unknown;
+    return isValidCoversheetData(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
-function saveStoredCoversheetData(data: CoversheetData) {
+async function loadStoredCoversheetData(): Promise<CoversheetData | null> {
+  const indexedData = await readIndexedDbCoversheetData();
+  if (indexedData) return indexedData;
+
+  const legacyData = readLocalStorageCoversheetData();
+  if (!legacyData) return null;
+
+  await writeIndexedDbCoversheetData(legacyData);
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(COVERSHEET_STORAGE_KEY);
+  }
+  return legacyData;
+}
+
+async function saveStoredCoversheetData(data: CoversheetData) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(COVERSHEET_STORAGE_KEY, JSON.stringify(data));
+
+  const indexedSaved = await writeIndexedDbCoversheetData(data);
+  if (indexedSaved) {
+    window.localStorage.removeItem(COVERSHEET_STORAGE_KEY);
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(COVERSHEET_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")) {
+      throw new Error("Coversheet upload is too large for browser storage. Clear site data or reduce workbook size.");
+    }
+    throw error;
+  }
 }
 
 function statusBadgeClass(status: CoversheetStatus) {
@@ -284,11 +384,30 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
 }
 
 export default function CoversheetHub({ mode }: CoversheetHubProps) {
-  const [data, setData] = useState<CoversheetData | null>(() => loadStoredCoversheetData());
+  const [data, setData] = useState<CoversheetData | null>(null);
+  const [isHydrating, setIsHydrating] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState("");
-  const [expandedStoreIds, setExpandedStoreIds] = useState<Set<string>>(() => new Set((data?.stores || []).slice(0, 2).map((store) => store.id)));
+  const [expandedStoreIds, setExpandedStoreIds] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const stored = await loadStoredCoversheetData();
+        if (!mounted) return;
+        setData(stored);
+        setExpandedStoreIds(new Set((stored?.stores || []).slice(0, 2).map((store) => store.id)));
+      } finally {
+        if (mounted) setIsHydrating(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const totals = useMemo(() => {
     const stores = data?.stores || [];
@@ -333,7 +452,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
         stores,
       };
       const employeeTotal = stores.reduce((sum, store) => sum + store.employees.length, 0);
-      saveStoredCoversheetData(nextData);
+      await saveStoredCoversheetData(nextData);
       setData(nextData);
       setExpandedStoreIds(new Set(stores.slice(0, 2).map((store) => store.id)));
       setMessage(`Imported ${employeeTotal} employee row(s) across ${stores.length} store(s).`);
@@ -405,9 +524,20 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
             )}
 
             {message && <div className="text-sm text-cyan-300">{message}</div>}
+            {isHydrating && <div className="text-xs text-slate-400">Loading saved coversheet data...</div>}
           </CardContent>
         </Card>
       </div>
+    );
+  }
+
+  if (isHydrating) {
+    return (
+      <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
+        <CardContent className="py-10 text-center text-slate-400">
+          Loading coversheet data...
+        </CardContent>
+      </Card>
     );
   }
 
