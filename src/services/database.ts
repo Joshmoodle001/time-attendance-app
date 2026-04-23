@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 
 export interface AttendanceRecord {
   id: string
@@ -503,7 +503,23 @@ export interface EmployeeInput {
   status?: 'active' | 'inactive' | 'terminated'
 }
 
+export interface EmployeeStatusHistoryEntry {
+  id: string
+  employee_code: string
+  before_status: 'active' | 'inactive' | 'terminated' | ''
+  after_status: 'active' | 'inactive' | 'terminated'
+  before_active: boolean | null
+  after_active: boolean | null
+  effective_from: string
+  changed_at: string
+  termination_date?: string | null
+  termination_reason?: string
+  store?: string
+  store_code?: string
+}
+
 const EMPLOYEE_STORAGE_KEY = 'employee-profiles-cache-v1'
+const EMPLOYEE_STATUS_HISTORY_STORAGE_KEY = 'employee-status-history-cache-v1'
 const EMPLOYEE_INDEXED_DB_NAME = 'time-attendance-employee-db'
 const EMPLOYEE_INDEXED_DB_VERSION = 1
 const EMPLOYEE_INDEXED_DB_STORE = 'employees'
@@ -696,6 +712,41 @@ function saveLocalEmployees(employees: Employee[]) {
   } catch (error) {
     console.error('Save local employees error:', error)
   }
+}
+
+function loadLocalEmployeeStatusHistory(): EmployeeStatusHistoryEntry[] {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(EMPLOYEE_STATUS_HISTORY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as EmployeeStatusHistoryEntry[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch (error) {
+    console.error('Load employee status history error:', error)
+    return []
+  }
+}
+
+function saveLocalEmployeeStatusHistory(entries: EmployeeStatusHistoryEntry[]) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(EMPLOYEE_STATUS_HISTORY_STORAGE_KEY, JSON.stringify(entries))
+  } catch (error) {
+    console.error('Save employee status history error:', error)
+  }
+}
+
+function mergeEmployeeStatusHistoryCollections(...collections: EmployeeStatusHistoryEntry[][]) {
+  const map = new Map<string, EmployeeStatusHistoryEntry>()
+
+  collections.flat().forEach((entry) => {
+    if (!entry?.id) return
+    map.set(entry.id, entry)
+  })
+
+  return Array.from(map.values()).sort((a, b) => b.changed_at.localeCompare(a.changed_at))
 }
 
 function clearLocalEmployees() {
@@ -912,6 +963,84 @@ function normalizeEmployeeUpdatePayload(updates: Partial<EmployeeInput>) {
   return next
 }
 
+function buildEmployeeStatusHistoryEntry(
+  previous: Employee | undefined,
+  next: Employee | ({ employee_code: string; [key: string]: unknown }),
+  changedAt: string
+): EmployeeStatusHistoryEntry | null {
+  const normalizedCode = normalizeEmployeeCode(next.employee_code)
+  if (!normalizedCode) return null
+
+  const nextStatus = normalizeEmployeeStatus('status' in next ? (next.status as string | null | undefined) : undefined)
+  const nextActive =
+    'active' in next
+      ? (typeof next.active === 'boolean' || next.active === null ? next.active : null)
+      : nextStatus === 'active'
+  const beforeStatus = previous ? normalizeEmployeeStatus(previous.status) : ''
+  const beforeActive = previous?.active ?? null
+  const terminationDate =
+    'termination_date' in next && next.termination_date !== undefined
+      ? toSupabaseDate(next.termination_date)
+      : previous?.termination_date || null
+  const terminationReason =
+    'termination_reason' in next && next.termination_reason !== undefined
+      ? String(next.termination_reason || '')
+      : previous?.termination_reason || ''
+  const effectiveFrom = terminationDate || changedAt.slice(0, 10)
+
+  if (previous && beforeStatus === nextStatus && beforeActive === nextActive && terminationDate === (previous.termination_date || null)) {
+    return null
+  }
+
+  return {
+    id: `${normalizedCode}__${changedAt}__${Math.random().toString(36).slice(2, 8)}`,
+    employee_code: normalizedCode,
+    before_status: beforeStatus,
+    after_status: nextStatus,
+    before_active: beforeActive,
+    after_active: nextActive,
+    effective_from: effectiveFrom,
+    changed_at: changedAt,
+    termination_date: terminationDate,
+    termination_reason: terminationReason,
+    store: 'store' in next ? String(next.store || previous?.store || '') : previous?.store || '',
+    store_code: 'store_code' in next ? String(next.store_code || previous?.store_code || '') : previous?.store_code || '',
+  }
+}
+
+async function persistEmployeeStatusHistory(entries: EmployeeStatusHistoryEntry[]) {
+  if (entries.length === 0) return
+
+  saveLocalEmployeeStatusHistory(mergeEmployeeStatusHistoryCollections(loadLocalEmployeeStatusHistory(), entries))
+
+  if (!isSupabaseConfigured) return
+
+  try {
+    const { error } = await supabase.from('employee_status_history').insert(
+      entries.map((entry) => ({
+        id: entry.id,
+        employee_code: entry.employee_code,
+        before_status: entry.before_status || null,
+        after_status: entry.after_status,
+        before_active: entry.before_active,
+        after_active: entry.after_active,
+        effective_from: entry.effective_from,
+        changed_at: entry.changed_at,
+        termination_date: entry.termination_date || null,
+        termination_reason: entry.termination_reason || '',
+        store: entry.store || '',
+        store_code: entry.store_code || '',
+      }))
+    )
+
+    if (error) {
+      console.warn('Persist employee status history warning:', getEmployeeStorageErrorMessage(error))
+    }
+  } catch (error) {
+    console.warn('Persist employee status history warning:', getEmployeeStorageErrorMessage(error))
+  }
+}
+
 export const EMPLOYEE_SETUP_SQL = `
 CREATE TABLE IF NOT EXISTS employees (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -985,15 +1114,38 @@ CREATE INDEX IF NOT EXISTS idx_employees_id_number ON employees(id_number);
 CREATE INDEX IF NOT EXISTS idx_employees_status ON employees(status);
 CREATE INDEX IF NOT EXISTS idx_employees_store ON employees(store);
 
+CREATE TABLE IF NOT EXISTS employee_status_history (
+  id TEXT PRIMARY KEY,
+  employee_code TEXT NOT NULL,
+  before_status TEXT,
+  after_status TEXT NOT NULL CHECK (after_status IN ('active', 'inactive', 'terminated')),
+  before_active BOOLEAN,
+  after_active BOOLEAN,
+  effective_from DATE NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  termination_date DATE,
+  termination_reason TEXT DEFAULT '',
+  store TEXT DEFAULT '',
+  store_code TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_status_history_employee_code ON employee_status_history(employee_code);
+CREATE INDEX IF NOT EXISTS idx_employee_status_history_effective_from ON employee_status_history(effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_employee_status_history_changed_at ON employee_status_history(changed_at DESC);
+
 DROP POLICY IF EXISTS "Allow public read employees" ON employees;
 DROP POLICY IF EXISTS "Allow public insert employees" ON employees;
 DROP POLICY IF EXISTS "Allow public update employees" ON employees;
 DROP POLICY IF EXISTS "Allow public delete employees" ON employees;
+DROP POLICY IF EXISTS "Allow public read employee status history" ON employee_status_history;
+DROP POLICY IF EXISTS "Allow public insert employee status history" ON employee_status_history;
 
 CREATE POLICY "Allow public read employees" ON employees FOR SELECT USING (true);
 CREATE POLICY "Allow public insert employees" ON employees FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update employees" ON employees FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete employees" ON employees FOR DELETE USING (true);
+CREATE POLICY "Allow public read employee status history" ON employee_status_history FOR SELECT USING (true);
+CREATE POLICY "Allow public insert employee status history" ON employee_status_history FOR INSERT WITH CHECK (true);
 `
 
 export async function initializeEmployeeDatabase(): Promise<boolean> {
@@ -1006,6 +1158,44 @@ export async function initializeEmployeeDatabase(): Promise<boolean> {
   } catch (err) {
     console.warn('Employee database initialization warning:', getEmployeeStorageErrorMessage(err))
     return false
+  }
+}
+
+export async function getEmployeeStatusHistory(): Promise<EmployeeStatusHistoryEntry[]> {
+  const localHistory = mergeEmployeeStatusHistoryCollections(loadLocalEmployeeStatusHistory())
+
+  if (!isSupabaseConfigured) {
+    return localHistory
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('employee_status_history')
+      .select('*')
+      .order('changed_at', { ascending: false })
+
+    if (error) {
+      console.warn('Get employee status history warning:', getEmployeeStorageErrorMessage(error))
+      return localHistory
+    }
+
+    const remoteHistory = ((data || []) as EmployeeStatusHistoryEntry[]).map((entry) => ({
+      ...entry,
+      before_status: (entry.before_status || '') as EmployeeStatusHistoryEntry['before_status'],
+      after_status: normalizeEmployeeStatus(entry.after_status) as EmployeeStatusHistoryEntry['after_status'],
+      employee_code: normalizeEmployeeCode(entry.employee_code),
+      termination_date: entry.termination_date || null,
+      termination_reason: entry.termination_reason || '',
+      store: entry.store || '',
+      store_code: entry.store_code || '',
+    }))
+
+    const merged = mergeEmployeeStatusHistoryCollections(localHistory, remoteHistory)
+    saveLocalEmployeeStatusHistory(merged)
+    return merged
+  } catch (error) {
+    console.warn('Get employee status history warning:', getEmployeeStorageErrorMessage(error))
+    return localHistory
   }
 }
 
@@ -1119,6 +1309,10 @@ export async function createEmployee(employee: EmployeeInput): Promise<{ success
       updated_at: now,
     }
     await saveStoredEmployees([...localEmployees.filter((item) => item.employee_code !== localRecord.employee_code), localRecord])
+    const statusHistoryEntry = buildEmployeeStatusHistoryEntry(undefined, localRecord, now)
+    if (statusHistoryEntry) {
+      await persistEmployeeStatusHistory([statusHistoryEntry])
+    }
 
     const { data, error } = await supabase
       .from('employees')
@@ -1147,6 +1341,7 @@ export async function createEmployee(employee: EmployeeInput): Promise<{ success
 export async function updateEmployee(id: string, updates: Partial<EmployeeInput>): Promise<{ success: boolean; error?: string }> {
   try {
     const localEmployees = await loadStoredEmployees()
+    const previous = localEmployees.find((employee) => employee.id === id)
     await saveStoredEmployees(localEmployees.map((employee) =>
       employee.id === id
         ? {
@@ -1156,6 +1351,15 @@ export async function updateEmployee(id: string, updates: Partial<EmployeeInput>
           }
         : employee
     ))
+    const statusHistoryEntry = previous
+      ? buildEmployeeStatusHistoryEntry(previous, {
+          ...previous,
+          ...updates,
+        }, new Date().toISOString())
+      : null
+    if (statusHistoryEntry) {
+      await persistEmployeeStatusHistory([statusHistoryEntry])
+    }
 
     const { error } = await supabase
       .from('employees')
@@ -1216,6 +1420,7 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
     // Batch save to local storage without merging first (faster)
     const existingEmployees = await loadStoredEmployees()
     const localMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    const statusHistoryEntries: EmployeeStatusHistoryEntry[] = []
     
     processedEmployees.forEach((employee) => {
       const normalizedCode = normalizeEmployeeCode(employee.employee_code)
@@ -1256,8 +1461,13 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
         created_at: existing?.created_at || now,
         updated_at: now,
       })
+      const statusHistoryEntry = buildEmployeeStatusHistoryEntry(existing, employee, now)
+      if (statusHistoryEntry) {
+        statusHistoryEntries.push(statusHistoryEntry)
+      }
     })
     await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
+    await persistEmployeeStatusHistory(statusHistoryEntries)
 
     const { data, error } = await supabase
       .from('employees')
@@ -1293,6 +1503,7 @@ export async function importEmployeesRemoteOverwrite(
 
     const existingEmployees = await loadStoredEmployees()
     const localMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    const statusHistoryEntries: EmployeeStatusHistoryEntry[] = []
 
     processedEmployees.forEach((employee) => {
       const normalizedCode = normalizeEmployeeCode(employee.employee_code)
@@ -1333,8 +1544,13 @@ export async function importEmployeesRemoteOverwrite(
         created_at: existing?.created_at || now,
         updated_at: now,
       })
+      const statusHistoryEntry = buildEmployeeStatusHistoryEntry(existing, employee, now)
+      if (statusHistoryEntry) {
+        statusHistoryEntries.push(statusHistoryEntry)
+      }
     })
     await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
+    await persistEmployeeStatusHistory(statusHistoryEntries)
 
     const { data, error } = await supabase
       .from('employees')

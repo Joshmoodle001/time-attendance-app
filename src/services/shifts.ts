@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { getWeekCycleLabel } from "@/services/calendar";
 import { hasConfiguredShiftSyncLinks, loadShiftSyncSettings } from "@/services/shiftSync";
 
 export type ShiftDayKey =
@@ -62,6 +63,62 @@ export type ShiftRoster = {
   };
 };
 
+export type ShiftRosterHistoryEntry = {
+  id: string;
+  snapshot_key: string;
+  sheet_name: string;
+  store_name: string;
+  store_code: string;
+  source_file_name: string;
+  custom_columns: string[];
+  rows: ShiftRow[];
+  updated_at: string;
+  import_summary: ShiftRoster["import_summary"];
+  effective_from: string;
+  effective_to: string | null;
+  changed_at: string;
+};
+
+export type ShiftRosterChangeEvent = {
+  id: string;
+  sheet_name: string;
+  row_key: string;
+  employee_code: string;
+  employee_name: string;
+  week_label: string;
+  field: string;
+  before: string;
+  after: string;
+  change_type: "added" | "updated" | "removed";
+  effective_from: string;
+  changed_at: string;
+  source_file_name: string;
+  store_name: string;
+  store_code: string;
+};
+
+export type ShiftRosterLookupValue = {
+  scheduled: boolean;
+  dayOff: boolean;
+  leave: boolean;
+  store: string;
+  storeCode: string;
+  sourceSheetName: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  changedAt: string;
+};
+
+export type HistoricalRosterSource = {
+  sheetName: string;
+  storeName: string;
+  storeCode: string;
+  weekRows: Map<number, ShiftRow>;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  changedAt: string;
+};
+
 type RemoteShiftRosterRecord = {
   id: string;
   sheet_name: string;
@@ -78,6 +135,42 @@ type RemoteShiftRosterRecord = {
       preserved_rows?: number;
     };
   } | null;
+};
+
+type RemoteShiftRosterHistoryRecord = {
+  id: string;
+  snapshot_key: string;
+  sheet_name: string;
+  store_name: string;
+  store_code: string | null;
+  source_file_name: string | null;
+  effective_from: string;
+  effective_to: string | null;
+  changed_at: string;
+  updated_at: string | null;
+  payload: {
+    custom_columns?: string[];
+    rows?: ShiftRow[];
+    import_summary?: ShiftRoster["import_summary"];
+  } | null;
+};
+
+type RemoteShiftRosterChangeEventRecord = {
+  id: string;
+  sheet_name: string;
+  row_key: string;
+  employee_code: string | null;
+  employee_name: string | null;
+  week_label: string | null;
+  field: string;
+  before_value: string | null;
+  after_value: string | null;
+  change_type: "added" | "updated" | "removed";
+  effective_from: string;
+  changed_at: string;
+  source_file_name: string | null;
+  store_name: string | null;
+  store_code: string | null;
 };
 
 type ParsedSheetHeader = {
@@ -102,6 +195,8 @@ const DAY_ORDER: ShiftDayKey[] = [
   "sunday",
 ];
 const SHIFT_ROSTER_STORAGE_KEY = "shift-rosters-cache-v1";
+const SHIFT_ROSTER_HISTORY_STORAGE_KEY = "shift-roster-history-cache-v1";
+const SHIFT_ROSTER_CHANGE_EVENTS_STORAGE_KEY = "shift-roster-change-events-cache-v1";
 const SHIFT_REMOTE_SETUP_HINT =
   "Remote shift table is not set up yet. Run setup-database.ps1 or the SQL in supabase-setup.sql to create the Supabase schema. Shifts are still being saved locally in this browser.";
 
@@ -110,6 +205,29 @@ let shiftRemoteSetupCheck: Promise<boolean> | null = null;
 
 function randomId() {
   return globalThis.crypto?.randomUUID?.() ?? `shift_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+}
+
+function formatDateOnly(date: Date) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function shiftDateKey(dateKey: string, days: number) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (!year || !month || !day) return dateKey;
+  const next = new Date(year, month - 1, day);
+  next.setDate(next.getDate() + days);
+  return formatDateOnly(next);
+}
+
+function isDateWithinEffectiveRange(dateKey: string, effectiveFrom: string, effectiveTo: string | null) {
+  if (!dateKey || !effectiveFrom) return false;
+  if (dateKey < effectiveFrom) return false;
+  if (effectiveTo && dateKey > effectiveTo) return false;
+  return true;
+}
+
+function getShiftDayKeyForDate(date: Date): ShiftDayKey {
+  return DAY_ORDER[(date.getDay() + 6) % 7];
 }
 
 function loadLocalShiftRosters(): ShiftRoster[] {
@@ -123,6 +241,54 @@ function loadLocalShiftRosters(): ShiftRoster[] {
   } catch (error) {
     console.error("Load local shift rosters error:", error);
     return [];
+  }
+}
+
+function loadLocalShiftRosterHistory(): ShiftRosterHistoryEntry[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(SHIFT_ROSTER_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ShiftRosterHistoryEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error("Load local shift roster history error:", error);
+    return [];
+  }
+}
+
+function saveLocalShiftRosterHistory(entries: ShiftRosterHistoryEntry[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(SHIFT_ROSTER_HISTORY_STORAGE_KEY, JSON.stringify(entries));
+  } catch (error) {
+    console.error("Save local shift roster history error:", error);
+  }
+}
+
+function loadLocalShiftRosterChangeEvents(): ShiftRosterChangeEvent[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(SHIFT_ROSTER_CHANGE_EVENTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ShiftRosterChangeEvent[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error("Load local shift roster change events error:", error);
+    return [];
+  }
+}
+
+function saveLocalShiftRosterChangeEvents(entries: ShiftRosterChangeEvent[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(SHIFT_ROSTER_CHANGE_EVENTS_STORAGE_KEY, JSON.stringify(entries));
+  } catch (error) {
+    console.error("Save local shift roster change events error:", error);
   }
 }
 
@@ -200,6 +366,245 @@ function getShiftStorageErrorMessage(error: unknown) {
 function normalizeText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).replace(/\s+/g, " ").trim();
+}
+
+function normalizeEmployeeCode(value: unknown) {
+  return normalizeText(value).replace(/\s+/g, "").toUpperCase();
+}
+
+function buildShiftRosterSnapshotKey(sheetName: string, effectiveFrom: string) {
+  return `${normalizeKey(sheetName)}__${effectiveFrom}`;
+}
+
+function normalizeShiftRosterHistoryEntry(entry: ShiftRosterHistoryEntry): ShiftRosterHistoryEntry {
+  return {
+    ...entry,
+    store_name: normalizeText(entry.store_name),
+    store_code: normalizeText(entry.store_code),
+    source_file_name: normalizeText(entry.source_file_name),
+    effective_from: normalizeText(entry.effective_from),
+    effective_to: normalizeText(entry.effective_to) || null,
+    changed_at: normalizeText(entry.changed_at) || new Date().toISOString(),
+    updated_at: normalizeText(entry.updated_at) || new Date().toISOString(),
+    custom_columns: Array.isArray(entry.custom_columns) ? entry.custom_columns.map((value) => normalizeText(value)).filter(Boolean) : [],
+    rows: Array.isArray(entry.rows) ? entry.rows : [],
+    import_summary: entry.import_summary || {
+      imported_rows: 0,
+      updated_rows: 0,
+      preserved_rows: 0,
+    },
+  };
+}
+
+function normalizeShiftRosterChangeEvent(entry: ShiftRosterChangeEvent): ShiftRosterChangeEvent {
+  return {
+    ...entry,
+    sheet_name: normalizeText(entry.sheet_name),
+    row_key: normalizeText(entry.row_key),
+    employee_code: normalizeEmployeeCode(entry.employee_code),
+    employee_name: normalizeText(entry.employee_name),
+    week_label: normalizeText(entry.week_label),
+    field: normalizeText(entry.field),
+    before: normalizeText(entry.before),
+    after: normalizeText(entry.after),
+    effective_from: normalizeText(entry.effective_from),
+    changed_at: normalizeText(entry.changed_at) || new Date().toISOString(),
+    source_file_name: normalizeText(entry.source_file_name),
+    store_name: normalizeText(entry.store_name),
+    store_code: normalizeText(entry.store_code),
+  };
+}
+
+function mergeShiftRosterHistoryCollections(...collections: ShiftRosterHistoryEntry[][]) {
+  const map = new Map<string, ShiftRosterHistoryEntry>();
+
+  collections.flat().forEach((entry) => {
+    const normalized = normalizeShiftRosterHistoryEntry(entry);
+    const key = normalized.snapshot_key || buildShiftRosterSnapshotKey(normalized.sheet_name, normalized.effective_from);
+    map.set(key, {
+      ...normalized,
+      snapshot_key: key,
+    });
+  });
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.sheet_name !== b.sheet_name) return a.sheet_name.localeCompare(b.sheet_name);
+    if (a.effective_from !== b.effective_from) return b.effective_from.localeCompare(a.effective_from);
+    return b.changed_at.localeCompare(a.changed_at);
+  });
+}
+
+function mergeShiftRosterChangeEventCollections(...collections: ShiftRosterChangeEvent[][]) {
+  const map = new Map<string, ShiftRosterChangeEvent>();
+
+  collections.flat().forEach((entry) => {
+    const normalized = normalizeShiftRosterChangeEvent(entry);
+    map.set(normalized.id, normalized);
+  });
+
+  return Array.from(map.values()).sort((a, b) => b.changed_at.localeCompare(a.changed_at));
+}
+
+function createShiftRosterHistoryEntry(
+  roster: ShiftRoster,
+  effectiveFrom: string,
+  effectiveTo: string | null,
+  changedAt: string
+): ShiftRosterHistoryEntry {
+  return {
+    id: randomId(),
+    snapshot_key: buildShiftRosterSnapshotKey(roster.sheet_name, effectiveFrom),
+    sheet_name: roster.sheet_name,
+    store_name: roster.store_name,
+    store_code: roster.store_code,
+    source_file_name: roster.source_file_name,
+    custom_columns: roster.custom_columns,
+    rows: roster.rows,
+    updated_at: roster.updated_at,
+    import_summary: roster.import_summary,
+    effective_from: effectiveFrom,
+    effective_to: effectiveTo,
+    changed_at: changedAt,
+  };
+}
+
+function buildShiftRosterChangeEvents(
+  previous: ShiftRoster | null | undefined,
+  next: ShiftRoster,
+  effectiveFrom: string,
+  changedAt: string
+) {
+  const events: ShiftRosterChangeEvent[] = [];
+  const previousRows = new Map((previous?.rows || []).map((row) => [row.row_key, row]));
+  const nextRows = new Map(next.rows.map((row) => [row.row_key, row]));
+  const trackedFields: Array<keyof ShiftRow> = [
+    "employee_name",
+    "employee_code",
+    "time_label",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "notes",
+  ];
+
+  next.rows.forEach((row) => {
+    const prior = previousRows.get(row.row_key);
+    if (!prior) {
+      events.push({
+        id: randomId(),
+        sheet_name: next.sheet_name,
+        row_key: row.row_key,
+        employee_code: row.employee_code,
+        employee_name: row.employee_name,
+        week_label: row.week_label,
+        field: "row",
+        before: "",
+        after: "added",
+        change_type: "added",
+        effective_from: effectiveFrom,
+        changed_at: changedAt,
+        source_file_name: next.source_file_name,
+        store_name: next.store_name,
+        store_code: next.store_code,
+      });
+      return;
+    }
+
+    trackedFields.forEach((field) => {
+      const before = normalizeText(prior[field]);
+      const after = normalizeText(row[field]);
+      if (before === after) return;
+      events.push({
+        id: randomId(),
+        sheet_name: next.sheet_name,
+        row_key: row.row_key,
+        employee_code: row.employee_code || prior.employee_code,
+        employee_name: row.employee_name || prior.employee_name,
+        week_label: row.week_label || prior.week_label,
+        field: String(field),
+        before,
+        after,
+        change_type: "updated",
+        effective_from: effectiveFrom,
+        changed_at: changedAt,
+        source_file_name: next.source_file_name,
+        store_name: next.store_name,
+        store_code: next.store_code,
+      });
+    });
+  });
+
+  previousRows.forEach((row, rowKey) => {
+    if (nextRows.has(rowKey)) return;
+    events.push({
+      id: randomId(),
+      sheet_name: previous?.sheet_name || next.sheet_name,
+      row_key: row.row_key,
+      employee_code: row.employee_code,
+      employee_name: row.employee_name,
+      week_label: row.week_label,
+      field: "row",
+      before: "present",
+      after: "removed",
+      change_type: "removed",
+      effective_from: effectiveFrom,
+      changed_at: changedAt,
+      source_file_name: next.source_file_name || previous?.source_file_name || "",
+      store_name: next.store_name || previous?.store_name || "",
+      store_code: next.store_code || previous?.store_code || "",
+    });
+  });
+
+  return events;
+}
+
+function appendShiftRosterHistory(
+  existingHistory: ShiftRosterHistoryEntry[],
+  currentRoster: ShiftRoster | null | undefined,
+  nextRoster: ShiftRoster,
+  effectiveFrom: string,
+  changedAt: string
+) {
+  const sameSheetHistory = existingHistory.filter((entry) => entry.sheet_name === nextRoster.sheet_name);
+  const otherHistory = existingHistory.filter((entry) => entry.sheet_name !== nextRoster.sheet_name);
+  const nextHistory = sameSheetHistory
+    .filter((entry) => !(entry.effective_to === null && entry.effective_from === effectiveFrom))
+    .map((entry) =>
+      entry.effective_to === null
+        ? {
+            ...entry,
+            effective_to: shiftDateKey(effectiveFrom, -1),
+          }
+        : entry
+    );
+
+  // When the very first version predates history support, seed it so earlier reports still resolve.
+  if (currentRoster && sameSheetHistory.length === 0) {
+    nextHistory.push(
+      createShiftRosterHistoryEntry(currentRoster, "1900-01-01", shiftDateKey(effectiveFrom, -1), currentRoster.updated_at || changedAt)
+    );
+  }
+
+  nextHistory.push(createShiftRosterHistoryEntry(nextRoster, effectiveFrom, null, changedAt));
+  return mergeShiftRosterHistoryCollections(otherHistory, nextHistory);
+}
+
+function materializeRosterSnapshots(currentRosters: ShiftRoster[], historyEntries: ShiftRosterHistoryEntry[]) {
+  const normalizedHistory = mergeShiftRosterHistoryCollections(historyEntries);
+  const openHistorySheets = new Set(
+    normalizedHistory.filter((entry) => entry.effective_to === null).map((entry) => entry.sheet_name)
+  );
+  const fallbackSnapshots = currentRosters
+    .filter((roster) => !openHistorySheets.has(roster.sheet_name))
+    .map((roster) =>
+      createShiftRosterHistoryEntry(roster, "1900-01-01", null, roster.updated_at || new Date().toISOString())
+    );
+
+  return mergeShiftRosterHistoryCollections(normalizedHistory, fallbackSnapshots);
 }
 
 function normalizeKey(value: string) {
@@ -728,23 +1133,150 @@ export async function getShiftRosters(): Promise<ShiftRoster[]> {
   }
 }
 
+export async function getShiftRosterHistory(): Promise<ShiftRosterHistoryEntry[]> {
+  const localHistory = mergeShiftRosterHistoryCollections(loadLocalShiftRosterHistory());
+
+  if (!isSupabaseConfigured) {
+    return localHistory;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("shift_roster_history")
+      .select("id, snapshot_key, sheet_name, store_name, store_code, source_file_name, effective_from, effective_to, changed_at, updated_at, payload")
+      .order("changed_at", { ascending: false });
+
+    if (error) {
+      console.warn("Get shift roster history warning:", getShiftStorageErrorMessage(error));
+      return localHistory;
+    }
+
+    const remoteHistory = ((data || []) as RemoteShiftRosterHistoryRecord[]).map((item) =>
+      normalizeShiftRosterHistoryEntry({
+        id: item.id,
+        snapshot_key: item.snapshot_key,
+        sheet_name: item.sheet_name,
+        store_name: item.store_name,
+        store_code: item.store_code || "",
+        source_file_name: item.source_file_name || "",
+        custom_columns: item.payload?.custom_columns || [],
+        rows: item.payload?.rows || [],
+        updated_at: item.updated_at || item.changed_at,
+        import_summary: item.payload?.import_summary || {
+          imported_rows: 0,
+          updated_rows: 0,
+          preserved_rows: 0,
+        },
+        effective_from: item.effective_from,
+        effective_to: item.effective_to,
+        changed_at: item.changed_at,
+      })
+    );
+
+    const merged = mergeShiftRosterHistoryCollections(localHistory, remoteHistory);
+    saveLocalShiftRosterHistory(merged);
+    return merged;
+  } catch (err) {
+    console.warn("Get shift roster history warning:", getShiftStorageErrorMessage(err));
+    return localHistory;
+  }
+}
+
+export async function getShiftRosterChangeEvents(): Promise<ShiftRosterChangeEvent[]> {
+  const localEvents = mergeShiftRosterChangeEventCollections(loadLocalShiftRosterChangeEvents());
+
+  if (!isSupabaseConfigured) {
+    return localEvents;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("shift_roster_change_events")
+      .select("id, sheet_name, row_key, employee_code, employee_name, week_label, field, before_value, after_value, change_type, effective_from, changed_at, source_file_name, store_name, store_code")
+      .order("changed_at", { ascending: false });
+
+    if (error) {
+      console.warn("Get shift roster change events warning:", getShiftStorageErrorMessage(error));
+      return localEvents;
+    }
+
+    const remoteEvents = ((data || []) as RemoteShiftRosterChangeEventRecord[]).map((item) =>
+      normalizeShiftRosterChangeEvent({
+        id: item.id,
+        sheet_name: item.sheet_name,
+        row_key: item.row_key,
+        employee_code: item.employee_code || "",
+        employee_name: item.employee_name || "",
+        week_label: item.week_label || "",
+        field: item.field,
+        before: item.before_value || "",
+        after: item.after_value || "",
+        change_type: item.change_type,
+        effective_from: item.effective_from,
+        changed_at: item.changed_at,
+        source_file_name: item.source_file_name || "",
+        store_name: item.store_name || "",
+        store_code: item.store_code || "",
+      })
+    );
+
+    const merged = mergeShiftRosterChangeEventCollections(localEvents, remoteEvents);
+    saveLocalShiftRosterChangeEvents(merged);
+    return merged;
+  } catch (err) {
+    console.warn("Get shift roster change events warning:", getShiftStorageErrorMessage(err));
+    return localEvents;
+  }
+}
+
 export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success: boolean; error?: string }> {
   const localRosters = loadLocalShiftRosters();
+  const currentRoster = localRosters.find((item) => item.sheet_name === roster.sheet_name);
+  const changedAt = new Date().toISOString();
+  const effectiveFrom = formatDateOnly(new Date());
   const mergedLocal = [
     ...localRosters.filter((item) => item.sheet_name !== roster.sheet_name),
     {
       ...roster,
-      updated_at: new Date().toISOString(),
+      updated_at: changedAt,
     },
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
   saveLocalShiftRosters(mergedLocal);
+  saveLocalShiftRosterHistory(
+    appendShiftRosterHistory(loadLocalShiftRosterHistory(), currentRoster, {
+      ...roster,
+      updated_at: changedAt,
+    }, effectiveFrom, changedAt)
+  );
+  saveLocalShiftRosterChangeEvents(
+    mergeShiftRosterChangeEventCollections(
+      loadLocalShiftRosterChangeEvents(),
+      buildShiftRosterChangeEvents(currentRoster, {
+        ...roster,
+        updated_at: changedAt,
+      }, effectiveFrom, changedAt)
+    )
+  );
 
   if (!isSupabaseConfigured) {
     return { success: true };
   }
 
   try {
+    await supabase
+      .from("shift_roster_history")
+      .delete()
+      .eq("sheet_name", roster.sheet_name)
+      .eq("effective_from", effectiveFrom)
+      .is("effective_to", null);
+
+    await supabase
+      .from("shift_roster_history")
+      .update({ effective_to: shiftDateKey(effectiveFrom, -1) })
+      .eq("sheet_name", roster.sheet_name)
+      .is("effective_to", null);
+
     const { error } = await supabase.from("shift_rosters").upsert(
       {
         sheet_name: roster.sheet_name,
@@ -756,7 +1288,7 @@ export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success:
           rows: roster.rows,
           import_summary: roster.import_summary,
         },
-        updated_at: new Date().toISOString(),
+        updated_at: changedAt,
       },
       { onConflict: "sheet_name" }
     );
@@ -765,6 +1297,58 @@ export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success:
       const message = getShiftStorageErrorMessage(error);
       console.warn("Upsert shift roster warning:", message);
       return { success: true, error: message };
+    }
+
+    const { error: historyError } = await supabase.from("shift_roster_history").insert({
+      snapshot_key: buildShiftRosterSnapshotKey(roster.sheet_name, effectiveFrom),
+      sheet_name: roster.sheet_name,
+      store_name: roster.store_name,
+      store_code: roster.store_code,
+      source_file_name: roster.source_file_name,
+      effective_from: effectiveFrom,
+      effective_to: null,
+      changed_at: changedAt,
+      updated_at: changedAt,
+      payload: {
+        custom_columns: roster.custom_columns,
+        rows: roster.rows,
+        import_summary: roster.import_summary,
+      },
+    });
+
+    if (historyError) {
+      const message = getShiftStorageErrorMessage(historyError);
+      console.warn("Upsert shift roster history warning:", message);
+      return { success: true, error: message };
+    }
+
+    const changeEvents = buildShiftRosterChangeEvents(currentRoster, { ...roster, updated_at: changedAt }, effectiveFrom, changedAt);
+    if (changeEvents.length > 0) {
+      const { error: changeEventError } = await supabase.from("shift_roster_change_events").insert(
+        changeEvents.map((entry) => ({
+          id: entry.id,
+          sheet_name: entry.sheet_name,
+          row_key: entry.row_key,
+          employee_code: entry.employee_code,
+          employee_name: entry.employee_name,
+          week_label: entry.week_label,
+          field: entry.field,
+          before_value: entry.before,
+          after_value: entry.after,
+          change_type: entry.change_type,
+          effective_from: entry.effective_from,
+          changed_at: entry.changed_at,
+          source_file_name: entry.source_file_name,
+          store_name: entry.store_name,
+          store_code: entry.store_code,
+        }))
+      );
+
+      if (changeEventError) {
+        const message = getShiftStorageErrorMessage(changeEventError);
+        console.warn("Upsert shift roster change events warning:", message);
+        return { success: true, error: message };
+      }
     }
 
     return { success: true };
@@ -785,6 +1369,140 @@ export async function upsertShiftRosters(rosters: ShiftRoster[]): Promise<{ succ
   }
 
   return { success: true };
+}
+
+export function buildHistoricalRosterStatusLookup(
+  shiftRosters: ShiftRoster[],
+  historyEntries: ShiftRosterHistoryEntry[],
+  dateValue: string
+) {
+  const lookup = new Map<string, ShiftRosterLookupValue>();
+  const selectedDate = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(selectedDate.getTime())) return lookup;
+
+  const dateKey = formatDateOnly(selectedDate);
+  const weekLabel = getWeekCycleLabel(selectedDate).toUpperCase();
+  const dayKey = getShiftDayKeyForDate(selectedDate);
+  const snapshots = materializeRosterSnapshots(shiftRosters, historyEntries).filter((entry) =>
+    isDateWithinEffectiveRange(dateKey, entry.effective_from, entry.effective_to)
+  );
+
+  snapshots.forEach((snapshot) => {
+    snapshot.rows.forEach((row) => {
+      if (String(row.week_label || "").trim().toUpperCase() !== weekLabel) return;
+      const employeeCode = normalizeEmployeeCode(row.employee_code);
+      if (!employeeCode) return;
+
+      const rawValue = String(row[dayKey] || "").trim();
+      if (!rawValue) return;
+
+      const normalizedValue = rawValue.toUpperCase();
+      const isDayOff = normalizedValue === "OFF" || normalizedValue === "OFF DAY";
+      const isLeave = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/.test(normalizedValue);
+      const scheduled = !isDayOff && !isLeave;
+      const current = lookup.get(employeeCode);
+
+      lookup.set(employeeCode, {
+        scheduled: Boolean(current?.scheduled || scheduled),
+        dayOff: Boolean(current?.dayOff || isDayOff),
+        leave: Boolean(current?.leave || isLeave),
+        store: current?.store || snapshot.store_name || "",
+        storeCode: current?.storeCode || snapshot.store_code || "",
+        sourceSheetName: current?.sourceSheetName || snapshot.sheet_name,
+        effectiveFrom: current?.effectiveFrom || snapshot.effective_from,
+        effectiveTo: current?.effectiveTo ?? snapshot.effective_to,
+        changedAt: current?.changedAt || snapshot.changed_at,
+      });
+    });
+  });
+
+  return lookup;
+}
+
+export function buildHistoricalRosterStatusLookupsForRange(
+  shiftRosters: ShiftRoster[],
+  historyEntries: ShiftRosterHistoryEntry[],
+  startDate: Date,
+  endDate: Date
+) {
+  const lookups = new Map<string, Map<string, ShiftRosterLookupValue>>();
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    const dateKey = formatDateOnly(cursor);
+    lookups.set(dateKey, buildHistoricalRosterStatusLookup(shiftRosters, historyEntries, dateKey));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return lookups;
+}
+
+export function buildHistoricalRosterSources(
+  shiftRosters: ShiftRoster[],
+  historyEntries: ShiftRosterHistoryEntry[]
+) {
+  const sources = new Map<string, HistoricalRosterSource[]>();
+  const snapshots = materializeRosterSnapshots(shiftRosters, historyEntries);
+
+  snapshots.forEach((snapshot) => {
+    const grouped = new Map<string, HistoricalRosterSource>();
+
+    snapshot.rows.forEach((row) => {
+      const employeeCode = normalizeEmployeeCode(row.employee_code);
+      if (!employeeCode) return;
+
+      if (!grouped.has(employeeCode)) {
+        grouped.set(employeeCode, {
+          sheetName: snapshot.sheet_name,
+          storeName: snapshot.store_name || snapshot.sheet_name,
+          storeCode: snapshot.store_code || "",
+          weekRows: new Map<number, ShiftRow>(),
+          effectiveFrom: snapshot.effective_from,
+          effectiveTo: snapshot.effective_to,
+          changedAt: snapshot.changed_at,
+        });
+      }
+
+      grouped.get(employeeCode)!.weekRows.set(row.week_number, row);
+    });
+
+    grouped.forEach((source, employeeCode) => {
+      if (!sources.has(employeeCode)) sources.set(employeeCode, []);
+      sources.get(employeeCode)!.push(source);
+    });
+  });
+
+  sources.forEach((items, employeeCode) => {
+    sources.set(
+      employeeCode,
+      [...items].sort((a, b) => {
+        if (a.effectiveFrom !== b.effectiveFrom) return b.effectiveFrom.localeCompare(a.effectiveFrom);
+        return b.changedAt.localeCompare(a.changedAt);
+      })
+    );
+  });
+
+  return sources;
+}
+
+export function matchHistoricalRosterSourceForDate(
+  employee: Pick<ShiftRow, "employee_code"> | { store?: string; store_code?: string } | null | undefined,
+  sources: HistoricalRosterSource[],
+  dateKey: string
+) {
+  const candidates = sources.filter((source) => isDateWithinEffectiveRange(dateKey, source.effectiveFrom, source.effectiveTo));
+  if (candidates.length === 0) return null;
+
+  const employeeWithStore = (employee || {}) as { store?: string; store_code?: string };
+  const employeeStoreCode = normalizeText(employeeWithStore.store_code).toLowerCase();
+  const employeeStore = normalizeText(employeeWithStore.store).toLowerCase();
+
+  return (
+    candidates.find((source) => employeeStoreCode && normalizeText(source.storeCode).toLowerCase() === employeeStoreCode) ||
+    candidates.find((source) => employeeStore && normalizeText(source.storeName).toLowerCase() === employeeStore) ||
+    candidates[0] ||
+    null
+  );
 }
 
 export function createBlankShiftGroup(sheetName: string, storeName: string): ShiftRoster {

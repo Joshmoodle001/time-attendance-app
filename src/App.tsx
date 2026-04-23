@@ -9,7 +9,7 @@ import { getClockEventsForDateRange, getClockEventsForEmployeeProfile, getClockO
 import { getEmployeeUpdateUploadLogs, saveEmployeeUpdateUploadLog, markEmployeeUpdateUploadLogRolledBack, clearEmployeeUpdateUploadLogs, type EmployeeUpdateReportItem, type EmployeeUpdateUploadLog } from "@/services/employeeUpdateLogs";
 import { getCombinedCalendarEvents, getWeekCycleLabel, loadCalendarEvents } from "@/services/calendar";
 import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/services/leave";
-import { getShiftRosters } from "@/services/shifts";
+import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsForRange, getShiftRosterHistory, getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
 import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
@@ -927,120 +927,19 @@ function buildLeaveCodesByDate(applications: Awaited<ReturnType<typeof getLeaveA
 
 function buildRosterStatusLookupsForRange(
   shiftRosters: Awaited<ReturnType<typeof getShiftRosters>>,
+  shiftRosterHistory: Awaited<ReturnType<typeof getShiftRosterHistory>>,
   startDate: Date,
   endDate: Date
 ) {
-  const lookupsByDate = new Map<string, Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>>();
-  
-  const rosterMapByWeek = new Map<string, { roster: typeof shiftRosters[0]; rows: typeof shiftRosters[0]['rows'] }[]>();
-  shiftRosters.forEach((roster) => {
-    roster.rows.forEach((row) => {
-      const weekLabel = String(row.week_label || "").trim().toUpperCase();
-      if (!weekLabel) return;
-      const existing = rosterMapByWeek.get(weekLabel) || [];
-      existing.push({ roster, rows: roster.rows });
-      rosterMapByWeek.set(weekLabel, existing);
-    });
-  });
-
-  const cursor = new Date(startDate);
-  while (cursor <= endDate) {
-    const dateKey = formatDateValue(cursor);
-    const weekLabel = getWeekCycleLabel(cursor).toUpperCase();
-    const dayKey = getOverviewDayKey(cursor);
-    const rostersForWeek = rosterMapByWeek.get(weekLabel) || [];
-    
-    const lookup = new Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>();
-    
-    for (let i = 0; i < rostersForWeek.length; i++) {
-      const { roster, rows } = rostersForWeek[i];
-      for (let j = 0; j < rows.length; j++) {
-        const row = rows[j];
-        const employeeCode = normalizeEmployeeCode(row.employee_code);
-        if (!employeeCode) continue;
-
-        const rawValue = String(row[dayKey] || "").trim();
-        if (!rawValue) continue;
-
-        const normalizedValue = rawValue.toUpperCase();
-        const isDayOff = normalizedValue === "OFF" || normalizedValue === "OFF DAY";
-        const isLeave = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/.test(normalizedValue);
-        const scheduled = !isDayOff && !isLeave;
-        
-        const existing = lookup.get(employeeCode);
-        if (existing) {
-          existing.scheduled = existing.scheduled || scheduled;
-          existing.dayOff = existing.dayOff || isDayOff;
-          existing.leave = existing.leave || isLeave;
-          if (!existing.store && roster.store_name) {
-            existing.store = roster.store_name;
-            existing.storeCode = roster.store_code || "";
-          }
-        } else {
-          lookup.set(employeeCode, {
-            scheduled,
-            dayOff: isDayOff,
-            leave: isLeave,
-            store: roster.store_name || "",
-            storeCode: roster.store_code || "",
-          });
-        }
-      }
-    }
-    
-    lookupsByDate.set(dateKey, lookup);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  
-  return lookupsByDate;
+  return buildHistoricalRosterStatusLookupsForRange(shiftRosters, shiftRosterHistory, startDate, endDate);
 }
 
 function buildRosterStatusLookup(
   shiftRosters: Awaited<ReturnType<typeof getShiftRosters>>,
+  shiftRosterHistory: Awaited<ReturnType<typeof getShiftRosterHistory>>,
   dateValue: string
 ) {
-  const lookup = new Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>();
-  const selectedDate = parseDateValue(dateValue);
-  if (!selectedDate) return lookup;
-
-  const weekLabel = getWeekCycleLabel(selectedDate).toUpperCase();
-  const dayKey = getOverviewDayKey(selectedDate);
-
-  for (let i = 0; i < shiftRosters.length; i++) {
-    const roster = shiftRosters[i];
-    for (let j = 0; j < roster.rows.length; j++) {
-      const row = roster.rows[j];
-      if (String(row.week_label || "").trim().toUpperCase() !== weekLabel) continue;
-
-      const employeeCode = normalizeEmployeeCode(row.employee_code);
-      if (!employeeCode) continue;
-
-      const rawValue = String(row[dayKey] || "").trim();
-      if (!rawValue) continue;
-
-      const normalizedValue = rawValue.toUpperCase();
-      const isDayOff = normalizedValue === "OFF" || normalizedValue === "OFF DAY";
-      const isLeave = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/.test(normalizedValue);
-      const scheduled = !isDayOff && !isLeave;
-      const current = lookup.get(employeeCode) || {
-        scheduled: false,
-        dayOff: false,
-        leave: false,
-        store: roster.store_name || "",
-        storeCode: roster.store_code || "",
-      };
-
-      lookup.set(employeeCode, {
-        scheduled: current.scheduled || scheduled,
-        dayOff: current.dayOff || isDayOff,
-        leave: current.leave || isLeave,
-        store: current.store || roster.store_name || "",
-        storeCode: current.storeCode || roster.store_code || "",
-      });
-    }
-  }
-
-  return lookup;
+  return buildHistoricalRosterStatusLookup(shiftRosters, shiftRosterHistory, dateValue);
 }
 
 function buildOverviewAttendanceRecordsFromSources({
@@ -1048,6 +947,7 @@ function buildOverviewAttendanceRecordsFromSources({
   existingRecords,
   employeeProfiles,
   shiftRosters,
+  shiftRosterHistory,
   clockEvents,
   leaveApplications,
   precomputedLookups,
@@ -1056,6 +956,7 @@ function buildOverviewAttendanceRecordsFromSources({
   existingRecords: AttendanceRecord[];
   employeeProfiles: Employee[];
   shiftRosters: Awaited<ReturnType<typeof getShiftRosters>>;
+  shiftRosterHistory: Awaited<ReturnType<typeof getShiftRosterHistory>>;
   clockEvents: BiometricClockEvent[];
   leaveApplications: Awaited<ReturnType<typeof getLeaveApplications>>;
   precomputedLookups?: {
@@ -1066,7 +967,7 @@ function buildOverviewAttendanceRecordsFromSources({
 }) {
   const employeeMap = new Map(employeeProfiles.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]));
   const existingMap = new Map(existingRecords.map((record) => [normalizeEmployeeCode(record.employeeCode), record]));
-  const rosterLookup = precomputedLookups?.rosterLookup || buildRosterStatusLookup(shiftRosters, dateValue);
+  const rosterLookup = precomputedLookups?.rosterLookup || buildRosterStatusLookup(shiftRosters, shiftRosterHistory, dateValue);
   const clockingsByEmployee = precomputedLookups?.clockingsByEmployee || buildClockingsByEmployee(clockEvents);
   const leaveCodes = precomputedLookups?.leaveCodes || (buildLeaveCodesByDate(leaveApplications).get(dateValue) || new Set<string>());
 
@@ -1157,6 +1058,7 @@ function buildOverviewTrendSeriesFromSources({
   existingRecords,
   employeeProfiles,
   shiftRosters,
+  shiftRosterHistory,
   clockEvents,
   leaveApplications,
   precomputedLookups,
@@ -1166,6 +1068,7 @@ function buildOverviewTrendSeriesFromSources({
   existingRecords: AttendanceRecord[];
   employeeProfiles: Employee[];
   shiftRosters: Awaited<ReturnType<typeof getShiftRosters>>;
+  shiftRosterHistory: Awaited<ReturnType<typeof getShiftRosterHistory>>;
   clockEvents: BiometricClockEvent[];
   leaveApplications: Awaited<ReturnType<typeof getLeaveApplications>>;
   precomputedLookups?: {
@@ -1210,7 +1113,7 @@ function buildOverviewTrendSeriesFromSources({
   );
 
   const leaveCodesByDate = precomputedLookups?.leaveCodesByDate || buildLeaveCodesByDate(leaveApplications);
-  const rosterLookupsByDate = precomputedLookups?.rosterLookupsByDate || buildRosterStatusLookupsForRange(shiftRosters, startDate, endDate);
+  const rosterLookupsByDate = precomputedLookups?.rosterLookupsByDate || buildRosterStatusLookupsForRange(shiftRosters, shiftRosterHistory, startDate, endDate);
 
   const series: Array<Record<string, number | string>> = [];
   const cursor = new Date(startDate);
@@ -1476,6 +1379,7 @@ export default function App() {
   const overviewDataCacheRef = useRef<{
     employees: Employee[];
     shiftRosters: Awaited<ReturnType<typeof getShiftRosters>>;
+    shiftRosterHistory: Awaited<ReturnType<typeof getShiftRosterHistory>>;
     leaveUploads: Awaited<ReturnType<typeof getLeaveUploads>>;
     rangeAttendance: Awaited<ReturnType<typeof getAttendanceByDateRange>>;
     rangeClockEvents: BiometricClockEvent[];
@@ -1663,7 +1567,7 @@ export default function App() {
             return m;
           })();
           const rangeLeaveCodesByDate = buildLeaveCodesByDate(cache.leaveApplicationsForRange);
-          const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(cache.shiftRosters, rangeStartDate, rangeEndDate);
+          const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(cache.shiftRosters, cache.shiftRosterHistory, rangeStartDate, rangeEndDate);
           
           const derivedTrendSeries = buildOverviewTrendSeriesFromSources({
             startDateValue: overviewStartDate,
@@ -1689,6 +1593,7 @@ export default function App() {
             })),
             employeeProfiles: cache.employees,
             shiftRosters: cache.shiftRosters,
+            shiftRosterHistory: cache.shiftRosterHistory,
             clockEvents: cache.rangeClockEvents,
             leaveApplications: cache.leaveApplicationsForRange,
             precomputedLookups: {
@@ -1717,12 +1622,13 @@ export default function App() {
       const shouldFetchLeaveUploads = !cache || options?.force;
 
       const t1 = performance.now();
-      const [employeeProfiles, shiftRosters, leaveUploads, dayAttendance, rangeAttendance, leaveApplicationsForDate, leaveApplicationsForRange, latestSyncLogs, dayClockEvents, rangeClockEvents, shiftSyncSettings, latestConfig] =
+      const [employeeProfiles, shiftRosters, shiftRosterHistory, leaveUploads, dayAttendance, rangeAttendance, leaveApplicationsForDate, leaveApplicationsForRange, latestSyncLogs, dayClockEvents, rangeClockEvents, shiftSyncSettings, latestConfig] =
         await Promise.all([
           shouldFetchEmployees
             ? (employees.length > 0 ? Promise.resolve(employees) : getEmployees())
             : Promise.resolve(cache!.employees),
           shouldFetchShifts ? getShiftRosters() : Promise.resolve(cache!.shiftRosters),
+          shouldFetchShifts ? getShiftRosterHistory() : Promise.resolve(cache!.shiftRosterHistory),
           shouldFetchLeaveUploads ? getLeaveUploads() : Promise.resolve(cache!.leaveUploads),
           selectedOverviewDate ? getAttendanceByDate(selectedOverviewDate) : Promise.resolve([]),
           overviewStartDate && overviewEndDate ? getAttendanceByDateRange(overviewStartDate, overviewEndDate) : Promise.resolve([]),
@@ -1778,6 +1684,7 @@ export default function App() {
       overviewDataCacheRef.current = {
         employees: filteredEmployeeProfiles,
         shiftRosters,
+        shiftRosterHistory,
         leaveUploads,
         rangeAttendance: filteredRangeAttendance,
         rangeClockEvents: filteredRangeClockEvents,
@@ -1797,7 +1704,7 @@ export default function App() {
       });
       const mappedDayAttendance = filteredDayAttendance.map(mapDatabaseAttendanceRecord);
 
-      const dayRosterLookup = buildRosterStatusLookup(shiftRosters, selectedOverviewDate);
+      const dayRosterLookup = buildRosterStatusLookup(shiftRosters, shiftRosterHistory, selectedOverviewDate);
       const dayClockingsByEmployee = buildClockingsByEmployee(dayClockEvents);
       const dayLeaveCodes = buildLeaveCodesByDate(leaveApplicationsForDate).get(selectedOverviewDate) || new Set<string>();
 
@@ -1807,6 +1714,7 @@ export default function App() {
             existingRecords: mappedDayAttendance,
             employeeProfiles: filteredEmployeeProfiles,
             shiftRosters,
+            shiftRosterHistory,
             clockEvents: filteredDayClockEvents,
             leaveApplications: leaveApplicationsForDate,
             precomputedLookups: {
@@ -1829,7 +1737,7 @@ export default function App() {
           rangeClocksByDate.set(event.clock_date, current);
         }
         const rangeLeaveCodesByDate = buildLeaveCodesByDate(leaveApplicationsForRange);
-        const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(shiftRosters, rangeStartDate, rangeEndDate);
+        const rangeRosterLookupsByDate = buildRosterStatusLookupsForRange(shiftRosters, shiftRosterHistory, rangeStartDate, rangeEndDate);
 
         derivedTrendSeries = buildOverviewTrendSeriesFromSources({
           startDateValue: overviewStartDate,
@@ -1840,6 +1748,7 @@ export default function App() {
           })),
           employeeProfiles: filteredEmployeeProfiles,
           shiftRosters,
+          shiftRosterHistory,
           clockEvents: filteredRangeClockEvents,
           leaveApplications: leaveApplicationsForRange,
           precomputedLookups: {
@@ -3415,6 +3324,7 @@ export default function App() {
       existingRecords: filteredRangeAttendance,
       employeeProfiles: selectedEmployees,
       shiftRosters: cache.shiftRosters,
+      shiftRosterHistory: cache.shiftRosterHistory,
       clockEvents: filteredRangeClockEvents,
       leaveApplications: filteredLeaveApplications,
     });

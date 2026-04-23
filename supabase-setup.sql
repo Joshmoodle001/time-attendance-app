@@ -59,6 +59,46 @@ CREATE TABLE IF NOT EXISTS shift_rosters (
 
 CREATE INDEX IF NOT EXISTS idx_shift_rosters_updated_at ON shift_rosters(updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS shift_roster_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  snapshot_key TEXT NOT NULL UNIQUE,
+  sheet_name TEXT NOT NULL,
+  store_name TEXT NOT NULL,
+  store_code TEXT,
+  source_file_name TEXT,
+  effective_from DATE NOT NULL,
+  effective_to DATE,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_shift_roster_history_sheet_name ON shift_roster_history(sheet_name);
+CREATE INDEX IF NOT EXISTS idx_shift_roster_history_effective_from ON shift_roster_history(effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_shift_roster_history_changed_at ON shift_roster_history(changed_at DESC);
+
+CREATE TABLE IF NOT EXISTS shift_roster_change_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sheet_name TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  employee_code TEXT DEFAULT '',
+  employee_name TEXT DEFAULT '',
+  week_label TEXT DEFAULT '',
+  field TEXT NOT NULL,
+  before_value TEXT DEFAULT '',
+  after_value TEXT DEFAULT '',
+  change_type TEXT NOT NULL CHECK (change_type IN ('added', 'updated', 'removed')),
+  effective_from DATE NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  source_file_name TEXT DEFAULT '',
+  store_name TEXT DEFAULT '',
+  store_code TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_shift_roster_change_events_employee_code ON shift_roster_change_events(employee_code);
+CREATE INDEX IF NOT EXISTS idx_shift_roster_change_events_effective_from ON shift_roster_change_events(effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_shift_roster_change_events_changed_at ON shift_roster_change_events(changed_at DESC);
+
 CREATE TABLE IF NOT EXISTS shift_sync_settings (
   id TEXT PRIMARY KEY DEFAULT 'global',
   auto_sync_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -174,6 +214,25 @@ CREATE INDEX IF NOT EXISTS idx_employees_name ON employees(last_name, first_name
 CREATE INDEX IF NOT EXISTS idx_employees_id_number ON employees(id_number);
 CREATE INDEX IF NOT EXISTS idx_employees_status ON employees(status);
 
+CREATE TABLE IF NOT EXISTS employee_status_history (
+  id TEXT PRIMARY KEY,
+  employee_code TEXT NOT NULL,
+  before_status TEXT,
+  after_status TEXT NOT NULL CHECK (after_status IN ('active', 'inactive', 'terminated')),
+  before_active BOOLEAN,
+  after_active BOOLEAN,
+  effective_from DATE NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  termination_date DATE,
+  termination_reason TEXT DEFAULT '',
+  store TEXT DEFAULT '',
+  store_code TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_status_history_employee_code ON employee_status_history(employee_code);
+CREATE INDEX IF NOT EXISTS idx_employee_status_history_effective_from ON employee_status_history(effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_employee_status_history_changed_at ON employee_status_history(changed_at DESC);
+
 CREATE TABLE IF NOT EXISTS employee_update_upload_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   file_name TEXT NOT NULL,
@@ -283,7 +342,10 @@ ALTER TABLE biometric_clock_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leave_upload_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leave_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shift_rosters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shift_roster_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shift_roster_change_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shift_sync_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_status_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employee_update_upload_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ipulse_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ipulse_sync_logs ENABLE ROW LEVEL SECURITY;
@@ -299,10 +361,13 @@ BEGIN
         'attendance_records',
         'attendance_upload_sessions',
         'employees',
+        'employee_status_history',
         'biometric_clock_events',
         'leave_upload_batches',
         'leave_applications',
         'shift_rosters',
+        'shift_roster_history',
+        'shift_roster_change_events',
         'shift_sync_settings',
         'employee_update_upload_logs',
         'ipulse_config',
@@ -317,10 +382,13 @@ REVOKE ALL PRIVILEGES ON TABLE
   public.attendance_records,
   public.attendance_upload_sessions,
   public.employees,
+  public.employee_status_history,
   public.biometric_clock_events,
   public.leave_upload_batches,
   public.leave_applications,
   public.shift_rosters,
+  public.shift_roster_history,
+  public.shift_roster_change_events,
   public.shift_sync_settings,
   public.employee_update_upload_logs,
   public.ipulse_config,
@@ -341,7 +409,195 @@ GRANT ALL ON public.store_assignments TO anon;
 GRANT ALL ON public.store_assignments TO authenticated;
 
 -- =====================================================
+-- PUBLIC ACCESS POLICIES (for anon/authenticated roles)
+-- =====================================================
+
+-- biometric_clock_events
+GRANT SELECT ON public.biometric_clock_events TO anon;
+GRANT INSERT ON public.biometric_clock_events TO anon;
+GRANT UPDATE ON public.biometric_clock_events TO anon;
+GRANT SELECT ON public.biometric_clock_events TO authenticated;
+GRANT INSERT ON public.biometric_clock_events TO authenticated;
+GRANT UPDATE ON public.biometric_clock_events TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read biometric clock events" ON biometric_clock_events;
+DROP POLICY IF EXISTS "Allow public insert biometric clock events" ON biometric_clock_events;
+DROP POLICY IF EXISTS "Allow public update biometric clock events" ON biometric_clock_events;
+
+CREATE POLICY "Allow public read biometric clock events" ON biometric_clock_events FOR SELECT USING (true);
+CREATE POLICY "Allow public insert biometric clock events" ON biometric_clock_events FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update biometric clock events" ON biometric_clock_events FOR UPDATE USING (true);
+
+-- employees
+GRANT SELECT ON public.employees TO anon;
+GRANT INSERT ON public.employees TO anon;
+GRANT UPDATE ON public.employees TO anon;
+GRANT SELECT ON public.employees TO authenticated;
+GRANT INSERT ON public.employees TO authenticated;
+GRANT UPDATE ON public.employees TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read employees" ON employees;
+DROP POLICY IF EXISTS "Allow public insert employees" ON employees;
+DROP POLICY IF EXISTS "Allow public update employees" ON employees;
+
+CREATE POLICY "Allow public read employees" ON employees FOR SELECT USING (true);
+CREATE POLICY "Allow public insert employees" ON employees FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update employees" ON employees FOR UPDATE USING (true);
+
+-- employee_status_history
+GRANT SELECT ON public.employee_status_history TO anon;
+GRANT INSERT ON public.employee_status_history TO anon;
+GRANT SELECT ON public.employee_status_history TO authenticated;
+GRANT INSERT ON public.employee_status_history TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read employee status history" ON employee_status_history;
+DROP POLICY IF EXISTS "Allow public insert employee status history" ON employee_status_history;
+
+CREATE POLICY "Allow public read employee status history" ON employee_status_history FOR SELECT USING (true);
+CREATE POLICY "Allow public insert employee status history" ON employee_status_history FOR INSERT WITH CHECK (true);
+
+-- attendance_records
+GRANT SELECT ON public.attendance_records TO anon;
+GRANT INSERT ON public.attendance_records TO anon;
+GRANT UPDATE ON public.attendance_records TO anon;
+GRANT SELECT ON public.attendance_records TO authenticated;
+GRANT INSERT ON public.attendance_records TO authenticated;
+GRANT UPDATE ON public.attendance_records TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read attendance_records" ON attendance_records;
+DROP POLICY IF EXISTS "Allow public insert attendance_records" ON attendance_records;
+DROP POLICY IF EXISTS "Allow public update attendance_records" ON attendance_records;
+
+CREATE POLICY "Allow public read attendance_records" ON attendance_records FOR SELECT USING (true);
+CREATE POLICY "Allow public insert attendance_records" ON attendance_records FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update attendance_records" ON attendance_records FOR UPDATE USING (true);
+
+-- attendance_upload_sessions
+GRANT SELECT ON public.attendance_upload_sessions TO anon;
+GRANT INSERT ON public.attendance_upload_sessions TO anon;
+GRANT SELECT ON public.attendance_upload_sessions TO authenticated;
+GRANT INSERT ON public.attendance_upload_sessions TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read attendance_upload_sessions" ON attendance_upload_sessions;
+DROP POLICY IF EXISTS "Allow public insert attendance_upload_sessions" ON attendance_upload_sessions;
+
+CREATE POLICY "Allow public read attendance_upload_sessions" ON attendance_upload_sessions FOR SELECT USING (true);
+CREATE POLICY "Allow public insert attendance_upload_sessions" ON attendance_upload_sessions FOR INSERT WITH CHECK (true);
+
+-- shift_rosters
+GRANT SELECT ON public.shift_rosters TO anon;
+GRANT INSERT ON public.shift_rosters TO anon;
+GRANT UPDATE ON public.shift_rosters TO anon;
+GRANT DELETE ON public.shift_rosters TO anon;
+GRANT SELECT ON public.shift_rosters TO authenticated;
+GRANT INSERT ON public.shift_rosters TO authenticated;
+GRANT UPDATE ON public.shift_rosters TO authenticated;
+GRANT DELETE ON public.shift_rosters TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read shift rosters" ON shift_rosters;
+DROP POLICY IF EXISTS "Allow public insert shift rosters" ON shift_rosters;
+DROP POLICY IF EXISTS "Allow public update shift rosters" ON shift_rosters;
+DROP POLICY IF EXISTS "Allow public delete shift rosters" ON shift_rosters;
+
+CREATE POLICY "Allow public read shift rosters" ON shift_rosters FOR SELECT USING (true);
+CREATE POLICY "Allow public insert shift rosters" ON shift_rosters FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update shift rosters" ON shift_rosters FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete shift rosters" ON shift_rosters FOR DELETE USING (true);
+
+-- shift_roster_history
+GRANT SELECT ON public.shift_roster_history TO anon;
+GRANT INSERT ON public.shift_roster_history TO anon;
+GRANT UPDATE ON public.shift_roster_history TO anon;
+GRANT DELETE ON public.shift_roster_history TO anon;
+GRANT SELECT ON public.shift_roster_history TO authenticated;
+GRANT INSERT ON public.shift_roster_history TO authenticated;
+GRANT UPDATE ON public.shift_roster_history TO authenticated;
+GRANT DELETE ON public.shift_roster_history TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read shift roster history" ON shift_roster_history;
+DROP POLICY IF EXISTS "Allow public insert shift roster history" ON shift_roster_history;
+DROP POLICY IF EXISTS "Allow public update shift roster history" ON shift_roster_history;
+DROP POLICY IF EXISTS "Allow public delete shift roster history" ON shift_roster_history;
+
+CREATE POLICY "Allow public read shift roster history" ON shift_roster_history FOR SELECT USING (true);
+CREATE POLICY "Allow public insert shift roster history" ON shift_roster_history FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update shift roster history" ON shift_roster_history FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete shift roster history" ON shift_roster_history FOR DELETE USING (true);
+
+-- shift_roster_change_events
+GRANT SELECT ON public.shift_roster_change_events TO anon;
+GRANT INSERT ON public.shift_roster_change_events TO anon;
+GRANT SELECT ON public.shift_roster_change_events TO authenticated;
+GRANT INSERT ON public.shift_roster_change_events TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read shift roster change events" ON shift_roster_change_events;
+DROP POLICY IF EXISTS "Allow public insert shift roster change events" ON shift_roster_change_events;
+
+CREATE POLICY "Allow public read shift roster change events" ON shift_roster_change_events FOR SELECT USING (true);
+CREATE POLICY "Allow public insert shift roster change events" ON shift_roster_change_events FOR INSERT WITH CHECK (true);
+
+-- shift_sync_settings
+GRANT SELECT ON public.shift_sync_settings TO anon;
+GRANT INSERT ON public.shift_sync_settings TO anon;
+GRANT UPDATE ON public.shift_sync_settings TO anon;
+GRANT DELETE ON public.shift_sync_settings TO anon;
+GRANT SELECT ON public.shift_sync_settings TO authenticated;
+GRANT INSERT ON public.shift_sync_settings TO authenticated;
+GRANT UPDATE ON public.shift_sync_settings TO authenticated;
+GRANT DELETE ON public.shift_sync_settings TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read shift sync settings" ON shift_sync_settings;
+DROP POLICY IF EXISTS "Allow public insert shift sync settings" ON shift_sync_settings;
+DROP POLICY IF EXISTS "Allow public update shift sync settings" ON shift_sync_settings;
+DROP POLICY IF EXISTS "Allow public delete shift sync settings" ON shift_sync_settings;
+
+CREATE POLICY "Allow public read shift sync settings" ON shift_sync_settings FOR SELECT USING (true);
+CREATE POLICY "Allow public insert shift sync settings" ON shift_sync_settings FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update shift sync settings" ON shift_sync_settings FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete shift sync settings" ON shift_sync_settings FOR DELETE USING (true);
+
+-- leave_applications
+GRANT SELECT ON public.leave_applications TO anon;
+GRANT INSERT ON public.leave_applications TO anon;
+GRANT UPDATE ON public.leave_applications TO anon;
+GRANT SELECT ON public.leave_applications TO authenticated;
+GRANT INSERT ON public.leave_applications TO authenticated;
+GRANT UPDATE ON public.leave_applications TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read leave_applications" ON leave_applications;
+DROP POLICY IF EXISTS "Allow public insert leave_applications" ON leave_applications;
+DROP POLICY IF EXISTS "Allow public update leave_applications" ON leave_applications;
+
+CREATE POLICY "Allow public read leave_applications" ON leave_applications FOR SELECT USING (true);
+CREATE POLICY "Allow public insert leave_applications" ON leave_applications FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update leave_applications" ON leave_applications FOR UPDATE USING (true);
+
+-- leave_upload_batches
+GRANT SELECT ON public.leave_upload_batches TO anon;
+GRANT INSERT ON public.leave_upload_batches TO anon;
+GRANT SELECT ON public.leave_upload_batches TO authenticated;
+GRANT INSERT ON public.leave_upload_batches TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read leave_upload_batches" ON leave_upload_batches;
+DROP POLICY IF EXISTS "Allow public insert leave_upload_batches" ON leave_upload_batches;
+
+CREATE POLICY "Allow public read leave_upload_batches" ON leave_upload_batches FOR SELECT USING (true);
+CREATE POLICY "Allow public insert leave_upload_batches" ON leave_upload_batches FOR INSERT WITH CHECK (true);
+
+-- store_assignments
+GRANT ALL ON public.store_assignments TO anon;
+GRANT ALL ON public.store_assignments TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read store_assignments" ON store_assignments;
+DROP POLICY IF EXISTS "Allow public insert store_assignments" ON store_assignments;
+DROP POLICY IF EXISTS "Allow public update store_assignments" ON store_assignments;
+
+CREATE POLICY "Allow public read store_assignments" ON store_assignments FOR SELECT USING (true);
+CREATE POLICY "Allow public insert store_assignments" ON store_assignments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update store_assignments" ON store_assignments FOR UPDATE USING (true);
+
+-- =====================================================
 -- NEXT STEP
 -- =====================================================
--- Add authenticated, least-privilege policies only after introducing real auth
--- and moving privileged writes plus iPulse secret handling to server-side code.
+-- Run this SQL in Supabase Dashboard > SQL Editor
+-- Then redeploy the app

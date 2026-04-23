@@ -14,9 +14,14 @@ import {
 import { getClockEventsForDateRange, type BiometricClockEvent } from "@/services/clockData";
 import { getCombinedCalendarEvents, getWeekEventForDate } from "@/services/calendar";
 import {
+  buildHistoricalRosterSources,
   getShiftRosters,
+  getShiftRosterHistory,
   initializeShiftDatabase,
+  matchHistoricalRosterSourceForDate,
+  type HistoricalRosterSource,
   type ShiftDayKey,
+  type ShiftRosterHistoryEntry,
   type ShiftRoster,
   type ShiftRow,
 } from "@/services/shifts";
@@ -114,6 +119,7 @@ type AttendanceDayRow = {
   weekLabel: string;
   holidayTitle: string;
   scheduleLabel: string;
+  rosterVersionFrom: string;
   targetHours: number;
   firstClock: string;
   lastClock: string;
@@ -500,15 +506,15 @@ function buildAttendanceRecordFromClockEvents(
   key: string,
   events: BiometricClockEvent[],
   employeesByCode: Map<string, Employee>,
-  rostersByEmployee: Map<string, EmployeeRosterSource[]>
+  rostersByEmployee: Map<string, HistoricalRosterSource[]>
 ) {
   const sorted = [...events].sort((a, b) => a.clocked_at.localeCompare(b.clocked_at));
   const first = sorted[0];
   const normalizedCode = normalizeEmployeeCode(first.employee_code);
   const employee = employeesByCode.get(normalizedCode);
   const rosterSource = employee
-    ? matchRosterSource(employee, rostersByEmployee.get(normalizedCode) || [])
-    : (rostersByEmployee.get(normalizedCode) || [])[0] || null;
+    ? matchHistoricalRosterSourceForDate(employee, rostersByEmployee.get(normalizedCode) || [], first.clock_date)
+    : matchHistoricalRosterSourceForDate(null, rostersByEmployee.get(normalizedCode) || [], first.clock_date);
   const clockings = sorted.map((event) => formatClockTimeFromRawEvent(event));
 
   return {
@@ -538,7 +544,7 @@ function mergeAttendanceWithClockEvents(
   attendanceRecords: AttendanceRecord[],
   rawClockEvents: BiometricClockEvent[],
   employeesByCode: Map<string, Employee>,
-  rostersByEmployee: Map<string, EmployeeRosterSource[]>
+  rostersByEmployee: Map<string, HistoricalRosterSource[]>
 ) {
   const attendanceMap = new Map<string, AttendanceRecord>();
 
@@ -602,6 +608,7 @@ export default function ReportsBuilder({
 
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [shiftRosters, setShiftRosters] = useState<ShiftRoster[]>([]);
+  const [shiftRosterHistory, setShiftRosterHistory] = useState<ShiftRosterHistoryEntry[]>([]);
   const [leaveApplications, setLeaveApplications] = useState<LeaveApplication[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(BUILT_IN_TEMPLATES[0].id);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("store");
@@ -627,10 +634,16 @@ export default function ReportsBuilder({
       try {
         setIsLoading(true);
         await Promise.all([initializeShiftDatabase(), initializeLeaveDatabase()]);
-        const [dates, rosters, appliedLeave] = await Promise.all([getAvailableDates(), getShiftRosters(), getAppliedLeaveApplications()]);
+        const [dates, rosters, rosterHistory, appliedLeave] = await Promise.all([
+          getAvailableDates(),
+          getShiftRosters(),
+          getShiftRosterHistory(),
+          getAppliedLeaveApplications(),
+        ]);
         if (!alive) return;
         setAvailableDates(dates);
         setShiftRosters(rosters);
+        setShiftRosterHistory(rosterHistory);
         setLeaveApplications(appliedLeave);
       } catch (error) {
         console.error("Failed to load reports data:", error);
@@ -829,7 +842,10 @@ export default function ReportsBuilder({
     return map;
   }, [generatedRecords]);
 
-  const rosterSourcesByEmployee = useMemo(() => buildRosterSources(shiftRosters), [shiftRosters]);
+  const rosterSourcesByEmployee = useMemo<Map<string, HistoricalRosterSource[]>>(
+    () => buildHistoricalRosterSources(shiftRosters, shiftRosterHistory),
+    [shiftRosters, shiftRosterHistory]
+  );
   const leaveLookup = useMemo(() => buildAppliedLeaveLookup(leaveApplications), [leaveApplications]);
   const employeeMap = useMemo(
     () => new Map(employees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee])),
@@ -865,7 +881,7 @@ export default function ReportsBuilder({
       if (!isEmployeeReportable(employee, storeDeviceMap)) return;
       const attendanceSamples = attendanceByEmployeeCode.get(normalizedEmployeeCode) || [];
       const rosterSource = employee
-        ? matchRosterSource(employee, rosterSourcesByEmployee.get(normalizedEmployeeCode) || [])
+        ? matchHistoricalRosterSourceForDate(employee, rosterSourcesByEmployee.get(normalizedEmployeeCode) || [], generatedCriteria.startDate)
         : (rosterSourcesByEmployee.get(normalizedEmployeeCode) || [])[0] || null;
 
       const store = normalizeText(employee?.store) || rosterSource?.storeName || attendanceSamples[0]?.store || "Unassigned store";
@@ -887,11 +903,14 @@ export default function ReportsBuilder({
         const weekLabel = getWeekEventForDate(generatedCalendarEvents, dateKey);
         const weekNumber = parseWeekNumber(weekLabel);
         const dayKey = getDateWeekdayKey(dateKey);
-        const shiftRow = rosterSource?.weekRows.get(weekNumber);
+        const rosterSourceForDate = employee
+          ? matchHistoricalRosterSourceForDate(employee, rosterSourcesByEmployee.get(normalizedEmployeeCode) || [], dateKey)
+          : matchHistoricalRosterSourceForDate(null, rosterSourcesByEmployee.get(normalizedEmployeeCode) || [], dateKey);
+        const shiftRow = rosterSourceForDate?.weekRows.get(weekNumber);
         const targetHours = getTargetHours(shiftRow, dayKey);
         const leaveApplication =
-          (rosterSource
-            ? leaveLookup.get(getSheetScopedLeaveLookupKey(rosterSource.sheetName, normalizedEmployeeCode, dateKey))
+          (rosterSourceForDate
+            ? leaveLookup.get(getSheetScopedLeaveLookupKey(rosterSourceForDate.sheetName, normalizedEmployeeCode, dateKey))
             : null) || leaveLookup.get(getFallbackLeaveLookupKey(normalizedEmployeeCode, dateKey));
         const holidayTitle =
           generatedCalendarEvents.find((event) => event.date === dateKey && event.type === "holiday")?.title || "";
@@ -910,6 +929,7 @@ export default function ReportsBuilder({
            weekLabel,
            holidayTitle,
            scheduleLabel: leaveApplication?.leave_type || (isPublicHoliday ? "Public Holiday" : getScheduleLabel(shiftRow, dayKey)),
+           rosterVersionFrom: rosterSourceForDate?.effectiveFrom && rosterSourceForDate.effectiveFrom !== "1900-01-01" ? rosterSourceForDate.effectiveFrom : "",
            targetHours: leaveApplication ? 0 : (isPublicHoliday ? 0 : targetHours),
            firstClock,
            lastClock,
@@ -1390,7 +1410,7 @@ export default function ReportsBuilder({
           alternateRowStyles: {
             fillColor: [255, 255, 255],
           },
-          head: [["DATE", "DAY", "WK", "SHIFT", "TARGET HRS", "IN", "OUT", "NOTES", "STATUS"]],
+                  head: [["DATE", "DAY", "WK", "SHIFT", "TARGET HRS", "IN", "OUT", "NOTES", "STATUS"]],
           columnStyles: {
             0: { cellWidth: 60 },
             1: { cellWidth: 28 },
@@ -1406,7 +1426,7 @@ export default function ReportsBuilder({
             row.dateLabel,
             row.weekdayLabel,
             row.weekLabel.replace(/^WEEK\s+/i, "W"),
-            row.scheduleLabel,
+                        row.rosterVersionFrom ? `${row.scheduleLabel}\nFrom ${row.rosterVersionFrom}` : row.scheduleLabel,
             formatHours(row.targetHours),
             row.firstClock || "-",
             row.lastClock || "-",
@@ -1616,7 +1636,7 @@ export default function ReportsBuilder({
                               <td>${escapeHtml(row.dateLabel)}</td>
                               <td>${escapeHtml(row.weekdayLabel)}</td>
                               <td>${escapeHtml(row.weekLabel)}</td>
-                              <td>${escapeHtml(row.scheduleLabel)}</td>
+<td>${escapeHtml(row.scheduleLabel)}${row.rosterVersionFrom ? `<br><span style="font-size:10px;color:#64748b">From ${escapeHtml(row.rosterVersionFrom)}</span>` : ""}</td>
                               <td style="text-align:center">${escapeHtml(formatHours(row.targetHours))}</td>
                               <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
                               <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
@@ -2264,7 +2284,12 @@ export default function ReportsBuilder({
                                           </td>
                                           <td className="border-b border-slate-200 px-3 py-3">{row.weekdayLabel}</td>
                                           <td className="border-b border-slate-200 px-3 py-3">{row.weekLabel}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3 font-medium text-slate-900">{row.scheduleLabel}</td>
+                                <td className="border-b border-slate-200 px-3 py-3 font-medium text-slate-900">
+                                  <div>{row.scheduleLabel}</div>
+                                  {row.rosterVersionFrom ? (
+                                    <div className="mt-1 text-[11px] font-normal text-slate-500">From {row.rosterVersionFrom}</div>
+                                  ) : null}
+                                </td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{formatHours(row.targetHours)}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
