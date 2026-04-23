@@ -36,6 +36,7 @@
   html {
     scroll-behavior: smooth;
     color-scheme: dark;
+    overflow-x: hidden;
   }
 
   body {
@@ -49,6 +50,7 @@
       radial-gradient(ellipse at 20% 0%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
       radial-gradient(ellipse at 80% 100%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
       linear-gradient(180deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    overflow-x: hidden;
   }
 
   ::selection {
@@ -466,5 +468,92 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  .mobile-scroll-snap {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .mobile-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+}
+
+#root {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .glass-panel,
+  .glass-panel-light {
+    backdrop-filter: blur(16px) saturate(180%);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .section-tech-stat:hover,
+  .stat-card:hover,
+  .card-hover:hover,
+  .hover-lift:hover,
+  .cyber-button:hover,
+  .button-glow:hover::before,
+  .nav-item:hover::before {
+    transform: none;
+    box-shadow: inherit;
+  }
+
+  .glass-panel,
+  .glass-panel-light {
+    backdrop-filter: blur(8px);
+  }
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 15px;
+  }
+
+  .app-shell::before {
+    display: none;
+  }
+
+  .glass-panel,
+  .glass-panel-light,
+  .section-tech-panel,
+  .section-tech-subpanel,
+  .content-card {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  }
+
+  .section-tech-empty {
+    @apply px-4 py-8 text-sm;
+  }
+
+  .section-tech-table thead th,
+  .section-tech-table tbody td {
+    @apply px-3 py-3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 640px) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .app-shell::before,
+  .orb-loader span {
+    animation: none !important;
   }
 }

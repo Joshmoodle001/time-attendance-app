@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { CalendarDays, ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -162,10 +162,12 @@ function getWeekBoundaryClasses(currentWeekNumber: number, previousWeekNumber: n
 
 export default function RosterBuilder() {
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const mobileWrapRef = useRef<HTMLDivElement | null>(null);
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
   const [leaveApplications, setLeaveApplications] = useState<LeaveApplication[]>([]);
   const [selectedSheet, setSelectedSheet] = useState("");
   const [rosterSearch, setRosterSearch] = useState("");
+  const [mobileExpandedEmployees, setMobileExpandedEmployees] = useState<Record<string, boolean>>({});
   const [currentMonth, setCurrentMonth] = useState(() => new Date(2026, new Date().getMonth(), 1));
 
   useEffect(() => {
@@ -296,11 +298,19 @@ export default function RosterBuilder() {
     window.setTimeout(() => {
       if (result.employeeCode) {
         const target = tableWrapRef.current?.querySelector<HTMLElement>(`[data-roster-employee="${result.employeeCode}"]`);
-        target?.scrollIntoView({ block: "center", inline: "nearest" });
+        const mobileTarget = mobileWrapRef.current?.querySelector<HTMLElement>(
+          `[data-roster-mobile-employee="${result.employeeCode}"]`
+        );
+        (target || mobileTarget)?.scrollIntoView({ block: "center", inline: "nearest" });
       } else {
         tableWrapRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+        mobileWrapRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       }
     }, 80);
+  };
+
+  const toggleMobileEmployee = (employeeCode: string) => {
+    setMobileExpandedEmployees((current) => ({ ...current, [employeeCode]: !current[employeeCode] }));
   };
 
   const buildPdfTable = (monthDate: Date) => {
@@ -504,7 +514,109 @@ export default function RosterBuilder() {
           ) : rosterEmployees.length === 0 ? (
             <div className="p-10 text-center text-slate-500">No employee shift groups found for this store.</div>
           ) : (
-            <div ref={tableWrapRef} className="w-full max-w-full overflow-x-auto overscroll-x-contain">
+            <>
+              <div ref={mobileWrapRef} className="space-y-3 p-3 md:hidden">
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Mobile view shows compact monthly summaries. Tap an employee to open day-by-day shifts and hours.
+                </p>
+                {rosterEmployees.map((employee) => {
+                  const expanded = Boolean(mobileExpandedEmployees[employee.employeeCode]);
+                  const summary = monthDays.reduce(
+                    (acc, date) => {
+                      const dateKey = formatDateKey(date);
+                      const leaveApplication = selectedRoster
+                        ? getAppliedLeaveForDate(employee.employeeCode, dateKey, selectedRoster.sheet_name)
+                        : null;
+                      const weekNumber = Number(getWeekEventForDate(allCalendarEvents, dateKey).replace(/\D/g, "")) || 0;
+                      const row = employee.weekRows.get(weekNumber);
+                      const dayValue = leaveApplication ? leaveApplication.leave_type : getDayValue(row, getDateWeekdayKey(date));
+                      const hours = leaveApplication ? 0 : getHoursForShiftRow(row, getDateWeekdayKey(date));
+
+                      acc.totalHours += hours;
+                      if (leaveApplication) {
+                        acc.leaveDays += 1;
+                      } else if (dayValue === "Day Off") {
+                        acc.offDays += 1;
+                      } else {
+                        acc.workDays += 1;
+                      }
+                      return acc;
+                    },
+                    { totalHours: 0, workDays: 0, offDays: 0, leaveDays: 0 }
+                  );
+
+                  return (
+                    <div
+                      key={employee.employeeCode}
+                      data-roster-mobile-employee={employee.employeeCode}
+                      className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleMobileEmployee(employee.employeeCode)}
+                        className="flex w-full items-start justify-between gap-3 text-left"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{employee.employeeCode}</p>
+                          <p className="truncate text-sm font-semibold text-slate-900">{employee.employeeName}</p>
+                          <p className="truncate text-xs text-slate-500">{employee.storeName}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                            {formatHours(summary.totalHours)}h
+                          </span>
+                          {expanded ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                        </div>
+                      </button>
+
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">Work {summary.workDays}</div>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">Off {summary.offDays}</div>
+                        <div className="rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-sky-700">Leave {summary.leaveDays}</div>
+                      </div>
+
+                      {expanded && (
+                        <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                          {monthDays.map((date) => {
+                            const dateKey = formatDateKey(date);
+                            const leaveApplication = selectedRoster
+                              ? getAppliedLeaveForDate(employee.employeeCode, dateKey, selectedRoster.sheet_name)
+                              : null;
+                            const weekNumber = Number(getWeekEventForDate(allCalendarEvents, dateKey).replace(/\D/g, "")) || 0;
+                            const row = employee.weekRows.get(weekNumber);
+                            const shiftValue = leaveApplication ? leaveApplication.leave_type : getDayValue(row, getDateWeekdayKey(date));
+                            const hours = leaveApplication ? 0 : getHoursForShiftRow(row, getDateWeekdayKey(date));
+                            const isToday = dateKey === todayKey;
+
+                            return (
+                              <div
+                                key={`${employee.employeeCode}-mobile-${dateKey}`}
+                                className={`rounded-xl border px-3 py-2 text-xs ${
+                                  isToday ? "border-yellow-300 bg-yellow-50" : "border-slate-200 bg-slate-50"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className="font-semibold text-slate-900">
+                                      {WEEKDAY_NAMES[(date.getDay() + 6) % 7]} {date.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" })}
+                                    </p>
+                                    <p className="mt-1 whitespace-pre-line text-slate-700">{shiftValue}</p>
+                                  </div>
+                                  <span className="rounded-md border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700">
+                                    {formatHours(hours)}h
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div ref={tableWrapRef} className="hidden w-full max-w-full overflow-x-auto overscroll-x-contain md:block">
               <table className="min-w-[3600px] w-full border-collapse table-fixed text-sm">
                 <colgroup>
                   <col className="w-[220px]" />
@@ -667,6 +779,7 @@ export default function RosterBuilder() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

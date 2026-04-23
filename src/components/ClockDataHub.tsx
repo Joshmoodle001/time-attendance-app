@@ -508,8 +508,8 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
             <div className="mt-1">Clock events are audit data. They are searchable and importable only, and there are no edit or delete actions in this section.</div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="relative min-w-[240px] flex-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="relative w-full min-w-0 flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={searchTerm}
@@ -522,7 +522,7 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
             <select
               value={storeFilter}
               onChange={(e) => setStoreFilter(e.target.value)}
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100"
+              className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 sm:w-auto"
             >
               {storeOptions.map((store) => (
                 <option key={store} value={store}>
@@ -532,11 +532,11 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
             </select>
 
             <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" multiple onChange={handleImport} className="hidden" />
-            <Button variant="outline" onClick={() => uploadRef.current?.click()} disabled={isImporting}>
+            <Button variant="outline" onClick={() => uploadRef.current?.click()} disabled={isImporting} className="w-full sm:w-auto">
               <Upload className="mr-2 h-4 w-4" />
               {isImporting ? "Importing..." : "Import clock payroll workbook(s)"}
             </Button>
-            <Button variant="outline" onClick={() => void handleRefresh()} disabled={isImporting || isRefreshing}>
+            <Button variant="outline" onClick={() => void handleRefresh()} disabled={isImporting || isRefreshing} className="w-full sm:w-auto">
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               {isRefreshing ? "Refreshing..." : "Refresh clock data"}
             </Button>

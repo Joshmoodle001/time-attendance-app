@@ -3801,7 +3801,7 @@ export default function App() {
   const renderOverview = () => (
     <div className="space-y-6">
       {/* Attendance Overview - Dark Futuristic Style */}
-      <section className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 md:p-8 border border-slate-700/50">
+      <section className="relative overflow-hidden rounded-[24px] border border-slate-700/50 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 sm:p-5 md:p-8">
         {/* Background pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{ 
@@ -3812,9 +3812,9 @@ export default function App() {
         
         {/* Header */}
         <div className="relative mb-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-<h2 className="text-2xl md:text-3xl font-bold text-white">Attendance Overview <span className="text-base font-bold text-cyan-400">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+<h2 className="text-xl font-bold text-white sm:text-2xl md:text-3xl">Attendance Overview <span className="mt-1 block text-xs font-bold text-cyan-400 sm:mt-0 sm:inline sm:text-sm md:text-base">
                   {typeof __BUILD_TIMESTAMP__ !== 'undefined' && __BUILD_TIMESTAMP__ 
                     ? new Date(__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                         day: '2-digit', month: '2-digit', year: '2-digit', 
@@ -3822,12 +3822,12 @@ export default function App() {
                       }) 
                     : ''}
               </span></h2>
-              <p className="text-slate-400 text-sm mt-1">Live overview synced to attendance, employees, clocks, shifts, leave, calendar, and iPulse status</p>
+              <p className="mt-1 text-sm text-slate-400">Live overview synced to attendance, employees, clocks, shifts, leave, calendar, and iPulse status</p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <button
                 onClick={() => void loadOverviewDashboard({ force: true })}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 disabled={isLoadingOverview}
               >
                 <RefreshCw className={`h-4 w-4 ${isLoadingOverview ? "animate-spin" : ""}`} />
@@ -3835,7 +3835,7 @@ export default function App() {
               </button>
 
               {/* Store Search / Filter */}
-              <div className="relative min-w-[280px] flex-1 max-w-[420px]">
+              <div className="relative w-full min-w-0 flex-1 sm:max-w-[420px]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                 <Input
                   value={selectedOverviewStoreKey === "all" ? overviewStoreSearch : selectedOverviewStoreOption?.label || overviewStoreSearch}
@@ -3893,21 +3893,21 @@ export default function App() {
               </div>
 
               {/* Date Selector */}
-              <div className="flex items-center gap-2">
+              <div className="flex w-full items-center gap-2 sm:w-auto">
                 <Calendar className="w-4 h-4 text-slate-400" />
                 <input
                   type="date"
                   value={selectedOverviewDate}
                   onChange={(e) => setSelectedOverviewDate(e.target.value)}
-                  className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm border border-slate-600 cursor-pointer"
+                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white cursor-pointer sm:w-auto"
                 />
               </div>
               
               {/* View Toggle Slider */}
-              <div className="flex items-center gap-2 bg-slate-800/50 rounded-lg p-1 border border-slate-700">
+              <div className="flex w-full items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 p-1 sm:w-auto">
                 <button
                   onClick={() => setViewMode("pie")}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition ${
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm transition sm:flex-none ${
                     viewMode === "pie" 
                       ? "bg-green-600 text-white" 
                       : "text-slate-400 hover:text-white"
@@ -3918,7 +3918,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setViewMode("table")}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition ${
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm transition sm:flex-none ${
                     viewMode === "table" 
                       ? "bg-green-600 text-white" 
                       : "text-slate-400 hover:text-white"
@@ -3958,7 +3958,7 @@ export default function App() {
         </div>
 
         {/* Status Cards - Compact */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           {[
             { name: "At Work", count: overviewStats.atWork, color: "#22c55e", icon: Check, bg: "from-green-500/25 to-emerald-600/15", border: "border-green-500/30" },
             { name: "AWOL", count: overviewStats.awol, color: "#ef4444", icon: AlertTriangle, bg: "from-red-500/25 to-rose-600/15", border: "border-red-500/30" },
@@ -3972,7 +3972,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className={`rounded-[16px] bg-gradient-to-br ${item.bg} border ${item.border} p-3`}
+                className={`rounded-[16px] border ${item.border} bg-gradient-to-br p-3`}
               >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${item.color}30` }}>
@@ -3989,8 +3989,8 @@ export default function App() {
         {/* View Content - Conditionally show Pie or Table */}
         {viewMode === "pie" ? (
           /* Pie Chart - Larger with Click */
-          <div className="mt-4 rounded-[16px] bg-slate-800/40 border border-slate-700/40 p-4">
-            <div className="flex items-center justify-between mb-3">
+          <div className="mt-4 rounded-[16px] border border-slate-700/40 bg-slate-800/40 p-3 sm:p-4">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-sm font-medium text-slate-300">Attendance Distribution</span>
               <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Click slice to drill down</Badge>
             </div>
@@ -3999,7 +3999,7 @@ export default function App() {
                 No attendance rows were found for the selected date.
               </div>
             ) : (
-              <div className="h-[400px]">
+              <div className="h-[320px] sm:h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie 
@@ -4063,9 +4063,9 @@ export default function App() {
           /* Table View - Grouped by Region */
           <div className="mt-4 rounded-[16px] bg-slate-800/40 border border-slate-700/40 overflow-hidden">
             {/* Table Header */}
-            <div className="bg-slate-800/95 p-4 border-b border-slate-700/50">
-              <div className="flex items-center justify-between">
-                <div>
+            <div className="border-b border-slate-700/50 bg-slate-800/95 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <h3 className="text-lg font-semibold text-white">Attendance by Region</h3>
                   <p className="text-sm text-slate-400 mt-0.5">
                     {regionTableData.length} regions | {filteredOverviewEmployeeProfiles.length} employee profiles | {filteredOverviewAttendanceRecords.length} attendance rows on this date
@@ -4087,7 +4087,7 @@ export default function App() {
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-green-600 text-sm text-white hover:bg-green-500 flex items-center gap-2"
+                  className="flex items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-500"
                 >
                   <Download className="w-4 h-4" />Export CSV
                 </button>
@@ -4211,7 +4211,7 @@ export default function App() {
                   </select>
                   <button 
                     onClick={() => void exportStoreBreakdownPDF()}
-                    className="px-3 py-1.5 rounded-lg bg-green-600 text-sm text-white hover:bg-green-500 flex items-center gap-2"
+                    className="flex items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-500"
                   >
                     <Download className="w-4 h-4" />Export
                   </button>
@@ -4286,13 +4286,13 @@ export default function App() {
                                 {item.employees.map((emp, empIndex) => (
                                   <div 
                                     key={emp.id}
-                                    className="flex items-center justify-between p-2 rounded bg-slate-900/30"
+                                    className="flex flex-col gap-1 rounded bg-slate-900/30 p-2 sm:flex-row sm:items-center sm:justify-between"
                                   >
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex min-w-0 items-center gap-2">
                                       <span className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-400">
                                         {empIndex + 1}
                                       </span>
-                                      <span className="text-sm text-white">{emp.name}</span>
+                                      <span className="truncate text-sm text-white">{emp.name}</span>
                                       <span className="text-xs text-slate-500">({emp.employeeCode})</span>
                                     </div>
                                     <span className="text-xs text-slate-400">{emp.region}</span>
@@ -5536,7 +5536,7 @@ export default function App() {
 
   return (
     <div className="app-shell min-h-screen">
-      <div className="flex min-h-screen flex-col md:flex-row">
+      <div className="flex min-h-screen min-w-0 flex-col md:flex-row">
         <aside className="sidebar-gradient hidden w-72 shrink-0 border-r border-slate-200/10 p-4 md:block md:min-h-screen">
           <div className="mb-8">
             <div className="mb-5 flex items-center gap-4">
@@ -5774,17 +5774,17 @@ export default function App() {
           </div>
         </aside>
 
-        <div className="header-gradient sticky top-0 z-50 border-b border-slate-200/10 px-4 py-3 md:hidden backdrop-blur-md">
+        <div className="header-gradient sticky top-0 z-50 border-b border-slate-200/10 px-3 py-3 md:hidden backdrop-blur-md">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-cyan-500/20" style={{ background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)' }}>
                 <TimerReset className="h-5 w-5 text-white" />
               </div>
-              <div className="flex flex-col">
+              <div className="flex min-w-0 flex-col">
                 <div className="text-[9px] uppercase tracking-[0.2em] text-cyan-400 font-bold">Attendance</div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-bold text-white">Backend</div>
-                  <span className="text-[10px] text-white font-mono">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="truncate text-sm font-bold text-white">Backend</div>
+                  <span className="truncate text-[10px] text-white font-mono">
                     {typeof __BUILD_TIMESTAMP__ !== 'undefined' && __BUILD_TIMESTAMP__ 
                       ? new Date(__BUILD_TIMESTAMP__).toLocaleString('en-ZA', { 
                           day: '2-digit', month: '2-digit', year: '2-digit', 
@@ -5819,7 +5819,7 @@ export default function App() {
                 className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm mt-3"
                 onClick={() => setMobileMenuOpen(false)}
               />
-              <nav className="relative z-50 mt-3 grid grid-cols-2 gap-2">
+              <nav className="mobile-scroll-snap relative z-50 mt-3 grid max-h-[70vh] grid-cols-2 gap-2 overflow-y-auto rounded-2xl border border-slate-700/50 bg-slate-950/95 p-2">
                 {sidebarItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeNav === item.key;
@@ -5843,15 +5843,15 @@ export default function App() {
           )}
         </div>
 
-        <main className="min-w-0 flex-1 p-4 pt-6 sm:p-6 sm:pt-8 lg:p-8">
+        <main className="min-w-0 flex-1 p-3 pt-5 sm:p-6 sm:pt-8 lg:p-8">
           <div className="mx-auto w-full max-w-[1800px] space-y-6">
-            <div className="glass-panel-light rounded-2xl px-6 py-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold text-white">
+            <div className="glass-panel-light rounded-2xl px-4 py-4 sm:px-6 sm:py-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold text-white sm:text-3xl">
                     {sidebarItems.find(i => i.key === activeNav)?.label || "Overview"}
                   </h1>
-                  <p className="mt-2 text-slate-400 text-sm">
+                  <p className="mt-2 text-sm text-slate-400">
                     {activeNav === "overview" && "Real-time attendance monitoring with trends"}
                     {activeNav === "shifts" && (isFieldRole ? "View and search workbook-based shift rosters (read-only)" : "Build and update workbook-based shift rosters")}
                     {activeNav === "calendar" && (isFieldRole ? "View and search calendar events (read-only)" : "Create calendar events across multiple dates and export month or year PDFs")}
@@ -5865,8 +5865,8 @@ export default function App() {
                     {activeNav === "devices" && "Monitor device connectivity"}
                   </p>
                 </div>
-                <div className="hidden md:flex items-center gap-3">
-                  <div className="px-4 py-2 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 text-sm">
+                <div className="flex items-center gap-3 self-start sm:self-auto">
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 px-3 py-2 text-sm text-slate-400 sm:px-4">
                     <span className="text-cyan-400 font-semibold">{overviewModuleSnapshot.activeEmployees}</span>
                     <span className="ml-1">Active</span>
                   </div>

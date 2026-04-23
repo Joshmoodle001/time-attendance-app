@@ -554,8 +554,8 @@ export default function EmployeesHub({
         <CardContent className="p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-4">
-              <div className="flex flex-wrap items-start gap-4">
-                <div className="relative min-w-[260px] flex-1">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
+                <div className="relative w-full min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     placeholder="Search employees..."
@@ -568,7 +568,7 @@ export default function EmployeesHub({
                 <select
                   value={employeeFilterRegion}
                   onChange={(e) => setEmployeeFilterRegion(e.target.value)}
-                  className="h-11 min-w-[188px] rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100"
+                  className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 sm:w-auto sm:min-w-[188px]"
                 >
                   <option style={{ backgroundColor: "#0f172a", color: "#f8fafc" }} value="all">
                     All Regions
@@ -587,7 +587,7 @@ export default function EmployeesHub({
                 <select
                   value={employeeFilterStatus}
                   onChange={(e) => setEmployeeFilterStatus(e.target.value)}
-                  className="h-11 min-w-[118px] rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100"
+                  className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 sm:w-auto sm:min-w-[118px]"
                 >
                   <option style={{ backgroundColor: "#0f172a", color: "#f8fafc" }} value="all">
                     All Status
@@ -605,7 +605,7 @@ export default function EmployeesHub({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-start gap-2 xl:max-w-[58%] xl:justify-end">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start xl:max-w-[58%] xl:justify-end">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -613,7 +613,7 @@ export default function EmployeesHub({
                     onOpenPayrollUpload();
                   }
                 }}
-                className="h-11 whitespace-nowrap flex items-center gap-2"
+                className="flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap sm:w-auto"
               >
                 <Upload className="w-4 h-4" />
                 Import payroll workbook
@@ -623,7 +623,7 @@ export default function EmployeesHub({
                 variant="outline"
                 onClick={onOpenStaffListUpload}
                 disabled={isUpdatingStaffList}
-                className="h-11 whitespace-nowrap flex items-center gap-2"
+                className="flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap sm:w-auto"
               >
                 <Upload className={`w-4 h-4 ${isUpdatingStaffList ? "animate-pulse" : ""}`} />
                 Emergency upload and update
@@ -632,7 +632,7 @@ export default function EmployeesHub({
               <Button
                 variant="outline"
                 onClick={() => setShowUploadHistory(!showUploadHistory)}
-                className="h-11 whitespace-nowrap flex items-center gap-2"
+                className="flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap sm:w-auto"
               >
                 <RefreshCw className={`w-4 h-4 ${showUploadHistory ? "animate-spin" : ""}`} />
                 View History
@@ -642,7 +642,7 @@ export default function EmployeesHub({
                 variant="outline"
                 onClick={() => void loadClockEvents()}
                 disabled={isLoadingClockEvents}
-                className="h-11 whitespace-nowrap flex items-center gap-2"
+                className="flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap sm:w-auto"
               >
                 <RefreshCw className={`w-4 h-4 ${isLoadingClockEvents ? "animate-spin" : ""}`} />
                 Refresh clocks
@@ -654,7 +654,7 @@ export default function EmployeesHub({
                   setEditingEmployee(null);
                   resetEmployeeForm();
                 }}
-                className="h-11 whitespace-nowrap flex items-center gap-2"
+                className="flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap sm:w-auto"
               >
                 <Plus className="w-4 h-4" />
                 Add Employee
@@ -674,7 +674,7 @@ export default function EmployeesHub({
 
           {isUploadingPayroll && (
             <div className="mt-4 rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm font-medium text-slate-300">{payrollUploadStage || "Processing payroll workbook..."}</span>
                 <span className="text-sm font-bold text-cyan-400">{payrollUploadProgress}%</span>
               </div>
@@ -694,7 +694,7 @@ export default function EmployeesHub({
           {showUploadHistory && (
             <Card className="mt-4 rounded-2xl">
               <CardHeader>
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span>Emergency Upload History</span>
                   <Button
                     variant="ghost"
@@ -712,7 +712,7 @@ export default function EmployeesHub({
                   <div className="space-y-3">
                     {staffListUploadLogs.slice(0, 20).map((log: EmployeeUpdateUploadLog) => (
                       <div key={log.id} className="rounded-xl border border-slate-200 p-4">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <div className="font-medium text-slate-900">{log.file_name}</div>
                             <div className="text-xs text-slate-500">
@@ -720,7 +720,7 @@ export default function EmployeesHub({
                               {log.rolled_back_at && <span className="ml-2 text-red-600">(Rolled back)</span>}
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
                             <Button
                               variant="outline"
                               size="sm"
@@ -733,7 +733,7 @@ export default function EmployeesHub({
                             <Badge className="bg-red-100 text-red-700">{log.inactive_profiles} inactive</Badge>
                           </div>
                         </div>
-                        <div className="flex gap-4 text-xs text-slate-600">
+                        <div className="flex flex-wrap gap-4 text-xs text-slate-600">
                           <span>Unchanged: {log.unchanged_profiles}</span>
                           <span>Unmatched: {log.unmatched_rows}</span>
                         </div>
@@ -770,7 +770,94 @@ export default function EmployeesHub({
             <div className="border-b border-slate-700/50 bg-slate-800/50 px-4 py-3 text-sm text-slate-300">
               Employee directory view for imported payroll profiles.
             </div>
-            <div ref={employeeTableRef} className="overflow-auto" style={{ height: '600px' }}>
+            <div className="grid gap-3 p-3 md:hidden">
+              {paginatedEmployees.map((employee) => {
+                const normalizedCode = normalizeEmployeeCode(employee.employee_code);
+                const clockSummary = employeeClockSummaryMap.get(normalizedCode);
+                const isSelectedClockProfile =
+                  normalizeEmployeeCode(selectedClockProfileEmployee?.employee_code) === normalizedCode;
+
+                return (
+                  <div
+                    key={`mobile-${employee.id}`}
+                    className={`rounded-2xl border p-4 ${
+                      isSelectedClockProfile ? "border-cyan-400/40 bg-cyan-950/15" : "border-slate-700/50 bg-slate-900/60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-base font-semibold text-white">
+                          {employee.first_name} {employee.last_name}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-400">{employee.employee_code || "No employee code"}</div>
+                      </div>
+                      <Badge
+                        className={
+                          employee.status === "active"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : employee.status === "inactive"
+                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            : "bg-slate-500/20 text-slate-400 border border-slate-500/30"
+                        }
+                      >
+                        {employee.status}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-xl bg-slate-800/60 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Role</div>
+                        <div className="mt-1 text-slate-200">{employee.job_title || employee.department || "-"}</div>
+                      </div>
+                      <div className="rounded-xl bg-slate-800/60 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Store</div>
+                        <div className="mt-1 text-slate-200">{employee.store || employee.branch || "-"}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-xl bg-slate-800/60 px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Clock history</div>
+                      {clockSummary ? (
+                        <div className="mt-1 text-sm text-slate-200">
+                          {clockSummary.totalEvents} event{clockSummary.totalEvents === 1 ? "" : "s"} | Last {formatClockAuditTimestamp(clockSummary.lastClockedAt)}
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-sm text-slate-400">No clock history yet</div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => void openEmployeeClockProfile(employee)}
+                        className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-3 py-2 text-sm ${
+                          isSelectedClockProfile
+                            ? "border-cyan-400 bg-cyan-400/20 text-cyan-400"
+                            : "border-slate-600 text-slate-300 hover:bg-slate-700"
+                        }`}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                        Clock profile
+                      </button>
+                      <button
+                        onClick={() => handleEditEmployee(employee)}
+                        className="rounded-lg p-2 hover:bg-cyan-500/20 text-cyan-400"
+                        title="Edit"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteEmployee(employee.id)}
+                        className="rounded-lg p-2 hover:bg-red-500/20 text-red-400"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div ref={employeeTableRef} className="mobile-table-wrap hidden overflow-auto md:block" style={{ height: 'min(70vh, 600px)' }}>
               <table className="w-full min-w-[1220px]" style={{ tableLayout: 'fixed' }}>
                 <thead className="bg-slate-800/80 sticky top-0 z-10">
                   <tr>
@@ -894,7 +981,7 @@ export default function EmployeesHub({
                 </tbody>
               </table>
               {totalEmployeePages > 1 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-slate-700/50">
+                <div className="flex flex-col gap-3 border-t border-slate-700/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm text-slate-400">
                     Showing {employeePage * EMPLOYEES_PER_PAGE + 1}-{Math.min((employeePage + 1) * EMPLOYEES_PER_PAGE, filteredEmployees.length)} of {filteredEmployees.length}
                   </div>

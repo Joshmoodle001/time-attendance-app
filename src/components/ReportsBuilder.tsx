@@ -1886,7 +1886,7 @@ export default function ReportsBuilder({
                 <button
                   type="button"
                   onClick={() => setIncludeInactiveProfiles((current) => !current)}
-                  className={`ml-auto inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition sm:ml-auto ${
                     includeInactiveProfiles
                       ? "border-amber-400/40 bg-amber-500/10 text-amber-200"
                       : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20"
@@ -1965,7 +1965,8 @@ export default function ReportsBuilder({
                   )}
 
                   {selectedStoreOptions.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="max-h-40 overflow-y-auto rounded-lg border border-white/10 p-2">
+                      <div className="flex flex-wrap gap-2">
                       {selectedStoreOptions.map((store) => (
                         <button
                           key={store.key}
@@ -1976,6 +1977,7 @@ export default function ReportsBuilder({
                           {store.displayName} ×
                         </button>
                       ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2017,7 +2019,8 @@ export default function ReportsBuilder({
                   )}
 
                   {selectedEmployees.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="max-h-40 overflow-y-auto rounded-lg border border-white/10 p-2">
+                      <div className="flex flex-wrap gap-2">
                       {selectedEmployees.map((employee) => {
                         const normalizedCode = normalizeEmployeeCode(employee.employee_code);
                         return (
@@ -2031,6 +2034,7 @@ export default function ReportsBuilder({
                           </button>
                         );
                       })}
+                      </div>
                     </div>
                   )}
 
@@ -2122,7 +2126,29 @@ export default function ReportsBuilder({
                     No employees matched the current AWOL streak threshold.
                   </div>
                 ) : (
-                  <div className="section-tech-table">
+                  <div className="space-y-3">
+                    <div className="grid gap-3 md:hidden">
+                      {generatedAwolRows.map((row, index) => (
+                        <div key={`${row.employeeCode}-${row.currentAwolStreak}-${row.awolDates.join("-")}-mobile`} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-white">
+                                #{index + 1} {row.employeeCode} - {row.employeeName}
+                              </div>
+                              <div className="mt-1 text-xs text-slate-400">{row.department || row.region || "No extra profile detail"}</div>
+                            </div>
+                            <Badge className="bg-red-100 text-red-700">{row.currentAwolStreak} days</Badge>
+                          </div>
+                          <div className="mt-3 text-xs text-slate-300">
+                            <div>Store: {row.storeCode ? `${row.storeCode} - ${row.store}` : row.store}</div>
+                            <div className="mt-1">Last day at work: {row.lastDayAtWorkLabel}</div>
+                            <div className="mt-1">AWOL dates: {row.awolDates.map((dateKey) => formatLongDate(dateKey)).join(" | ")}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="section-tech-table hidden md:block">
                     <table className="w-full min-w-[980px] border-collapse">
                       <thead className="bg-white/5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
                         <tr>
@@ -2159,6 +2185,7 @@ export default function ReportsBuilder({
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 )}
               </>
@@ -2199,9 +2226,9 @@ export default function ReportsBuilder({
                   <div className="space-y-7">
                     {generatedSections.map((section) => (
                       <section key={section.key} className="overflow-hidden rounded-[28px] border border-gray-300 bg-slate-950/45 shadow-[0_24px_60px_rgba(2,6,23,0.28)]">
-                        <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-6 py-5 text-white">
+                        <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-4 py-5 text-white sm:px-6">
                           <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-600">Attendance Report</div>
-                          <div className="mt-2 text-2xl font-bold tracking-tight flex items-center gap-3">
+                          <div className="mt-2 flex flex-wrap items-center gap-3 text-xl font-bold tracking-tight sm:text-2xl">
                             {section.storeCode ? `${section.storeCode} - ${section.store}` : section.store}
                             {(() => {
                               const label = getStoreDeviceLabel(section.storeCode, section.store);
@@ -2229,7 +2256,7 @@ export default function ReportsBuilder({
                             const targetHours = employee.rows.reduce((sum, row) => sum + row.targetHours, 0);
 
                             return (
-                              <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-6 py-6 first:border-t-0">
+                              <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-4 py-5 first:border-t-0 sm:px-6 sm:py-6">
                                 <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                                   <div>
                                     <div className="text-lg font-semibold text-white">
@@ -2259,7 +2286,28 @@ export default function ReportsBuilder({
                                   </div>
                                 </div>
 
-                                <div className="section-tech-table mt-5">
+                                <div className="mt-4 grid gap-3 md:hidden">
+                                  {employee.rows.map((row) => (
+                                    <div key={`${employee.employeeCode}-${row.dateKey}-mobile`} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                          <div className="text-sm font-semibold text-white">{row.dateLabel}</div>
+                                          <div className="text-xs text-slate-400">{row.weekdayLabel} | {row.weekLabel}</div>
+                                        </div>
+                                        <Badge className={getStatusTone(row.status)}>{row.status}</Badge>
+                                      </div>
+                                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
+                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Roster: {row.scheduleLabel}</div>
+                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Hours: {formatHours(row.targetHours)}</div>
+                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">In: {row.firstClock || "-"}</div>
+                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
+                                      </div>
+                                      <div className="mt-2 text-xs text-slate-400">Clocks ({row.clockCount}): {row.clockings.length > 0 ? row.clockings.join(" | ") : "No clocks"}</div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="section-tech-table mt-5 hidden md:block">
                                   <table className="w-full min-w-[980px] border-collapse">
                                     <thead className="bg-white/5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
                                       <tr>

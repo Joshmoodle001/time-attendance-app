@@ -265,16 +265,16 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={() => uploadRef.current?.click()} disabled={isImporting}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <Button onClick={() => uploadRef.current?.click()} disabled={isImporting} className="w-full sm:w-auto">
               <Upload className="mr-2 h-4 w-4" />
               {isImporting ? "Importing leave..." : "Upload Leave Excel"}
             </Button>
-            <Button variant="outline" onClick={() => void handleRefresh()} disabled={isRefreshing}>
+            <Button variant="outline" onClick={() => void handleRefresh()} disabled={isRefreshing} className="w-full sm:w-auto">
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Button variant="destructive" onClick={() => setShowDeleteModal(true)}>
+            <Button variant="destructive" onClick={() => setShowDeleteModal(true)} className="w-full sm:w-auto">
               Clear Leave Logs
             </Button>
             <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" multiple className="hidden" onChange={handleImport} />
@@ -353,17 +353,17 @@ export default function LeaveHub({ employees }: LeaveHubProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             {selectedUpload ? (
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <Input
                   value={applicationSearch}
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) => setApplicationSearch(event.target.value)}
                   placeholder="Filter by merchandiser, code, ID, leave type, or store..."
-                  className="min-w-[280px] flex-1"
+                  className="w-full min-w-0 flex-1"
                 />
                 <select
                   value={applicationStatusFilter}
                   onChange={(event) => setApplicationStatusFilter(event.target.value)}
-                  className="flex h-11 min-w-[180px] rounded-xl border border-input bg-background px-3.5 py-2.5 text-[15px] leading-6"
+                  className="flex h-11 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-[15px] leading-6 sm:w-auto sm:min-w-[180px]"
                 >
                   <option value="all">All statuses</option>
                   <option value="applied">Applied only</option>

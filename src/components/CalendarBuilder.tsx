@@ -256,11 +256,11 @@ export default function CalendarBuilder({ readOnly = false }: CalendarBuilderPro
                 </CardDescription>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-600 bg-slate-800 px-2 py-2 sm:gap-3 sm:px-3">
                 <Button variant="ghost" size="icon" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <div className="min-w-[160px] text-center font-medium text-white">
+                <div className="min-w-0 flex-1 text-center text-sm font-medium text-white sm:min-w-[160px] sm:text-base">
                   {MONTH_NAMES[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}>
@@ -291,23 +291,23 @@ export default function CalendarBuilder({ readOnly = false }: CalendarBuilderPro
                     key={dateKey}
                     type="button"
                     onClick={readOnly ? undefined : () => toggleDate(dateKey)}
-                    className={`min-h-[106px] border-b border-r border-slate-700 px-2 py-3 text-left transition ${
+                    className={`min-h-[84px] border-b border-r border-slate-700 px-1.5 py-2 text-left transition sm:min-h-[106px] sm:px-2 sm:py-3 ${
                       isSelected ? "bg-cyan-900/20" : readOnly ? "bg-slate-800/50" : "bg-slate-800/50 hover:bg-slate-700/50"
                     }`}
                   >
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm ${isSelected ? "bg-cyan-500 text-white" : isCurrentMonth ? "text-white" : "text-slate-500"}`}>
-                      {date.getDate()}
-                    </div>
+                      <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs sm:h-8 sm:w-8 sm:text-sm ${isSelected ? "bg-cyan-500 text-white" : isCurrentMonth ? "text-white" : "text-slate-500"}`}>
+                        {date.getDate()}
+                      </div>
 
-                    <div className="mt-3 space-y-1">
-                      {dayEvents.length === 0 ? (
-                        <div className="h-4 rounded bg-slate-700" />
-                      ) : (
-                        dayEvents.slice(0, 2).map((event) => (
-                          <div key={event.id} className={`truncate rounded px-2 py-1 text-[11px] ${EVENT_TYPE_META[event.type].chipClass}`}>
-                            {event.title}
-                          </div>
-                        ))
+                      <div className="mt-2 space-y-1 sm:mt-3">
+                        {dayEvents.length === 0 ? (
+                          <div className="h-3 rounded bg-slate-700 sm:h-4" />
+                        ) : (
+                          dayEvents.slice(0, 2).map((event) => (
+                            <div key={event.id} className={`truncate rounded px-1.5 py-1 text-[10px] sm:px-2 sm:text-[11px] ${EVENT_TYPE_META[event.type].chipClass}`}>
+                              {event.title}
+                            </div>
+                          ))
                       )}
                     </div>
                   </button>
