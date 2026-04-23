@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown, ChevronRight, Mail, Phone, Search, Store, Upload, UserRound } from "lucide-react";
+import { ChevronDown, ChevronRight, Mail, MessageCircle, Phone, PhoneCall, Search, Send, Store, Upload, UserRound } from "lucide-react";
 
 type CoversheetStatus = "terminated" | "maternity" | "hold";
 
@@ -85,9 +85,9 @@ const EMPLOYEE_NAME_KEYS = [
 const FIRST_NAME_KEYS = ["first_name", "firstname", "first"];
 const LAST_NAME_KEYS = ["last_name", "lastname", "surname", "last"];
 
-const PHONE_KEYS = ["phone", "phone_number", "cell", "cellphone", "mobile", "mobile_number", "contact_number"];
-const EMAIL_KEYS = ["email", "email_address", "mail", "e_mail"];
-const STATUS_KEYS = ["status", "employee_status", "employment_status", "route_status", "rep_status"];
+const PHONE_KEYS = ["phone", "phone_number", "cell", "cellphone", "cell_number", "mobile", "mobile_number", "contact_number"];
+const EMAIL_KEYS = ["email", "email_address", "genentity_email_address", "mail", "e_mail"];
+const STATUS_KEYS = ["status", "employee_status", "employment_status", "route_status", "rep_status", "rep"];
 const TERMINATED_KEYS = ["terminated", "is_terminated", "termination", "termination_flag", "termination_status"];
 const MATERNITY_KEYS = ["maternity", "is_maternity", "maternity_leave", "maternity_status"];
 const HOLD_KEYS = ["hold", "on_hold", "is_hold", "hold_status"];
@@ -108,7 +108,39 @@ function normalizeValue(value: unknown) {
 
 function parseTruthy(value: unknown) {
   const clean = normalizeValue(value).toLowerCase();
-  return ["1", "y", "yes", "true", "active", "hold", "terminated", "maternity"].includes(clean);
+  return ["1", "y", "yes", "true", "active", "hold", "terminated", "maternity", "appointed"].includes(clean);
+}
+
+function normalizePhoneForActions(value: string) {
+  const raw = normalizeValue(value).replace(/[^\d+]/g, "");
+  if (!raw) return { tel: "", whatsapp: "" };
+
+  if (raw.startsWith("+")) {
+    return {
+      tel: raw,
+      whatsapp: raw.slice(1),
+    };
+  }
+
+  if (raw.startsWith("0")) {
+    const intl = `+27${raw.slice(1)}`;
+    return {
+      tel: intl,
+      whatsapp: intl.slice(1),
+    };
+  }
+
+  if (raw.startsWith("27")) {
+    return {
+      tel: `+${raw}`,
+      whatsapp: raw,
+    };
+  }
+
+  return {
+    tel: raw,
+    whatsapp: raw,
+  };
 }
 
 function findHeaderRow(rows: unknown[][]) {
@@ -158,7 +190,7 @@ function getEntry(entries: Record<string, unknown>, keys: string[]) {
 function collectStatuses(entries: Record<string, unknown>): CoversheetStatus[] {
   const statuses: CoversheetStatus[] = [];
 
-  const statusText = getEntry(entries, STATUS_KEYS).toLowerCase();
+  const statusText = STATUS_KEYS.map((key) => normalizeValue(entries[key])).join(" ").toLowerCase();
   if (statusText.includes("terminated")) statuses.push("terminated");
   if (statusText.includes("maternity")) statuses.push("maternity");
   if (statusText.includes("hold")) statuses.push("hold");
@@ -702,10 +734,39 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
                         <div className="flex items-center gap-1.5">
                           <Phone className="h-3.5 w-3.5" />
                           <span>{employee.phone || "-"}</span>
+                          {employee.phone ? (
+                            <>
+                              <a
+                                href={`tel:${normalizePhoneForActions(employee.phone).tel}`}
+                                className="ml-2 inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/25"
+                              >
+                                <PhoneCall className="h-3 w-3" />
+                                Call
+                              </a>
+                              <a
+                                href={`https://wa.me/${normalizePhoneForActions(employee.phone).whatsapp}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2 py-0.5 text-[11px] font-medium text-green-300 hover:bg-green-500/25"
+                              >
+                                <MessageCircle className="h-3 w-3" />
+                                WhatsApp
+                              </a>
+                            </>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Mail className="h-3.5 w-3.5" />
                           <span>{employee.email || "-"}</span>
+                          {employee.email ? (
+                            <a
+                              href={`mailto:${employee.email}`}
+                              className="ml-2 inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/25"
+                            >
+                              <Send className="h-3 w-3" />
+                              Email
+                            </a>
+                          ) : null}
                         </div>
                       </div>
                     </div>
