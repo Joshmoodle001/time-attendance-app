@@ -108,6 +108,7 @@ const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
 const RegionalRepPanel = lazy(() => import("@/components/RegionalRepPanel"));
+const RosterHistoryAdminPanel = lazy(() => import("@/components/RosterHistoryAdminPanel"));
 
 const ATTENDANCE_STATUS_CONFIG = [
   { key: "atWork", name: "At Work", color: "#22c55e" },
@@ -2756,7 +2757,7 @@ export default function App() {
   const [isSavingIpulseConfig, setIsSavingIpulseConfig] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; error?: string; response_time?: number } | null>(null);
-  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data" | "coversheet">("attendance");
+  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data" | "coversheet" | "history">("attendance");
 
   // Load iPulse config
   const loadIpulseConfig = async () => {
@@ -4833,6 +4834,19 @@ export default function App() {
                 Coversheet
               </div>
             </button>
+            <button
+              onClick={() => setActiveAdminTab("history")}
+              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
+                activeAdminTab === "history"
+                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                  : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Clock className="w-4 h-4" />
+                History
+              </div>
+            </button>
           </div>
         </CardContent>
       </Card>
@@ -5265,6 +5279,24 @@ export default function App() {
       )}
 
       {activeAdminTab === "coversheet" && renderCoversheet("admin")}
+
+      {activeAdminTab === "history" && (
+        <Suspense fallback={
+          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
+            <CardContent className="tech-loader p-8 text-center text-slate-300">
+              <div className="orb-loader mx-auto mb-4 w-fit">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="font-medium text-white">Loading history controls</div>
+              <div className="mt-1 text-xs text-slate-400">Preparing roster history and sandbox verification tools...</div>
+            </CardContent>
+          </Card>
+        }>
+          <RosterHistoryAdminPanel />
+        </Suspense>
+      )}
     </div>
     );
   };
