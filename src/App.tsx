@@ -3845,35 +3845,72 @@ export default function App() {
     const sheet = workbook.Sheets[firstSheetName];
     const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
 
+    const readValue = (entries: Record<string, unknown>, keys: string[]) => {
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(entries, key)) {
+          const value = entries[key];
+          if (value !== undefined && value !== null && String(value).trim() !== "") {
+            return value;
+          }
+        }
+      }
+      return "";
+    };
+
+    const readBoolean = (entries: Record<string, unknown>, keys: string[]) => {
+      const value = readValue(entries, keys);
+      if (typeof value === "boolean") return value;
+      const normalized = String(value || "").trim().toLowerCase();
+      if (!normalized) return false;
+      return ["true", "yes", "y", "1", "on", "active", "enabled"].includes(normalized);
+    };
+
     return rows
       .map((row, index) => {
         const entries = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
-          acc[String(key).trim().toLowerCase()] = value;
+          const lower = String(key).trim().toLowerCase();
+          const compact = lower.replace(/[^a-z0-9]+/g, "");
+          acc[lower] = value;
+          acc[compact] = value;
           return acc;
         }, {});
 
-        const name = String(entries.devicename || entries["device name"] || entries.device || entries.name || "").trim();
+        const name = String(
+          readValue(entries, ["devicename", "device name", "displayname", "display name", "device", "name", "description"])
+        ).trim();
         if (!name) return null;
 
-        const serial = String(entries.serialnumber || entries.serial || entries["serial number"] || "").trim();
-        const description = String(entries.description || "").trim();
-        const deviceType = String(entries.devicetype || entries["device type"] || entries.type || "").trim();
-        const readerType = String(entries.readertype || entries["reader type"] || "").trim();
-        const rawStatus = String(entries.devicestatus || entries["device status"] || entries.status || "").trim().toLowerCase();
-        const connected = String(entries.connected || "").trim();
-        const hasTA = String(entries.timeandattendance || entries["time and attendance"] || "").trim().toLowerCase() === "true";
+        const serial = String(readValue(entries, ["serialnumber", "serial number", "serial", "deviceserial"])).trim();
+        const description = String(readValue(entries, ["description", "displayname", "display name"])).trim();
+        const deviceType = String(readValue(entries, ["devicetype", "device type", "type"])).trim();
+        const readerType = String(readValue(entries, ["readertype", "reader type"])).trim();
+        const rawStatus = String(readValue(entries, ["devicestatus", "device status", "status"])).trim().toLowerCase();
+        const connected = String(readValue(entries, ["connected", "connectionstatus", "connection status"])).trim();
+        const normalizedConnected = connected.toLowerCase();
+        const hasTA = readBoolean(entries, ["ta", "t&a", "timeandattendance", "time and attendance", "timeattendance"]);
+        const enabled = readBoolean(entries, ["enabled", "active", "isactive", "statusenabled"]);
 
         const status: "online" | "offline" | "warning" =
-          rawStatus === "online" ? "online" :
-          rawStatus === "offline" || connected.toLowerCase() === "inactive" ? "offline" :
-          "warning";
+          normalizedConnected.includes("online")
+            ? "online"
+            : normalizedConnected.includes("offline")
+              ? "offline"
+              : rawStatus === "active" || rawStatus === "online"
+                ? enabled ? "online" : "warning"
+                : rawStatus === "inactive" || rawStatus === "offline"
+                  ? deviceType.toLowerCase().includes("logical")
+                    ? "warning"
+                    : "offline"
+                  : rawStatus.includes("investigation")
+                    ? "warning"
+                    : "warning";
 
         const parsed = parseRegionStore(name);
         const storeCode = parsed.storeCode || "";
         const storeName = parsed.store || description || name;
 
         return {
-          id: serial || storeCode || `DEV-${String(index + 1).padStart(4, "0")}`,
+          id: serial || `${storeCode || "DEV"}-${String(index + 1).padStart(4, "0")}`,
           name,
           description,
           storeCode,
