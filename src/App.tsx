@@ -13,6 +13,7 @@ import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsFo
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
 import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
+import { getAllStores, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { WorkBook } from "xlsx";
@@ -94,6 +95,8 @@ const ALL_SIDEBAR_ITEMS = [
   { key: "superadmin", label: "Super Admin", icon: Shield },
   { key: "myportal", label: "My Portal", icon: Building2 },
 ] as const;
+
+const FIELD_ROLE_NAV_KEYS = ["overview", "reports", "shifts", "calendar", "coversheet"] as const;
 
 declare const __BUILD_TIMESTAMP__: string;
 
@@ -190,6 +193,44 @@ function deriveEmployeeLocationsFromProfiles(profiles: Employee[]) {
   ).values()];
 
   return { regions, stores };
+}
+
+function normalizeStorePart(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildStoreAssignmentMatcher(assignedStoreKeys: string[]) {
+  const normalizedFull = new Set(
+    assignedStoreKeys
+      .map((key) => normalizeStorePart(key))
+      .filter(Boolean)
+  );
+  const normalizedCodes = new Set<string>();
+  const normalizedNames = new Set<string>();
+  assignedStoreKeys.forEach((key) => {
+    const text = String(key || "");
+    if (!text.trim()) return;
+    const parts = text.split(" - ");
+    if (parts.length >= 2) {
+      normalizedCodes.add(normalizeStorePart(parts[0]));
+      normalizedNames.add(normalizeStorePart(parts.slice(1).join(" - ")));
+      return;
+    }
+    normalizedCodes.add(normalizeStorePart(text));
+    normalizedNames.add(normalizeStorePart(text));
+  });
+
+  return (storeCode: unknown, storeName: unknown) => {
+    if (normalizedFull.size === 0) return false;
+    const code = normalizeStorePart(storeCode);
+    const name = normalizeStorePart(storeName);
+    const full = `${code} - ${name}`.trim();
+    return (
+      (full && normalizedFull.has(full)) ||
+      (code && (normalizedCodes.has(code) || normalizedFull.has(code))) ||
+      (name && (normalizedNames.has(name) || normalizedFull.has(name)))
+    );
+  };
 }
 
 type AttendanceRecord = {
@@ -1231,19 +1272,29 @@ export default function App() {
 
   const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
 
-  const isRepOnly = session?.role === "rep";
   const sidebarItems = useMemo(() => {
     if (!session) return ALL_SIDEBAR_ITEMS;
     if (session.role === "super_admin" || session.role === "admin") return ALL_SIDEBAR_ITEMS.filter((i) => i.key !== "myportal");
-    // Rep role: only Overview, Shifts, Calendar
-    if (session.role === "rep") return ALL_SIDEBAR_ITEMS.filter((i) => ["overview", "shifts", "calendar"].includes(i.key));
-    // Other field roles (regional, divisional) show My Portal instead of full admin
-    return ALL_SIDEBAR_ITEMS.filter((i) => !["admin", "superadmin", "devices"].includes(i.key));
+    if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
+      return ALL_SIDEBAR_ITEMS.filter((i) => FIELD_ROLE_NAV_KEYS.includes(i.key as (typeof FIELD_ROLE_NAV_KEYS)[number]));
+    }
+    return ALL_SIDEBAR_ITEMS.filter((i) => !["admin", "superadmin", "devices", "myportal"].includes(i.key));
   }, [session?.role]);
+
+  useEffect(() => {
+    if (!sidebarItems.some((item) => item.key === activeNav)) {
+      setActiveNav(sidebarItems[0]?.key || "overview");
+    }
+  }, [activeNav, sidebarItems]);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileSurname, setProfileSurname] = useState("");
+  const [profileCoversheetCode, setProfileCoversheetCode] = useState("");
+  const [profileAssignedStoreKeys, setProfileAssignedStoreKeys] = useState<string[]>([]);
+  const [profileStoreUniverse, setProfileStoreUniverse] = useState<StoreInfo[]>([]);
+  const [profileStoreSearch, setProfileStoreSearch] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportDate, setDeviceImportDate] = useState("");
@@ -1303,6 +1354,31 @@ export default function App() {
     const entry = storeDeviceMap.get(code);
     return entry ? entry.hasDevice : null;
   }, [storeDeviceMap]);
+
+  const profileAssignedStoreSet = useMemo(
+    () => new Set(profileAssignedStoreKeys.map((key) => String(key || "").trim()).filter(Boolean)),
+    [profileAssignedStoreKeys]
+  );
+  const profileStoreMatches = useMemo(() => {
+    const query = String(profileStoreSearch || "").toLowerCase().trim();
+    const available = profileStoreUniverse.filter((store) => !profileAssignedStoreSet.has(store.storeKey));
+    if (!query) return available.slice(0, 12);
+    return available
+      .filter((store) => `${store.storeCode} ${store.storeName} ${store.region}`.toLowerCase().includes(query))
+      .slice(0, 12);
+  }, [profileAssignedStoreSet, profileStoreSearch, profileStoreUniverse]);
+  const profileAssignedStoresDetailed = useMemo(() => {
+    return profileAssignedStoreKeys
+      .map((key) => profileStoreUniverse.find((store) => store.storeKey === key) || ({
+        storeKey: key,
+        storeName: key,
+        storeCode: "",
+        region: "",
+        regionCode: "",
+        employeeCount: 0,
+      } as StoreInfo))
+      .filter(Boolean);
+  }, [profileAssignedStoreKeys, profileStoreUniverse]);
   const [saveMessage, setSaveMessage] = useState("");
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
@@ -1663,18 +1739,30 @@ export default function App() {
         ? dayAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
         : dayAttendance;
 
+      const roleStoreMatcher = buildStoreAssignmentMatcher(profileAssignedStoreKeys);
+      const scopedEmployeeProfiles = isFieldRole
+        ? filteredEmployeeProfiles.filter((employee) => roleStoreMatcher(employee.store_code, employee.store))
+        : filteredEmployeeProfiles;
+      const scopedRangeAttendance = isFieldRole
+        ? filteredRangeAttendance.filter((record) => roleStoreMatcher(record.store_code, record.store))
+        : filteredRangeAttendance;
+      const scopedDayAttendance = isFieldRole
+        ? filteredDayAttendance.filter((record) => roleStoreMatcher(record.store_code, record.store))
+        : filteredDayAttendance;
+
       const filteredEmployeeCodes = new Set(
-        filteredEmployeeProfiles.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
+        scopedEmployeeProfiles.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
       );
 
-      const filteredDayClockEvents = deviceRecords.length > 0
+      const shouldFilterClockEvents = deviceRecords.length > 0 || isFieldRole;
+      const filteredDayClockEvents = shouldFilterClockEvents
         ? dayClockEvents.filter((ev) => {
             const code = normalizeEmployeeCode(ev.employee_code);
             return filteredEmployeeCodes.has(code);
           })
         : dayClockEvents;
 
-      const filteredRangeClockEvents = deviceRecords.length > 0
+      const filteredRangeClockEvents = shouldFilterClockEvents
         ? rangeClockEvents.filter((ev) => {
             const code = normalizeEmployeeCode(ev.employee_code);
             return filteredEmployeeCodes.has(code);
@@ -1683,11 +1771,11 @@ export default function App() {
       // STEP 5: Data processing
       const t5 = performance.now();
       overviewDataCacheRef.current = {
-        employees: filteredEmployeeProfiles,
+        employees: scopedEmployeeProfiles,
         shiftRosters,
         shiftRosterHistory,
         leaveUploads,
-        rangeAttendance: filteredRangeAttendance,
+        rangeAttendance: scopedRangeAttendance,
         rangeClockEvents: filteredRangeClockEvents,
         leaveApplicationsForRange,
         fetchedAt: now,
@@ -1703,7 +1791,7 @@ export default function App() {
           eventDate.getMonth() === selectedDate.getMonth()
         );
       });
-      const mappedDayAttendance = filteredDayAttendance.map(mapDatabaseAttendanceRecord);
+      const mappedDayAttendance = scopedDayAttendance.map(mapDatabaseAttendanceRecord);
 
       const dayRosterLookup = buildRosterStatusLookup(shiftRosters, shiftRosterHistory, selectedOverviewDate);
       const dayClockingsByEmployee = buildClockingsByEmployee(dayClockEvents);
@@ -1713,7 +1801,7 @@ export default function App() {
         ? buildOverviewAttendanceRecordsFromSources({
             dateValue: selectedOverviewDate,
             existingRecords: mappedDayAttendance,
-            employeeProfiles: filteredEmployeeProfiles,
+            employeeProfiles: scopedEmployeeProfiles,
             shiftRosters,
             shiftRosterHistory,
             clockEvents: filteredDayClockEvents,
@@ -1743,11 +1831,11 @@ export default function App() {
         derivedTrendSeries = buildOverviewTrendSeriesFromSources({
           startDateValue: overviewStartDate,
           endDateValue: overviewEndDate,
-          existingRecords: filteredRangeAttendance.map(mapDatabaseAttendanceRecord).map((record, index) => ({
+          existingRecords: scopedRangeAttendance.map(mapDatabaseAttendanceRecord).map((record, index) => ({
             ...record,
-            id: `${filteredRangeAttendance[index]?.upload_date || ""}__${record.employeeCode}`,
+            id: `${scopedRangeAttendance[index]?.upload_date || ""}__${record.employeeCode}`,
           })),
-          employeeProfiles: filteredEmployeeProfiles,
+          employeeProfiles: scopedEmployeeProfiles,
           shiftRosters,
           shiftRosterHistory,
           clockEvents: filteredRangeClockEvents,
@@ -1765,12 +1853,12 @@ export default function App() {
       const t6 = performance.now();
       setOverviewAttendanceRecords(derivedOverviewRecords);
       setOverviewTrendSeries(derivedTrendSeries);
-      setOverviewEmployeeProfiles(filteredEmployeeProfiles);
+      setOverviewEmployeeProfiles(scopedEmployeeProfiles);
       setOverviewModuleSnapshot({
-        employeeProfiles: filteredEmployeeProfiles.length,
-        activeEmployees: filteredEmployeeProfiles.filter((employee) => employee.status === "active").length,
-        inactiveEmployees: filteredEmployeeProfiles.filter((employee) => employee.status === "inactive").length,
-        terminatedEmployees: filteredEmployeeProfiles.filter((employee) => employee.status === "terminated").length,
+        employeeProfiles: scopedEmployeeProfiles.length,
+        activeEmployees: scopedEmployeeProfiles.filter((employee) => employee.status === "active").length,
+        inactiveEmployees: scopedEmployeeProfiles.filter((employee) => employee.status === "inactive").length,
+        terminatedEmployees: scopedEmployeeProfiles.filter((employee) => employee.status === "terminated").length,
         shiftRosters: shiftRosters.length,
         shiftRows: shiftRosters.reduce((sum, roster) => sum + roster.rows.length, 0),
         enabledShiftSyncs: shiftSyncSettings.sections.filter((section) => section.url).length,
@@ -1802,7 +1890,7 @@ export default function App() {
       };
       setIsLoadingOverview(false);
     }
-  }, [deviceRecords.length, employees, hasPhysicalDeviceForStore, overviewEndDate, overviewStartDate, selectedOverviewDate]);
+  }, [deviceRecords.length, employees, hasPhysicalDeviceForStore, isFieldRole, overviewEndDate, overviewStartDate, profileAssignedStoreKeys, selectedOverviewDate]);
 
   const loadAttendanceForDate = async (date: string, options?: { silent?: boolean }) => {
     if (!date) return [];
@@ -1831,11 +1919,45 @@ export default function App() {
     if (currentSession) {
       setProfileName(currentSession.name || "");
       setProfileSurname(currentSession.surname || "");
-      if ((currentSession.role === "rep" || currentSession.role === "regional" || currentSession.role === "divisional") && activeNav === "overview") {
-        setActiveNav("myportal");
+      setProfileCoversheetCode(currentSession.coversheetCode || "");
+      if (currentSession.role === "rep" || currentSession.role === "regional" || currentSession.role === "divisional") {
+        void (async () => {
+          const [assignedStores, allStores] = await Promise.all([
+            getStoreAssignments(currentSession.username),
+            getAllStores(),
+          ]);
+          setProfileAssignedStoreKeys(assignedStores);
+          setProfileStoreUniverse(allStores);
+        })();
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!session || editingProfile) return;
+    setProfileName(session.name || "");
+    setProfileSurname(session.surname || "");
+    setProfileCoversheetCode(session.coversheetCode || "");
+
+    if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
+      let alive = true;
+      void (async () => {
+        const [assignedStores, allStores] = await Promise.all([
+          getStoreAssignments(session.username),
+          getAllStores(),
+        ]);
+        if (!alive) return;
+        setProfileAssignedStoreKeys(assignedStores);
+        setProfileStoreUniverse(allStores);
+      })();
+      return () => {
+        alive = false;
+      };
+    }
+
+    setProfileAssignedStoreKeys([]);
+    setProfileStoreUniverse([]);
+  }, [editingProfile, session?.coversheetCode, session?.name, session?.role, session?.surname, session?.username]);
 
   useEffect(() => {
     let alive = true;
@@ -4561,7 +4683,10 @@ export default function App() {
         </CardContent>
       </Card>
     }>
-      <CoversheetHub mode={mode} />
+      <CoversheetHub
+        mode={mode}
+        allowedStoreKeys={mode === "view" && isFieldRole ? profileAssignedStoreKeys : undefined}
+      />
     </Suspense>
   );
 
@@ -5330,8 +5455,8 @@ export default function App() {
         </Suspense>
       );
     }
-    if (activeNav === "shifts") return <ShiftBuilder />;
-    if (activeNav === "calendar") return <CalendarBuilder />;
+    if (activeNav === "shifts") return <ShiftBuilder readOnly={isFieldRole} />;
+    if (activeNav === "calendar") return <CalendarBuilder readOnly={isFieldRole} />;
     if (activeNav === "roster") return <RosterBuilder />;
     if (activeNav === "leave") return <LeaveHub employees={employees} />;
     if (activeNav === "clockData") return renderClockData();
@@ -5376,14 +5501,26 @@ export default function App() {
     </Card>
   );
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (!session) return;
-    const result = updateUserProfile(session.username, profileName, profileSurname);
-    if (result.success && result.session) {
+    setProfileSaving(true);
+    try {
+      const result = updateUserProfile(session.username, profileName, profileSurname, {
+        coversheetCode: profileCoversheetCode,
+      });
+      if (!result.success || !result.session) {
+        setProfileMessage(result.success ? "Could not update profile." : result.error || "Could not update profile.");
+        return;
+      }
+      if (isFieldRole) {
+        await saveStoreAssignments(session.username, profileAssignedStoreKeys);
+      }
       setSession(result.session);
-      setProfileMessage(result.message);
+      setProfileMessage("Profile and store assignments updated successfully.");
       setEditingProfile(false);
-      setTimeout(() => setProfileMessage(""), 3000);
+      setTimeout(() => setProfileMessage(""), 3500);
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -5483,23 +5620,36 @@ export default function App() {
                     <Input
                       value={profileName}
                       onChange={(e) => setProfileName(e.target.value)}
-                      disabled={!editingProfile}
+                      disabled={!editingProfile || profileSaving}
                       className="bg-slate-700/50 border-slate-600 text-white text-sm h-9 disabled:opacity-60"
                       placeholder="Enter your name"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Surname</label>
                     <Input
                       value={profileSurname}
                       onChange={(e) => setProfileSurname(e.target.value)}
-                      disabled={!editingProfile}
+                      disabled={!editingProfile || profileSaving}
                       className="bg-slate-700/50 border-slate-600 text-white text-sm h-9 disabled:opacity-60"
                       placeholder="Enter your surname"
                     />
                   </div>
-                  
+
+                  {isFieldRole && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Coversheet Code</label>
+                      <Input
+                        value={profileCoversheetCode}
+                        onChange={(e) => setProfileCoversheetCode(e.target.value.toUpperCase())}
+                        disabled={!editingProfile || profileSaving}
+                        className="bg-slate-700/50 border-slate-600 text-white text-sm h-9 disabled:opacity-60"
+                        placeholder="e.g. ML0707"
+                      />
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Email</label>
                     <Input
@@ -5509,6 +5659,65 @@ export default function App() {
                     />
                     <div className="text-[10px] text-slate-500 mt-1">Email cannot be changed</div>
                   </div>
+
+                  {isFieldRole && (
+                    <div className="rounded-lg border border-slate-700/60 bg-slate-900/30 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-slate-300">Stores</div>
+                        <div className="text-[11px] text-slate-400">{profileAssignedStoreKeys.length} assigned</div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Input
+                          value={profileStoreSearch}
+                          onChange={(e) => setProfileStoreSearch(e.target.value)}
+                          disabled={!editingProfile || profileSaving}
+                          className="bg-slate-700/50 border-slate-600 text-white text-xs h-8 disabled:opacity-60"
+                          placeholder="Search stores to assign"
+                        />
+
+                        {profileAssignedStoresDetailed.length > 0 && (
+                          <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto rounded-md border border-slate-700/50 bg-slate-950/40 p-2">
+                            {profileAssignedStoresDetailed.map((store) => (
+                              <button
+                                key={store.storeKey}
+                                type="button"
+                                disabled={!editingProfile || profileSaving}
+                                onClick={() => {
+                                  if (!editingProfile || profileSaving) return;
+                                  setProfileAssignedStoreKeys((current) => current.filter((key) => key !== store.storeKey));
+                                }}
+                                className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200 disabled:cursor-not-allowed disabled:opacity-70"
+                              >
+                                {store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}
+                                {editingProfile && !profileSaving ? " ×" : ""}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {editingProfile && !profileSaving && (
+                          <div className="max-h-24 space-y-1 overflow-y-auto rounded-md border border-slate-700/50 bg-slate-950/40 p-2">
+                            {profileStoreMatches.length === 0 ? (
+                              <div className="px-1 text-[11px] text-slate-500">No available stores matched your search.</div>
+                            ) : (
+                              profileStoreMatches.map((store) => (
+                                <button
+                                  key={store.storeKey}
+                                  type="button"
+                                  onClick={() => setProfileAssignedStoreKeys((current) => [...current, store.storeKey])}
+                                  className="w-full rounded-md border border-slate-700/50 bg-slate-800/40 px-2 py-1 text-left text-[11px] text-slate-200 hover:bg-slate-700/60"
+                                >
+                                  <div className="font-medium text-cyan-200">{store.storeCode} - {store.storeName}</div>
+                                  <div className="text-slate-500">{store.region}</div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {profileMessage && (
@@ -5522,17 +5731,23 @@ export default function App() {
                     <>
                       <button
                         onClick={handleSaveProfile}
-                        className="flex-1 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-medium py-2 hover:bg-cyan-500/30 transition-colors"
+                        disabled={profileSaving}
+                        className="flex-1 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-medium py-2 hover:bg-cyan-500/30 transition-colors disabled:opacity-60"
                       >
-                        Save
+                        {profileSaving ? "Saving..." : "Save"}
                       </button>
                       <button
+                        disabled={profileSaving}
                         onClick={() => {
                           setEditingProfile(false);
                           setProfileName(session?.name || "");
                           setProfileSurname(session?.surname || "");
+                          setProfileCoversheetCode(session?.coversheetCode || "");
+                          if (session?.username) {
+                            void getStoreAssignments(session.username).then((keys) => setProfileAssignedStoreKeys(keys));
+                          }
                         }}
-                        className="flex-1 rounded-lg bg-slate-700/50 border border-slate-600 text-slate-300 text-xs font-medium py-2 hover:bg-slate-700 transition-colors"
+                        className="flex-1 rounded-lg bg-slate-700/50 border border-slate-600 text-slate-300 text-xs font-medium py-2 hover:bg-slate-700 transition-colors disabled:opacity-60"
                       >
                         Cancel
                       </button>
@@ -5638,8 +5853,8 @@ export default function App() {
                   </h1>
                   <p className="mt-2 text-slate-400 text-sm">
                     {activeNav === "overview" && "Real-time attendance monitoring with trends"}
-                    {activeNav === "shifts" && "Build and update workbook-based shift rosters"}
-                    {activeNav === "calendar" && "Create calendar events across multiple dates and export month or year PDFs"}
+                    {activeNav === "shifts" && (isFieldRole ? "View and search workbook-based shift rosters (read-only)" : "Build and update workbook-based shift rosters")}
+                    {activeNav === "calendar" && (isFieldRole ? "View and search calendar events (read-only)" : "Create calendar events across multiple dates and export month or year PDFs")}
                     {activeNav === "roster" && "Generate yearly roster output by marrying shifts with calendar weeks and holidays"}
                     {activeNav === "leave" && "Upload merchandiser leave workbooks, apply them to roster output, and track which rows matched"}
                     {activeNav === "clockData" && "Read-only biometric clock events linked to employee profiles by employee code"}

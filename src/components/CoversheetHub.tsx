@@ -38,6 +38,7 @@ type CoversheetData = {
 
 type CoversheetHubProps = {
   mode: "admin" | "view";
+  allowedStoreKeys?: string[];
 };
 
 const COVERSHEET_STORAGE_KEY = "coversheet-data-v1";
@@ -203,6 +204,36 @@ function normalizePhoneForActions(value: string) {
   return {
     tel: raw,
     whatsapp: raw,
+  };
+}
+
+function buildStoreMatcher(allowedStoreKeys: string[]) {
+  const normalize = (value: unknown) => String(value || "").trim().toLowerCase();
+  const full = new Set(allowedStoreKeys.map((key) => normalize(key)).filter(Boolean));
+  const codes = new Set<string>();
+  const names = new Set<string>();
+  allowedStoreKeys.forEach((key) => {
+    const text = String(key || "");
+    const parts = text.split(" - ");
+    if (parts.length >= 2) {
+      codes.add(normalize(parts[0]));
+      names.add(normalize(parts.slice(1).join(" - ")));
+      return;
+    }
+    codes.add(normalize(text));
+    names.add(normalize(text));
+  });
+
+  return (storeCode: string, storeName: string) => {
+    if (full.size === 0) return false;
+    const code = normalize(storeCode);
+    const name = normalize(storeName);
+    const combined = `${code} - ${name}`.trim();
+    return (
+      (combined && full.has(combined)) ||
+      (code && (codes.has(code) || full.has(code))) ||
+      (name && (names.has(name) || full.has(name)))
+    );
   };
 }
 
@@ -480,7 +511,7 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
     });
 }
 
-export default function CoversheetHub({ mode }: CoversheetHubProps) {
+export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubProps) {
   const [data, setData] = useState<CoversheetData | null>(null);
   const [isHydrating, setIsHydrating] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -509,8 +540,16 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
     };
   }, []);
 
-  const totals = useMemo(() => {
+  const scopedStores = useMemo(() => {
     const stores = data?.stores || [];
+    if (mode !== "view") return stores;
+    if (!allowedStoreKeys) return stores;
+    const matcher = buildStoreMatcher(allowedStoreKeys);
+    return stores.filter((store) => matcher(store.storeCode, store.storeName));
+  }, [allowedStoreKeys, data, mode]);
+
+  const totals = useMemo(() => {
+    const stores = mode === "view" ? scopedStores : data?.stores || [];
     let employees = 0;
     let terminated = 0;
     let maternity = 0;
@@ -526,7 +565,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
     });
 
     return { stores: stores.length, employees, terminated, maternity, hold };
-  }, [data]);
+  }, [data, mode, scopedStores]);
 
   const toggleStore = (storeId: string) => {
     setExpandedStoreIds((previous) => {
@@ -568,13 +607,13 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
   };
 
   useEffect(() => {
-    if (!selectedStoreId || !data?.stores?.length) return;
-    const exists = data.stores.some((store) => store.id === selectedStoreId);
+    if (!selectedStoreId || !scopedStores.length) return;
+    const exists = scopedStores.some((store) => store.id === selectedStoreId);
     if (!exists) setSelectedStoreId(null);
-  }, [data, selectedStoreId]);
+  }, [scopedStores, selectedStoreId]);
 
   const filteredStores = useMemo(() => {
-    const stores = data?.stores || [];
+    const stores = scopedStores;
     const searchQuery = normalizeValue(deferredStoreSearch).toLowerCase();
     const selectedFiltered = selectedStoreId ? stores.filter((store) => store.id === selectedStoreId) : stores;
     if (!searchQuery) return selectedFiltered;
@@ -595,19 +634,19 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
           .includes(searchQuery)
       );
     });
-  }, [data, deferredStoreSearch, selectedStoreId]);
+  }, [deferredStoreSearch, scopedStores, selectedStoreId]);
 
   const storeSearchMatches = useMemo(() => {
-    const stores = data?.stores || [];
+    const stores = scopedStores;
     const searchQuery = normalizeValue(deferredStoreSearch).toLowerCase();
     if (!searchQuery || selectedStoreId) return [];
     return stores
       .filter((store) => `${store.storeCode} ${store.storeName}`.toLowerCase().includes(searchQuery))
       .slice(0, 8);
-  }, [data, deferredStoreSearch, selectedStoreId]);
+  }, [deferredStoreSearch, scopedStores, selectedStoreId]);
 
   const selectStore = (storeId: string) => {
-    const match = data?.stores.find((store) => store.id === storeId);
+    const match = scopedStores.find((store) => store.id === storeId);
     setSelectedStoreId(storeId);
     setExpandedStoreIds(new Set([storeId]));
     if (match) {
@@ -703,6 +742,16 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
     );
   }
 
+  if (mode === "view" && allowedStoreKeys && scopedStores.length === 0) {
+    return (
+      <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
+        <CardContent className="py-10 text-center text-slate-400">
+          No coversheet stores are assigned to your profile yet. Open your profile and assign stores first.
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-slate-400">
@@ -757,7 +806,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
           )}
 
           <div className="text-xs text-slate-400">
-            Showing {filteredStores.length} of {data.stores.length} store(s)
+            Showing {filteredStores.length} of {scopedStores.length} store(s)
           </div>
         </CardContent>
       </Card>

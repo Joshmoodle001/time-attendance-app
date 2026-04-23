@@ -6,6 +6,7 @@ export type AuthUser = {
   role: AuthRole;
   name: string;
   surname: string;
+  coversheetCode?: string;
   createdAt: string;
   updatedAt: string;
   lastLogin?: string;
@@ -17,6 +18,7 @@ export type AuthSession = {
   role: AuthRole;
   name: string;
   surname: string;
+  coversheetCode?: string;
   loggedInAt: string;
 };
 
@@ -74,6 +76,7 @@ function createDefaultSuperAdmin(): AuthUser {
     role: "super_admin",
     name: "Josh",
     surname: "Moodle",
+    coversheetCode: "",
     createdAt: now,
     updatedAt: now,
     active: true,
@@ -100,6 +103,7 @@ function createExampleUsers(): AuthUser[] {
       role: "rep" as AuthRole,
       name: "_rep1",
       surname: "User",
+      coversheetCode: "",
       createdAt: now,
       updatedAt: now,
       active: true,
@@ -110,6 +114,7 @@ function createExampleUsers(): AuthUser[] {
       role: "rep" as AuthRole,
       name: "rep2",
       surname: "User",
+      coversheetCode: "",
       createdAt: now,
       updatedAt: now,
       active: true,
@@ -120,6 +125,7 @@ function createExampleUsers(): AuthUser[] {
       role: "rep" as AuthRole,
       name: "rep3",
       surname: "User",
+      coversheetCode: "",
       createdAt: now,
       updatedAt: now,
       active: true,
@@ -178,6 +184,9 @@ function readState(): AuthState {
     Object.keys(next.users).forEach(key => {
       if (next.users[key].active === undefined) {
         next.users[key].active = true;
+      }
+      if (typeof next.users[key].coversheetCode !== "string") {
+        next.users[key].coversheetCode = "";
       }
     });
 
@@ -277,6 +286,7 @@ export function login(username: string, password: string) {
     role: user.role,
     name: user.name || "",
     surname: user.surname || "",
+    coversheetCode: user.coversheetCode || "",
     loggedInAt: new Date().toISOString(),
   };
 
@@ -468,7 +478,7 @@ export function clearLogs() {
   return { success: true };
 }
 
-export function registerRep(userData: { username: string; password: string; name: string; surname: string }) {
+export function registerRep(userData: { username: string; password: string; name: string; surname: string; coversheetCode?: string }) {
   const key = normalizeUsername(userData.username);
 
   if (!userData.username || !userData.password || !userData.name || !userData.surname) {
@@ -492,6 +502,7 @@ export function registerRep(userData: { username: string; password: string; name
     role: "rep",
     name: userData.name,
     surname: userData.surname,
+    coversheetCode: String(userData.coversheetCode || "").trim(),
     createdAt: now,
     updatedAt: now,
     active: true,
@@ -504,7 +515,12 @@ export function registerRep(userData: { username: string; password: string; name
   return { success: true as const, user: newUser };
 }
 
-export function updateUserProfile(username: string, name: string, surname: string) {
+export function updateUserProfile(
+  username: string,
+  name: string,
+  surname: string,
+  options?: { coversheetCode?: string | null }
+) {
   const state = readState();
   const key = normalizeUsername(username);
   const user = state.users[key];
@@ -515,11 +531,15 @@ export function updateUserProfile(username: string, name: string, surname: strin
 
   user.name = name.trim();
   user.surname = surname.trim();
+  if (options && "coversheetCode" in options) {
+    user.coversheetCode = String(options.coversheetCode || "").trim();
+  }
   user.updatedAt = new Date().toISOString();
 
   if (state.session && normalizeUsername(state.session.username) === key) {
     state.session.name = name.trim();
     state.session.surname = surname.trim();
+    state.session.coversheetCode = user.coversheetCode || "";
   }
 
   saveState(state);

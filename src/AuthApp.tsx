@@ -19,6 +19,8 @@ import App from "./App";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { getEmployees, type Employee } from "@/services/database";
+import { getAllStores, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import {
   ensureSuperAdminSeeded,
   getAuthSession,
@@ -39,6 +41,19 @@ const floatingArtifacts = [
   { title: "Shift Matrix", value: "Ready", x: "12%", y: "72%", delay: 0.35 },
   { title: "Command Access", value: "Secured", x: "72%", y: "74%", delay: 0.5 },
 ];
+
+type RepDirectoryEntry = {
+  employeeCode: string;
+  fullName: string;
+  firstName: string;
+  surname: string;
+  storeKey: string;
+  storeLabel: string;
+};
+
+function normalizeText(value: unknown) {
+  return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
+}
 
 function StatusBanner({ banner }: { banner: Banner | null }) {
   if (!banner) return null;
@@ -207,8 +222,14 @@ export default function AuthApp() {
     username: "",
     password: "",
     confirmPassword: "",
+    coversheetCode: "",
   });
   const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [signupStoreUniverse, setSignupStoreUniverse] = useState<StoreInfo[]>([]);
+  const [signupStoreSearch, setSignupStoreSearch] = useState("");
+  const [signupSelectedStores, setSignupSelectedStores] = useState<string[]>([]);
+  const [signupRepDirectory, setSignupRepDirectory] = useState<RepDirectoryEntry[]>([]);
+  const [signupRepSearch, setSignupRepSearch] = useState("");
 
   useEffect(() => {
     ensureSuperAdminSeeded();
@@ -220,6 +241,60 @@ export default function AuthApp() {
     setShowWelcome(false);
     setIsBooting(false);
   }, []);
+
+  useEffect(() => {
+    if (authMode !== "signup") return;
+    let alive = true;
+    void (async () => {
+      try {
+        const [stores, employees] = await Promise.all([getAllStores(), getEmployees()]);
+        if (!alive) return;
+        setSignupStoreUniverse(stores);
+
+        const directory = employees
+          .filter((employee: Employee) => normalizeText(employee.employee_code) && (normalizeText(employee.first_name) || normalizeText(employee.last_name)))
+          .map((employee: Employee) => {
+            const firstName = normalizeText(employee.first_name);
+            const surname = normalizeText(employee.last_name);
+            const fullName = `${firstName} ${surname}`.trim();
+            const storeKey = `${normalizeText(employee.store_code)} - ${normalizeText(employee.store)}`;
+            return {
+              employeeCode: normalizeText(employee.employee_code),
+              fullName,
+              firstName,
+              surname,
+              storeKey,
+              storeLabel: `${normalizeText(employee.store_code)} - ${normalizeText(employee.store)}`,
+            } satisfies RepDirectoryEntry;
+          })
+          .sort((a, b) => a.fullName.localeCompare(b.fullName) || a.employeeCode.localeCompare(b.employeeCode));
+        setSignupRepDirectory(directory);
+      } catch {
+        if (alive) setBanner({ type: "error", text: "Could not load store and rep directory data for signup." });
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [authMode]);
+
+  const signupStoreMatches = useMemo(() => {
+    const query = normalizeText(signupStoreSearch).toLowerCase();
+    const available = signupStoreUniverse.filter((store) => !signupSelectedStores.includes(store.storeKey));
+    if (!query) return available.slice(0, 12);
+    return available
+      .filter((store) => `${store.storeName} ${store.storeCode} ${store.region}`.toLowerCase().includes(query))
+      .slice(0, 12);
+  }, [signupSelectedStores, signupStoreSearch, signupStoreUniverse]);
+
+  const signupRepMatches = useMemo(() => {
+    const query = normalizeText(signupRepSearch).toLowerCase();
+    if (!query) return signupRepDirectory.slice(0, 8);
+    return signupRepDirectory
+      .filter((entry) => `${entry.employeeCode} ${entry.fullName} ${entry.storeLabel}`.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [signupRepDirectory, signupRepSearch]);
 
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -236,7 +311,7 @@ export default function AuthApp() {
     setBanner({ type: "success", text: `Welcome back, ${result.session.username}!` });
   };
 
-  const handleSignup = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSignup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (signupData.password !== signupData.confirmPassword) {
@@ -249,6 +324,7 @@ export default function AuthApp() {
       password: signupData.password,
       name: signupData.name,
       surname: signupData.surname,
+      coversheetCode: signupData.coversheetCode,
     });
 
     if (!result.success) {
@@ -258,10 +334,35 @@ export default function AuthApp() {
 
     const loginResult = login(signupData.username, signupData.password);
     if (loginResult.success) {
+      if (signupSelectedStores.length > 0) {
+        await saveStoreAssignments(signupData.username, signupSelectedStores);
+      }
       setSession(loginResult.session);
       setShowWelcome(true);
       setBanner({ type: "success", text: `Account created! Welcome, ${loginResult.session.username}!` });
     }
+  };
+
+  const handleSignupAddStore = (storeKey: string) => {
+    if (signupSelectedStores.includes(storeKey)) return;
+    setSignupSelectedStores((current) => [...current, storeKey]);
+  };
+
+  const handleSignupRemoveStore = (storeKey: string) => {
+    setSignupSelectedStores((current) => current.filter((key) => key !== storeKey));
+  };
+
+  const handleSignupSelectRep = (entry: RepDirectoryEntry) => {
+    setSignupData((current) => ({
+      ...current,
+      name: entry.firstName || current.name,
+      surname: entry.surname || current.surname,
+      coversheetCode: entry.employeeCode || current.coversheetCode,
+    }));
+    if (entry.storeKey && !signupSelectedStores.includes(entry.storeKey)) {
+      setSignupSelectedStores((current) => [...current, entry.storeKey]);
+    }
+    setSignupRepSearch(entry.fullName);
   };
 
   if (isBooting) {
@@ -593,8 +694,86 @@ export default function AuthApp() {
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Coversheet Code</label>
+                    <Input
+                      value={signupData.coversheetCode}
+                      onChange={(e) => setSignupData({ ...signupData, coversheetCode: e.target.value.toUpperCase() })}
+                      className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                      placeholder="Enter code manually or pick from rep search"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Find Your Rep Profile (Database Search)</label>
+                    <Input
+                      value={signupRepSearch}
+                      onChange={(e) => setSignupRepSearch(e.target.value)}
+                      className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                      placeholder="Search by rep name, code, or store"
+                    />
+                    <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
+                      {signupRepMatches.length === 0 ? (
+                        <div className="px-2 py-1 text-xs text-slate-400">No rep matches found.</div>
+                      ) : (
+                        signupRepMatches.map((entry) => (
+                          <button
+                            key={`${entry.employeeCode}-${entry.storeKey}`}
+                            type="button"
+                            onClick={() => handleSignupSelectRep(entry)}
+                            className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-white/10"
+                          >
+                            <div className="font-semibold text-cyan-200">{entry.employeeCode} - {entry.fullName}</div>
+                            <div className="text-slate-400">{entry.storeLabel}</div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Assign Stores Before Finish</label>
+                    <Input
+                      value={signupStoreSearch}
+                      onChange={(e) => setSignupStoreSearch(e.target.value)}
+                      className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                      placeholder="Search stores by name, code, or region"
+                    />
+                    {signupSelectedStores.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 rounded-xl border border-white/10 bg-black/20 p-2">
+                        {signupSelectedStores.map((storeKey) => (
+                          <button
+                            key={storeKey}
+                            type="button"
+                            onClick={() => handleSignupRemoveStore(storeKey)}
+                            className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/20"
+                          >
+                            {storeKey} ×
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
+                      {signupStoreMatches.length === 0 ? (
+                        <div className="px-2 py-1 text-xs text-slate-400">No stores matched your search.</div>
+                      ) : (
+                        signupStoreMatches.map((store) => (
+                          <button
+                            key={store.storeKey}
+                            type="button"
+                            onClick={() => handleSignupAddStore(store.storeKey)}
+                            className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-white/10"
+                          >
+                            <div className="font-semibold text-cyan-200">{store.storeCode} - {store.storeName}</div>
+                            <div className="text-slate-400">{store.region}</div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
                   <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-cyan-200/80">
-                    Signing up creates a <strong>Rep</strong> account with access to Overview, Shifts, and Calendar.
+                    Signing up creates a <strong>Rep</strong> account with access to Overview, Reports, Shifts, Calendar, and Coversheet. Selected stores are saved now so your dashboard opens with the correct scope.
                   </div>
 
                   <Button type="submit" size="lg" className="cyber-button button-glow h-12 w-full">

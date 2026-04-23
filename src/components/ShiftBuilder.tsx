@@ -318,7 +318,11 @@ function parseClipboardMatrix(text: string) {
   return text.replace(/\r\n/g, "\n").split("\n").map((line) => line.split("\t"));
 }
 
-export default function ShiftBuilder() {
+type ShiftBuilderProps = {
+  readOnly?: boolean;
+};
+
+export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
@@ -338,8 +342,15 @@ export default function ShiftBuilder() {
   const hasAutoSyncRef = useRef(false);
   const lastSyncCheckRef = useRef<string>("");
 
+  useEffect(() => {
+    if (readOnly) {
+      setEditingCell(null);
+    }
+  }, [readOnly]);
+
   // Auto-sync on page load
   useEffect(() => {
+    if (readOnly) return;
     if (hasAutoSyncRef.current) return;
     hasAutoSyncRef.current = true;
     
@@ -349,10 +360,11 @@ export default function ShiftBuilder() {
     }, 1500);
     
     return () => clearTimeout(timer);
-  }, []);
+  }, [readOnly]);
 
   // Poll for live sync events and trigger sync when detected
   useEffect(() => {
+    if (readOnly) return;
     let alive = true;
     let pollInterval: ReturnType<typeof setInterval>;
 
@@ -382,7 +394,7 @@ export default function ShiftBuilder() {
       alive = false;
       clearInterval(pollInterval);
     };
-  }, []);
+  }, [readOnly]);
 
   useEffect(() => {
     let alive = true;
@@ -553,6 +565,10 @@ export default function ShiftBuilder() {
   }, [orderedRows]);
 
   const persistRoster = async (nextRoster: ShiftRoster, message: string) => {
+    if (readOnly) {
+      setStatusMessage("Shift editing is disabled for this role. You can only view and search.");
+      return;
+    }
     setRosters((current) => current.map((roster) => (roster.sheet_name === nextRoster.sheet_name ? nextRoster : roster)));
     const result = await upsertShiftRoster(nextRoster);
     setStatusMessage(result.success ? message : `Saved locally, but failed to persist: ${result.error || "unknown error"}`);
@@ -564,6 +580,11 @@ export default function ShiftBuilder() {
   };
 
   const handleWorkbookUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (readOnly) {
+      event.target.value = "";
+      setStatusMessage("Shift upload is disabled for this role.");
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -587,6 +608,7 @@ export default function ShiftBuilder() {
   };
 
   const handleSyncFromSheets = async () => {
+    if (readOnly) return;
     setIsSyncing(true);
     setSyncProgress(0);
     const log = (msg: string) => {
@@ -703,6 +725,7 @@ export default function ShiftBuilder() {
   };
 
   const handlePaste = async () => {
+    if (readOnly) return;
     if (!selectedRoster || !selectedCell) return;
     const text = await navigator.clipboard.readText();
     if (!text) return;
@@ -739,11 +762,13 @@ export default function ShiftBuilder() {
       return;
     }
     if (event.ctrlKey && event.key.toLowerCase() === "v") {
+      if (readOnly) return;
       event.preventDefault();
       void handlePaste();
       return;
     }
     if (event.key === "Enter" || event.key === "F2") {
+      if (readOnly) return;
       event.preventDefault();
       setEditingCell(selectedCell);
       return;
@@ -770,11 +795,13 @@ export default function ShiftBuilder() {
   };
 
   const handleAddGroup = async () => {
+    if (readOnly) return;
     if (!selectedRoster) return;
     await applyToSelectedRoster(addBlankGroup, "Added a shift group placeholder.");
   };
 
   const handleRemoveGroup = async () => {
+    if (readOnly) return;
     if (!selectedRoster || !selectedCell) return;
     await applyToSelectedRoster((roster) => removeGroup(roster, selectedCell.rowKey), "Removed shift group.");
     setSelectedCell(null);
@@ -782,6 +809,7 @@ export default function ShiftBuilder() {
   };
 
   const handleMove = async (direction: -1 | 1) => {
+    if (readOnly) return;
     if (!selectedRoster || !selectedCell) return;
     await applyToSelectedRoster((roster) => moveGroup(roster, selectedCell.rowKey, direction), "Reordered shift group.");
   };
@@ -901,7 +929,9 @@ export default function ShiftBuilder() {
         <div>
           <h2 className="text-xl font-semibold text-white sm:text-2xl">Shift Grid</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-400">
-            Single click selects a cell, double click edits it, and Ctrl+C / Ctrl+V work like a spreadsheet.
+            {readOnly
+              ? "View and search shift rosters. Editing, uploads, and row-group changes are disabled for your role."
+              : "Single click selects a cell, double click edits it, and Ctrl+C / Ctrl+V work like a spreadsheet."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -916,10 +946,12 @@ export default function ShiftBuilder() {
             <ZoomIn className="mr-2 h-4 w-4" />
             Zoom in
           </Button>
-          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="mr-2 h-4 w-4" />
-            Upload workbook
-          </Button>
+          {!readOnly && (
+            <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="mr-2 h-4 w-4" />
+              Upload workbook
+            </Button>
+          )}
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExportPdf} disabled={!selectedRoster}>
             <FileText className="mr-2 h-4 w-4" />
             Export PDF
@@ -935,7 +967,7 @@ export default function ShiftBuilder() {
         </div>
       </div>
 
-      <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleWorkbookUpload} />
+      {!readOnly && <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleWorkbookUpload} />}
 
       {isSyncing && (
         <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 p-4">
@@ -1023,22 +1055,26 @@ export default function ShiftBuilder() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleAddGroup} disabled={!selectedRoster}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add row group
-              </Button>
-              <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(-1)} disabled={!selectedCell}>
-                <ArrowUp className="mr-2 h-4 w-4" />
-                Move up
-              </Button>
-              <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(1)} disabled={!selectedCell}>
-                <ArrowDown className="mr-2 h-4 w-4" />
-                Move down
-              </Button>
-              <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleRemoveGroup} disabled={!selectedCell}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Remove group
-              </Button>
+              {!readOnly && (
+                <>
+                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleAddGroup} disabled={!selectedRoster}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add row group
+                  </Button>
+                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(-1)} disabled={!selectedCell}>
+                    <ArrowUp className="mr-2 h-4 w-4" />
+                    Move up
+                  </Button>
+                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(1)} disabled={!selectedCell}>
+                    <ArrowDown className="mr-2 h-4 w-4" />
+                    Move down
+                  </Button>
+                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleRemoveGroup} disabled={!selectedCell}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove group
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -1112,7 +1148,7 @@ export default function ShiftBuilder() {
                             <button
                               type="button"
                               onClick={() => setSelectedCell({ rowKey: row.row_key, field: "week_label" })}
-                              onDoubleClick={() => setEditingCell({ rowKey: row.row_key, field: "week_label" })}
+                              onDoubleClick={readOnly ? undefined : () => setEditingCell({ rowKey: row.row_key, field: "week_label" })}
                               className="flex h-8 w-full items-center justify-start rounded-none bg-[#f8ab66] px-2 text-left text-base font-normal uppercase leading-tight text-black"
                             >
                               {row.week_label}
@@ -1133,7 +1169,7 @@ export default function ShiftBuilder() {
 
                             return (
                               <td key={`${row.row_key}-${field}`} className={`border border-slate-200 px-2 py-1 align-middle ${column.tdClass}`}>
-                                {editing ? (
+                                {editing && !readOnly ? (
                                   <Input
                                     autoFocus
                                     value={value}
@@ -1166,7 +1202,7 @@ export default function ShiftBuilder() {
                                   <button
                                     type="button"
                                     onClick={() => setSelectedCell({ rowKey: row.row_key, field })}
-                                    onDoubleClick={() => setEditingCell({ rowKey: row.row_key, field })}
+                                    onDoubleClick={readOnly ? undefined : () => setEditingCell({ rowKey: row.row_key, field })}
                                     className={`flex h-auto min-h-[3rem] w-full items-center justify-center rounded-none px-2 py-1 text-sm transition ${
                                       selected ? "ring-2 ring-slate-900" : isSelectedGroup ? "ring-1 ring-slate-300" : ""
                                     } ${column.buttonClass || ""}`}
@@ -1186,7 +1222,7 @@ export default function ShiftBuilder() {
 
                             return (
                               <td key={`${row.row_key}-${day.key}`} className={`border border-slate-200 px-2 py-2 align-middle ${bg}`}>
-                                {editing ? (
+                                {editing && !readOnly ? (
                                   <Input
                                     autoFocus
                                     value={getEditorValue(row, day.key as EditableField)}
@@ -1239,7 +1275,7 @@ export default function ShiftBuilder() {
                                   <button
                                     type="button"
                                     onClick={() => setSelectedCell({ rowKey: row.row_key, field: day.key })}
-                                    onDoubleClick={() => setEditingCell({ rowKey: row.row_key, field: day.key })}
+                                    onDoubleClick={readOnly ? undefined : () => setEditingCell({ rowKey: row.row_key, field: day.key })}
                                     className={`flex h-8 w-full items-center justify-center rounded-none px-2 text-sm transition ${
                                       selected ? "ring-2 ring-slate-900" : ""
                                     } ${bg}`}
@@ -1413,5 +1449,3 @@ export default function ShiftBuilder() {
     </div>
   );
 }
-
-
