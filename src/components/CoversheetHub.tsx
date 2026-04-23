@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getEmployees, normalizeEmployeeCode, type Employee } from "@/services/database";
 import { ChevronDown, ChevronRight, Mail, MessageCircle, Phone, PhoneCall, Search, Send, Store, Upload, UserRound } from "lucide-react";
 
 type CoversheetStatus = "terminated" | "maternity" | "hold";
@@ -167,6 +168,75 @@ function shouldReplaceRepLabel(existingValue: string, nextValue: string) {
   if (!nextValue) return false;
   if (!existingValue) return true;
   return nextValue.length > existingValue.length;
+}
+
+function buildResolvedStoreId(storeCode: string, storeName: string) {
+  const cleanStoreCode = normalizeValue(storeCode);
+  const cleanStoreName = normalizeValue(storeName) || "Unknown Store";
+  return `${cleanStoreCode || "no-code"}__${cleanStoreName.toLowerCase()}`;
+}
+
+function buildProfileKeywordSource(profile: Employee) {
+  return [
+    profile.store,
+    profile.branch,
+    profile.team,
+    profile.department,
+    profile.job_title,
+    profile.title,
+    profile.business_unit,
+    profile.cost_center,
+  ]
+    .map((value) => normalizeValue(value).toUpperCase())
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function deriveSpecialProfileStore(profile: Employee): { storeCode: string; storeName: string } | null {
+  const keywordSource = buildProfileKeywordSource(profile);
+  if (!keywordSource) return null;
+
+  const explicitStore = normalizeValue(profile.store);
+  const explicitCode = normalizeValue(profile.store_code);
+  const fromProfile = (fallbackName: string) => ({
+    storeCode: explicitCode,
+    storeName: explicitStore || fallbackName,
+  });
+
+  if (/\bSTRIKE\s*TEAM\b/.test(keywordSource)) return fromProfile("STRIKE TEAM");
+  if (/\bPFM\s*HQ\b/.test(keywordSource)) return fromProfile("PFM HQ");
+  if (/\bMTS\b/.test(keywordSource)) return fromProfile("MTS");
+  if (/\bIR\b|\bINDUSTRIAL\s+RELATIONS\b/.test(keywordSource)) return fromProfile("IR");
+  return null;
+}
+
+function resolveEmployeeStoreGroup(
+  store: CoversheetStoreGroup,
+  employee: CoversheetEmployee,
+  profilesByCode: Map<string, Employee>
+) {
+  const profile = profilesByCode.get(normalizeEmployeeCode(employee.employeeCode));
+  if (!profile) {
+    return {
+      id: store.id,
+      storeCode: store.storeCode,
+      storeName: store.storeName,
+      phone: employee.phone,
+      email: employee.email,
+    };
+  }
+
+  const specialStore = deriveSpecialProfileStore(profile);
+  const resolvedStoreCode = specialStore?.storeCode || store.storeCode;
+  const resolvedStoreName = specialStore?.storeName || store.storeName;
+
+  return {
+    id: buildResolvedStoreId(resolvedStoreCode, resolvedStoreName),
+    storeCode: resolvedStoreCode,
+    storeName: resolvedStoreName,
+    phone: shouldReplacePhone(employee.phone, profile.phone || "") ? normalizePhoneValue(profile.phone) : employee.phone,
+    email: shouldReplaceEmail(employee.email, profile.email || "") ? normalizeEmailValue(profile.email) : employee.email,
+  };
 }
 
 function deriveKeySet(headers: string[]): CoversheetStatusKeySet & { phone: string[]; email: string[] } {
@@ -524,6 +594,7 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
 
 export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubProps) {
   const [data, setData] = useState<CoversheetData | null>(null);
+  const [employeeProfiles, setEmployeeProfiles] = useState<Employee[]>([]);
   const [isHydrating, setIsHydrating] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState("");
@@ -537,9 +608,10 @@ export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubP
     let mounted = true;
     void (async () => {
       try {
-        const stored = await loadStoredCoversheetData();
+        const [stored, profiles] = await Promise.all([loadStoredCoversheetData(), getEmployees()]);
         if (!mounted) return;
         setData(stored);
+        setEmployeeProfiles(profiles);
         setExpandedStoreIds(new Set());
       } finally {
         if (mounted) setIsHydrating(false);
@@ -551,16 +623,61 @@ export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubP
     };
   }, []);
 
-  const scopedStores = useMemo(() => {
+  const resolvedStores = useMemo(() => {
     const stores = data?.stores || [];
+    if (!stores.length) return stores;
+
+    const profilesByCode = new Map(
+      employeeProfiles.map((profile) => [normalizeEmployeeCode(profile.employee_code), profile])
+    );
+    const storeMap = new Map<string, CoversheetStoreGroup>();
+
+    stores.forEach((store) => {
+      store.employees.forEach((employee) => {
+        const resolved = resolveEmployeeStoreGroup(store, employee, profilesByCode);
+        const existing =
+          storeMap.get(resolved.id) ||
+          {
+            id: resolved.id,
+            storeCode: resolved.storeCode,
+            storeName: resolved.storeName,
+            employees: [],
+          };
+
+        existing.employees.push({
+          ...employee,
+          phone: resolved.phone,
+          email: resolved.email,
+        });
+
+        storeMap.set(resolved.id, existing);
+      });
+    });
+
+    return Array.from(storeMap.values())
+      .map((store) => ({
+        ...store,
+        employees: [...store.employees].sort(
+          (a, b) => a.employeeName.localeCompare(b.employeeName) || a.employeeCode.localeCompare(b.employeeCode)
+        ),
+      }))
+      .sort((a, b) => {
+        const left = `${a.storeCode} ${a.storeName}`.trim();
+        const right = `${b.storeCode} ${b.storeName}`.trim();
+        return left.localeCompare(right);
+      });
+  }, [data?.stores, employeeProfiles]);
+
+  const scopedStores = useMemo(() => {
+    const stores = resolvedStores;
     if (mode !== "view") return stores;
     if (!allowedStoreKeys) return stores;
     const matcher = buildStoreMatcher(allowedStoreKeys);
     return stores.filter((store) => matcher(store.storeCode, store.storeName));
-  }, [allowedStoreKeys, data, mode]);
+  }, [allowedStoreKeys, mode, resolvedStores]);
 
   const totals = useMemo(() => {
-    const stores = mode === "view" ? scopedStores : data?.stores || [];
+    const stores = mode === "view" ? scopedStores : resolvedStores;
     let employees = 0;
     let terminated = 0;
     let maternity = 0;
@@ -576,7 +693,7 @@ export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubP
     });
 
     return { stores: stores.length, employees, terminated, maternity, hold };
-  }, [data, mode, scopedStores]);
+  }, [mode, resolvedStores, scopedStores]);
 
   const toggleStore = (storeId: string) => {
     setExpandedStoreIds((previous) => {
@@ -743,7 +860,7 @@ export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubP
     );
   }
 
-  if (!data || data.stores.length === 0) {
+  if (!data || resolvedStores.length === 0) {
     return (
       <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
         <CardContent className="py-10 text-center text-slate-400">
