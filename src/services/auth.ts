@@ -302,6 +302,7 @@ export function login(username: string, password: string) {
     user.active = true;
     user.secret = "1234";
     saveState(state);
+    console.log("🔧 Forced super_admin for josh@pfm.co.za");
   }
 
   if (!user.active) {
@@ -323,6 +324,8 @@ export function login(username: string, password: string) {
     loggedInAt: new Date().toISOString(),
   };
 
+  console.log("✅ Login success:", session);
+
   // Update last login
   user.lastLogin = new Date().toISOString();
   state.session = session;
@@ -340,6 +343,40 @@ export function logout() {
   state.session = null;
   saveState(state);
 }
+
+// Refresh current session with latest user data
+export function refreshSession(): AuthSession | null {
+  const state = readState();
+  if (!state.session) return null;
+  
+  const user = state.users[normalizeUsername(state.session.username)];
+  if (!user) {
+    state.session = null;
+    saveState(state);
+    return null;
+  }
+  
+  // Force super_admin for josh@pfm.co.za on refresh too
+  if (normalizeUsername(state.session.username) === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME)) {
+    user.role = "super_admin";
+    user.active = true;
+    saveState(state);
+  }
+  
+  // Update session with latest data
+  state.session = {
+    username: user.username,
+    role: user.role,
+    name: user.name || "",
+    surname: user.surname || "",
+    coversheetCode: user.coversheetCode || "",
+    loggedInAt: state.session.loggedInAt,
+  };
+  saveState(state);
+  return state.session;
+}
+
+(window as unknown as { refreshSession: typeof refreshSession }).refreshSession = refreshSession;
 
 export function getUsers(): AuthUser[] {
   const state = readState();

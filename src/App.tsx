@@ -12,7 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsForRange, getShiftRosterHistory, getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { getAuthSession, updateUserProfile, logout, isSuperAdmin, type AuthSession } from "@/services/auth";
+import { getAuthSession, updateUserProfile, logout, isSuperAdmin, refreshSession, type AuthSession } from "@/services/auth";
 import { getAllStores, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
@@ -2088,9 +2088,11 @@ export default function App() {
     return mappedRecords;
   };
 
-  useEffect(() => {
-    const currentSession = getAuthSession();
+useEffect(() => {
+    // Use refreshSession to get latest session with forced super_admin
+    const currentSession = refreshSession();
     setSession(currentSession);
+    console.log("📛 Session loaded:", currentSession);
     if (currentSession) {
       setProfileName(currentSession.name || "");
       setProfileSurname(currentSession.surname || "");
