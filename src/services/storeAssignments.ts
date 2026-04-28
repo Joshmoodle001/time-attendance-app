@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { Employee } from "@/services/database";
 import { getEmployees } from "@/services/database";
+import { getUsers, type AuthRole } from "@/services/auth";
 
 export type StoreAssignment = {
   username: string;
@@ -77,6 +78,57 @@ export async function saveStoreAssignments(username: string, storeKeys: string[]
   }
 
   return { success: true };
+}
+
+export async function getResolvedStoreAssignments(username: string, role: AuthRole): Promise<string[]> {
+  const ownAssignments = await getStoreAssignments(username);
+  if (role === "rep") return ownAssignments;
+
+  const users = getUsers();
+  const userByName = new Map(users.map((user) => [normalizeUsername(user.username), user]));
+  const storeKeys = new Set<string>();
+
+  const addUserStores = async (targetUsername: string) => {
+    const target = userByName.get(normalizeUsername(targetUsername));
+    if (!target) return;
+
+    if (target.role === "rep") {
+      const repStores = await getStoreAssignments(target.username);
+      repStores.forEach((key) => storeKeys.add(key));
+      return;
+    }
+
+    if (target.role === "regional") {
+      const repUsernames = await getStoreAssignments(target.username);
+      for (const repUsername of repUsernames) {
+        const rep = userByName.get(normalizeUsername(repUsername));
+        if (rep?.role === "rep") {
+          const repStores = await getStoreAssignments(rep.username);
+          repStores.forEach((key) => storeKeys.add(key));
+        }
+      }
+    }
+  };
+
+  if (role === "regional") {
+    for (const repUsername of ownAssignments) {
+      const rep = userByName.get(normalizeUsername(repUsername));
+      if (rep?.role === "rep") {
+        const repStores = await getStoreAssignments(rep.username);
+        repStores.forEach((key) => storeKeys.add(key));
+      } else {
+        storeKeys.add(repUsername);
+      }
+    }
+  }
+
+  if (role === "divisional") {
+    for (const regionalUsername of ownAssignments) {
+      await addUserStores(regionalUsername);
+    }
+  }
+
+  return Array.from(storeKeys);
 }
 
 export function getAllAssignments(): StoreAssignment[] {

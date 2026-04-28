@@ -12,8 +12,8 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsForRange, getShiftRosterHistory, getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { DEFAULT_SUPER_ADMIN_USERNAME, updateUserProfile, logout, refreshSession, type AuthSession } from "@/services/auth";
-import { getAllStores, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
+import { DEFAULT_SUPER_ADMIN_USERNAME, getUsers, updateUserProfile, logout, refreshSession, type AuthSession, type AuthUser } from "@/services/auth";
+import { getAllStores, getResolvedStoreAssignments, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { WorkBook } from "xlsx";
@@ -94,10 +94,10 @@ const ALL_SIDEBAR_ITEMS = [
   { key: "devices", label: "Devices", icon: Server },
   { key: "admin", label: "Admin", icon: Settings },
   { key: "superadmin", label: "Super Admin", icon: Shield },
-  { key: "myportal", label: "My Portal", icon: Building2 },
+  { key: "myportal", label: "My Profiles", icon: Building2 },
 ] as const;
 
-const FIELD_ROLE_NAV_KEYS = ["overview", "reports", "shifts", "calendar", "coversheet"] as const;
+const FIELD_ROLE_NAV_KEYS = ["overview", "reports", "shifts", "calendar", "coversheet", "myportal"] as const;
 
 declare const __BUILD_TIMESTAMP__: string;
 
@@ -112,7 +112,6 @@ const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
 const PayrollAdminPanel = lazy(() => import("@/components/PayrollAdminPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
-const RegionalRepPanel = lazy(() => import("@/components/RegionalRepPanel"));
 const RosterHistoryAdminPanel = lazy(() => import("@/components/RosterHistoryAdminPanel"));
 
 const ATTENDANCE_STATUS_CONFIG = [
@@ -1491,7 +1490,9 @@ export default function App() {
   const [profileSurname, setProfileSurname] = useState("");
   const [profileCoversheetCode, setProfileCoversheetCode] = useState("");
   const [profileAssignedStoreKeys, setProfileAssignedStoreKeys] = useState<string[]>([]);
+  const [profileEffectiveStoreKeys, setProfileEffectiveStoreKeys] = useState<string[]>([]);
   const [profileStoreUniverse, setProfileStoreUniverse] = useState<StoreInfo[]>([]);
+  const [profileAssignableUsers, setProfileAssignableUsers] = useState<AuthUser[]>([]);
   const [profileStoreSearch, setProfileStoreSearch] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
@@ -1577,6 +1578,28 @@ export default function App() {
       } as StoreInfo))
       .filter(Boolean);
   }, [profileAssignedStoreKeys, profileStoreUniverse]);
+  const profileAssignmentMode = session?.role === "regional" ? "reps" : session?.role === "divisional" ? "regionals" : "stores";
+  const profileAssignedUserSet = useMemo(
+    () => new Set(profileAssignedStoreKeys.map((key) => String(key || "").trim().toLowerCase()).filter(Boolean)),
+    [profileAssignedStoreKeys]
+  );
+  const profileUserMatches = useMemo(() => {
+    const targetRole = session?.role === "divisional" ? "regional" : "rep";
+    const available = profileAssignableUsers.filter(
+      (user) => user.role === targetRole && !profileAssignedUserSet.has(user.username.toLowerCase())
+    );
+    if (getSearchTokens(profileStoreSearch).length === 0) return available.slice(0, 12);
+    return available
+      .filter((user) => fieldsMatchSearch([user.username, user.name, user.surname, user.role], profileStoreSearch))
+      .slice(0, 12);
+  }, [profileAssignableUsers, profileAssignedUserSet, profileStoreSearch, session?.role]);
+  const profileAssignedUsersDetailed = useMemo(
+    () =>
+      profileAssignedStoreKeys
+        .map((username) => profileAssignableUsers.find((user) => user.username.toLowerCase() === username.toLowerCase()))
+        .filter(Boolean) as AuthUser[],
+    [profileAssignableUsers, profileAssignedStoreKeys]
+  );
   const [saveMessage, setSaveMessage] = useState("");
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
@@ -1925,7 +1948,7 @@ export default function App() {
         ]);
       console.log(`[OVERVIEW] Step 1 - ALL parallel queries: ${(performance.now() - t1).toFixed(0)}ms (emp=${employeeProfiles.length}, shifts=${shiftRosters.length}, dayAtt=${dayAttendance.length}, rangeAtt=${rangeAttendance.length}, dayClock=${dayClockEvents.length}, rangeClock=${rangeClockEvents.length})`);
 
-      const roleStoreMatcher = buildStoreAssignmentMatcher(profileAssignedStoreKeys);
+      const roleStoreMatcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
       const roleScopedEmployeeProfiles = isFieldRole
         ? employeeProfiles.filter((employee) => roleStoreMatcher(employee.store_code, employee.store))
         : employeeProfiles;
@@ -2089,7 +2112,7 @@ export default function App() {
       };
       setIsLoadingOverview(false);
     }
-  }, [deviceRecords.length, employees, hasPhysicalDeviceForStore, isFieldRole, overviewEndDate, overviewStartDate, profileAssignedStoreKeys, selectedOverviewDate]);
+  }, [deviceRecords.length, employees, hasPhysicalDeviceForStore, isFieldRole, overviewEndDate, overviewStartDate, profileEffectiveStoreKeys, selectedOverviewDate]);
 
   const loadAttendanceForDate = async (date: string, options?: { silent?: boolean }) => {
     if (!date) return [];
@@ -2123,12 +2146,15 @@ export default function App() {
       setProfileCoversheetCode(currentSession.coversheetCode || "");
       if (currentSession.role === "rep" || currentSession.role === "regional" || currentSession.role === "divisional") {
         void (async () => {
-          const [assignedStores, allStores] = await Promise.all([
+          const [assignedStores, effectiveStores, allStores] = await Promise.all([
             getStoreAssignments(currentSession.username),
+            getResolvedStoreAssignments(currentSession.username, currentSession.role),
             getAllStores(),
           ]);
           setProfileAssignedStoreKeys(assignedStores);
+          setProfileEffectiveStoreKeys(effectiveStores);
           setProfileStoreUniverse(allStores);
+          setProfileAssignableUsers(getUsers().filter((user) => user.active));
         })();
       }
     }
@@ -2143,13 +2169,16 @@ export default function App() {
     if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
       let alive = true;
       void (async () => {
-        const [assignedStores, allStores] = await Promise.all([
+        const [assignedStores, effectiveStores, allStores] = await Promise.all([
           getStoreAssignments(session.username),
+          getResolvedStoreAssignments(session.username, session.role),
           getAllStores(),
         ]);
         if (!alive) return;
         setProfileAssignedStoreKeys(assignedStores);
+        setProfileEffectiveStoreKeys(effectiveStores);
         setProfileStoreUniverse(allStores);
+        setProfileAssignableUsers(getUsers().filter((user) => user.active));
       })();
       return () => {
         alive = false;
@@ -2157,7 +2186,9 @@ export default function App() {
     }
 
     setProfileAssignedStoreKeys([]);
+    setProfileEffectiveStoreKeys([]);
     setProfileStoreUniverse([]);
+    setProfileAssignableUsers([]);
   }, [editingProfile, session?.coversheetCode, session?.name, session?.role, session?.surname, session?.username]);
 
   useEffect(() => {
@@ -3599,6 +3630,16 @@ export default function App() {
       return matchesSearch && matchesRegion && matchesStore;
     });
   }, [attendanceRecords, searchTerm, selectedRegion, selectedStore]);
+  const scopedReportRecords = useMemo(() => {
+    if (!isFieldRole) return filteredRecords;
+    const matcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
+    return filteredRecords.filter((record) => matcher(record.storeCode, record.store));
+  }, [filteredRecords, isFieldRole, profileEffectiveStoreKeys]);
+  const scopedReportEmployees = useMemo(() => {
+    if (!isFieldRole) return employees;
+    const matcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
+    return employees.filter((employee) => matcher(employee.store_code, employee.store));
+  }, [employees, isFieldRole, profileEffectiveStoreKeys]);
 
   const reportDateRangeLabel = useMemo(() => {
     if (availableDates.length > 1) {
@@ -4935,8 +4976,8 @@ export default function App() {
       </Card>
     }>
       <ReportsBuilder
-        records={filteredRecords}
-        employees={employees}
+        records={scopedReportRecords}
+        employees={scopedReportEmployees}
         reportDateRangeLabel={reportDateRangeLabel}
         storeDeviceMap={storeDeviceMap}
       />
@@ -4959,7 +5000,7 @@ export default function App() {
     }>
       <CoversheetHub
         mode={mode}
-        allowedStoreKeys={mode === "view" && isFieldRole ? profileAssignedStoreKeys : undefined}
+        allowedStoreKeys={mode === "view" && isFieldRole ? profileEffectiveStoreKeys : undefined}
       />
     </Suspense>
   );
@@ -5743,34 +5784,144 @@ export default function App() {
     );
   };
 
+  const renderMyProfiles = () => {
+    if (!isFieldRole || !session) {
+      return (
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-8 text-center">
+            <Building2 className="h-16 w-16 mx-auto mb-4 text-slate-600" />
+            <h2 className="text-xl font-bold text-white mb-2">My Profiles</h2>
+            <p className="text-slate-400">This section is available for Rep, Regional, and Divisional roles.</p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    const title = profileAssignmentMode === "stores" ? "Assigned Stores" : profileAssignmentMode === "reps" ? "Assigned Reps" : "Assigned Regionals";
+    const helper =
+      profileAssignmentMode === "stores"
+        ? "Select the stores that belong to this rep profile. Attendance overview, reports, and coversheets will be filtered to these stores."
+        : profileAssignmentMode === "reps"
+          ? "Select the reps that belong to this regional profile. Their saved stores roll up into this profile's overview and reports."
+          : "Select the regionals that belong to this divisional profile. Their reps and stores roll up into this profile's overview and reports.";
+
+    return (
+      <div className="space-y-6">
+        <Card className="rounded-[28px] border-white/10 bg-slate-900/75 text-white">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3 text-2xl">
+              <Building2 className="h-6 w-6 text-cyan-300" />
+              My Profiles
+            </CardTitle>
+            <CardDescription className="text-slate-300">
+              {helper}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">Role</div>
+                <div className="mt-2 text-xl font-bold capitalize">{session.role.replace("_", " ")}</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">Direct Assignments</div>
+                <div className="mt-2 text-xl font-bold">{profileAssignedStoreKeys.length}</div>
+              </div>
+              <div className="rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-violet-200">Resolved Stores</div>
+                <div className="mt-2 text-xl font-bold">{profileEffectiveStoreKeys.length}</div>
+              </div>
+            </div>
+
+            {profileMessage && (
+              <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+                {profileMessage}
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">{title}</h3>
+                  <p className="text-sm text-slate-400">Search, add multiple assignments, then save.</p>
+                </div>
+                <Button onClick={handleSaveProfile} disabled={profileSaving} className="bg-cyan-600 hover:bg-cyan-500">
+                  <Save className="mr-2 h-4 w-4" />
+                  {profileSaving ? "Saving..." : "Save Profile"}
+                </Button>
+              </div>
+
+              <div className="mb-4">
+                <Input
+                  value={profileStoreSearch}
+                  onChange={(event) => setProfileStoreSearch(event.target.value)}
+                  className="border-slate-600 bg-slate-800 text-white"
+                  placeholder={profileAssignmentMode === "stores" ? "Search stores by name, code, or region..." : "Search users by name or email..."}
+                />
+              </div>
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                {profileAssignmentMode === "stores"
+                  ? profileAssignedStoresDetailed.map((store) => (
+                      <button
+                        key={store.storeKey}
+                        type="button"
+                        onClick={() => setProfileAssignedStoreKeys((current) => current.filter((key) => key !== store.storeKey))}
+                        className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-sm text-cyan-100 hover:bg-cyan-500/20"
+                      >
+                        {store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName} x
+                      </button>
+                    ))
+                  : profileAssignedUsersDetailed.map((user) => (
+                      <button
+                        key={user.username}
+                        type="button"
+                        onClick={() => setProfileAssignedStoreKeys((current) => current.filter((key) => key.toLowerCase() !== user.username.toLowerCase()))}
+                        className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-sm text-cyan-100 hover:bg-cyan-500/20"
+                      >
+                        {user.name || user.username} {user.surname || ""} x
+                      </button>
+                    ))}
+                {profileAssignedStoreKeys.length === 0 && (
+                  <span className="text-sm text-slate-500">No assignments selected yet.</span>
+                )}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {profileAssignmentMode === "stores"
+                  ? profileStoreMatches.map((store) => (
+                      <button
+                        key={store.storeKey}
+                        type="button"
+                        onClick={() => setProfileAssignedStoreKeys((current) => current.includes(store.storeKey) ? current : [...current, store.storeKey])}
+                        className="rounded-xl border border-slate-700 bg-slate-800/70 p-3 text-left text-white transition hover:border-cyan-400/60 hover:bg-slate-800"
+                      >
+                        <div className="font-semibold">{store.storeCode} - {store.storeName}</div>
+                        <div className="mt-1 text-xs text-slate-400">{store.region || "No region"} | {store.employeeCount} employees</div>
+                      </button>
+                    ))
+                  : profileUserMatches.map((user) => (
+                      <button
+                        key={user.username}
+                        type="button"
+                        onClick={() => setProfileAssignedStoreKeys((current) => current.includes(user.username) ? current : [...current, user.username])}
+                        className="rounded-xl border border-slate-700 bg-slate-800/70 p-3 text-left text-white transition hover:border-cyan-400/60 hover:bg-slate-800"
+                      >
+                        <div className="font-semibold">{user.name || user.username} {user.surname || ""}</div>
+                        <div className="mt-1 text-xs text-slate-400">{user.username} | {user.role}</div>
+                      </button>
+                    ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
   const renderMainSection = () => {
     if (activeNav === "myportal") {
-      if (!isFieldRole || !session) {
-        return (
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardContent className="p-8 text-center">
-              <Building2 className="h-16 w-16 mx-auto mb-4 text-slate-600" />
-              <h2 className="text-xl font-bold text-white mb-2">My Portal</h2>
-              <p className="text-slate-400">This section is available for Rep, Regional, and Divisional roles.</p>
-            </CardContent>
-          </Card>
-        );
-      }
-      return (
-        <Suspense fallback={
-          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
-            <CardContent className="tech-loader p-8 text-center text-slate-300">
-              <div className="orb-loader mx-auto mb-4 w-fit">
-                <span /><span /><span />
-              </div>
-              <div className="font-medium text-white">Loading portal</div>
-              <div className="mt-1 text-xs text-slate-400">Preparing your dashboard...</div>
-            </CardContent>
-          </Card>
-        }>
-          <RegionalRepPanel session={session} />
-        </Suspense>
-      );
+      return renderMyProfiles();
     }
     if (activeNav === "shifts") return <ShiftBuilder readOnly={isFieldRole} />;
     if (activeNav === "calendar") return <CalendarBuilder readOnly={isFieldRole} />;
@@ -5817,9 +5968,11 @@ export default function App() {
       }
       if (isFieldRole) {
         await saveStoreAssignments(session.username, profileAssignedStoreKeys);
+        const effectiveStores = await getResolvedStoreAssignments(session.username, session.role);
+        setProfileEffectiveStoreKeys(effectiveStores);
       }
       setSession(result.session);
-      setProfileMessage("Profile and store assignments updated successfully.");
+      setProfileMessage("Profile assignments updated successfully.");
       setEditingProfile(false);
       setTimeout(() => setProfileMessage(""), 3500);
     } finally {
@@ -6048,6 +6201,9 @@ export default function App() {
                           setProfileCoversheetCode(session?.coversheetCode || "");
                           if (session?.username) {
                             void getStoreAssignments(session.username).then((keys) => setProfileAssignedStoreKeys(keys));
+                            if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
+                              void getResolvedStoreAssignments(session.username, session.role).then((keys) => setProfileEffectiveStoreKeys(keys));
+                            }
                           }
                         }}
                         className="flex-1 rounded-lg bg-slate-700/50 border border-slate-600 text-slate-300 text-xs font-medium py-2 hover:bg-slate-700 transition-colors disabled:opacity-60"
