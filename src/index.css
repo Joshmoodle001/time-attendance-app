@@ -501,19 +501,6 @@
     -webkit-text-fill-color: #ffffff !important;
   }
 
-  .device-light-surface {
-    color: #e2e8f0;
-  }
-
-  .device-light-surface :where(table, thead, tbody, tr, th, td) {
-    color: #0f172a !important;
-    -webkit-text-fill-color: #0f172a !important;
-  }
-
-  .device-light-surface tbody tr:hover :where(td, td div) {
-    color: #0f172a !important;
-    -webkit-text-fill-color: #0f172a !important;
-  }
 }
 
 #root {

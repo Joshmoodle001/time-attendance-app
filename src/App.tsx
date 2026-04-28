@@ -4964,16 +4964,20 @@ export default function App() {
 
     return (
       <div className="space-y-6">
-        <Card className="device-light-surface rounded-2xl">
+        <Card className="rounded-2xl border-slate-800 bg-slate-950 text-slate-100">
           <CardHeader>
-            <CardTitle>Device Status</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-slate-50">Device Status</CardTitle>
+            <CardDescription className="text-slate-300">
               {deviceImportDate ? `Last import: ${deviceImportDate}` : "Upload device data to see status"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-4 items-center mb-4">
-              <Button variant="outline" onClick={() => deviceUploadInputRef.current?.click()}>
+              <Button
+                variant="outline"
+                className="border-slate-600 bg-slate-900 text-slate-50 hover:border-cyan-400 hover:bg-slate-800 hover:text-white"
+                onClick={() => deviceUploadInputRef.current?.click()}
+              >
                 <Monitor className="w-4 h-4 mr-2" /> Upload Device Data
               </Button>
             </div>
@@ -5014,8 +5018,8 @@ export default function App() {
                     <div className="text-sm text-red-600">Offline / Warning</div>
                   </div>
                 </div>
-                <div className="rounded-xl border overflow-hidden">
-                  <table className="w-full text-slate-900">
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <table className="w-full bg-white text-slate-900">
                     <thead className="bg-slate-100">
                       <tr>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Store</th>
@@ -5027,9 +5031,9 @@ export default function App() {
                         <th className="px-4 py-3 text-center text-sm font-semibold text-slate-900">Status</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="bg-white">
                       {deviceRecords.map((device) => (
-                        <tr key={device.id} className="border-t transition-colors hover:bg-cyan-50">
+                        <tr key={device.id} className="border-t border-slate-200 bg-white text-slate-900 transition-colors even:bg-slate-50 hover:bg-cyan-100">
                           <td className="px-4 py-3">
                             <div className="font-medium text-sm text-slate-900">{device.storeName || device.name}</div>
                             <div className="text-xs text-slate-700">{device.name}</div>
