@@ -55,6 +55,7 @@ import {
   User,
   Pencil,
   LogOut,
+  Banknote,
   Shield,
 } from "lucide-react";
 import {
@@ -109,6 +110,7 @@ const ClockDataHub = lazy(() => import("@/components/ClockDataHub"));
 const LeaveHub = lazy(() => import("@/components/LeaveHub"));
 const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"));
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
+const PayrollAdminPanel = lazy(() => import("@/components/PayrollAdminPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
 const RegionalRepPanel = lazy(() => import("@/components/RegionalRepPanel"));
 const RosterHistoryAdminPanel = lazy(() => import("@/components/RosterHistoryAdminPanel"));
@@ -3062,7 +3064,7 @@ export default function App() {
   const [isSavingIpulseConfig, setIsSavingIpulseConfig] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; error?: string; response_time?: number } | null>(null);
-  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data" | "coversheet" | "history">("attendance");
+  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data" | "coversheet" | "history" | "payroll">("attendance");
 
   // Load iPulse config
   const loadIpulseConfig = async () => {
@@ -5207,6 +5209,19 @@ export default function App() {
               </div>
             </button>
             <button
+              onClick={() => setActiveAdminTab("payroll")}
+              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
+                activeAdminTab === "payroll"
+                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                  : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Banknote className="w-4 h-4" />
+                Payroll
+              </div>
+            </button>
+            <button
               onClick={() => setActiveAdminTab("coversheet")}
               className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
                 activeAdminTab === "coversheet"
@@ -5660,6 +5675,24 @@ export default function App() {
           </Card>
         }>
           <AdminDataToolsPanel onStatusMessage={setSaveMessage} />
+        </Suspense>
+      )}
+
+      {activeAdminTab === "payroll" && (
+        <Suspense fallback={
+          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
+            <CardContent className="tech-loader p-8 text-center text-slate-300">
+              <div className="orb-loader mx-auto mb-4 w-fit">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="font-medium text-white">Loading payroll settings</div>
+              <div className="mt-1 text-xs text-slate-400">Preparing the hourly rate used by payroll reports...</div>
+            </CardContent>
+          </Card>
+        }>
+          <PayrollAdminPanel />
         </Suspense>
       )}
 
