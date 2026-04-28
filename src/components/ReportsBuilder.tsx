@@ -1427,16 +1427,31 @@ export default function ReportsBuilder({
 
     let pageNumber = 1;
 
+    let hasDrawnPayrollEmployeePage = false;
+
     generatedSections.forEach((section, sectionIndex) => {
-      if (sectionIndex > 0) {
-        doc.addPage();
-        pageNumber += 1;
+      if (!exportIsPayrollReport) {
+        if (sectionIndex > 0) {
+          doc.addPage();
+          pageNumber += 1;
+        }
+
+        drawSectionHeader(section, pageNumber);
       }
 
-      drawSectionHeader(section, pageNumber);
       let cursorY = topY + 68;
 
-      section.employees.forEach((employee) => {
+      section.employees.forEach((employee, employeeIndex) => {
+        if (exportIsPayrollReport) {
+          if (hasDrawnPayrollEmployeePage || sectionIndex > 0 || employeeIndex > 0) {
+            doc.addPage();
+            pageNumber += 1;
+          }
+          drawSectionHeader(section, pageNumber);
+          cursorY = topY + 68;
+          hasDrawnPayrollEmployeePage = true;
+        }
+
         const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
         const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
         const empWorked = Number(employee.rows.reduce((sum, row) => sum + row.workedHours, 0).toFixed(2));
@@ -1452,7 +1467,10 @@ export default function ReportsBuilder({
           .filter(Boolean)
           .join(" | ");
 
-        const estimatedHeight = 62 + (employee.rows.length + 1) * 19;
+        const signatureHeight = 82;
+        const signatureGap = 18;
+        const payrollReservedHeight = exportIsPayrollReport ? signatureHeight + signatureGap : 0;
+        const estimatedHeight = 62 + (employee.rows.length + 1) * 19 + payrollReservedHeight;
         if (cursorY + estimatedHeight > pageHeight - bottomMargin) {
           doc.addPage();
           pageNumber += 1;
@@ -1623,7 +1641,6 @@ export default function ReportsBuilder({
           ((doc as InstanceType<JsPdfConstructor> & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY + 120) + 14;
 
         if (exportIsPayrollReport) {
-          const signatureHeight = 96;
           if (cursorY + signatureHeight > pageHeight - bottomMargin) {
             doc.addPage();
             pageNumber += 1;
@@ -1640,20 +1657,12 @@ export default function ReportsBuilder({
           doc.setTextColor(15, 23, 42);
           doc.text("Employee signature", marginX + 12, signatureY + 18);
 
-          doc.setFontSize(8.2);
-          doc.setTextColor(100, 116, 139);
-          doc.text(
-            `Pay rate: ${formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Payable hours: ${formatWorkedHours(employee.rows.reduce((sum, row) => sum + row.payableHours, 0))} | Pay owed: ${formatPayrollMoney(employee.rows.reduce((sum, row) => sum + row.payAmount, 0))}`,
-            marginX + 12,
-            signatureY + 34
-          );
-
           doc.setDrawColor(148, 163, 184);
           doc.setLineWidth(0.9);
-          doc.line(marginX + 12, signatureY + 61, pageWidth - marginX - 12, signatureY + 61);
+          doc.line(marginX + 12, signatureY + 50, pageWidth - marginX - 12, signatureY + 50);
           doc.setFontSize(8);
-          doc.text("Employee initials / signature", marginX + 12, signatureY + 74);
-          doc.text("Date", pageWidth - marginX - 12, signatureY + 74, { align: "right" });
+          doc.setTextColor(100, 116, 139);
+          doc.text("Employee initials / signature", marginX + 12, signatureY + 64);
         }
       });
     });
@@ -1853,11 +1862,9 @@ export default function ReportsBuilder({
                     ${generatedCriteria.templateKey === "payroll_report" ? `
                     <div class="signature-block">
                       <div class="signature-title">Employee signature</div>
-                      <div class="signature-meta">Pay rate: ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} per hour | Payable hours: ${escapeHtml(formatWorkedHours(empPayable))} | Pay owed: ${escapeHtml(formatPayrollMoney(empPay))}</div>
                       <div class="signature-line"></div>
                       <div class="signature-footer">
                         <span>Employee initials / signature</span>
-                        <span>Date</span>
                       </div>
                     </div>` : ""}
                   </div>
@@ -1936,10 +1943,9 @@ export default function ReportsBuilder({
             .summary-value.amber { color: #f59e0b; }
             .employee-rate { padding: 0 24px 16px; font-size: 12px; color: #a1a1aa; }
             .signature-block { padding: 18px 24px 24px; background: #0f172a; border-top: 1px solid #27272a; }
-            .signature-title { font-size: 12px; font-weight: 700; color: #fafafa; margin-bottom: 4px; }
-            .signature-meta { font-size: 11px; color: #94a3b8; margin-bottom: 20px; }
+            .signature-title { font-size: 12px; font-weight: 700; color: #fafafa; margin-bottom: 20px; }
             .signature-line { height: 1px; background: #94a3b8; margin: 28px 0 10px; }
-            .signature-footer { display: flex; justify-content: space-between; gap: 16px; font-size: 11px; color: #94a3b8; }
+            .signature-footer { display: flex; justify-content: flex-start; gap: 16px; font-size: 11px; color: #94a3b8; }
             table { width: 100%; border-collapse: collapse; font-size: 12px; }
             th { 
               background: #18181b; 
@@ -1984,12 +1990,15 @@ export default function ReportsBuilder({
             }
             @media print {
               body { padding: 16px; }
+              .payroll-report .store-section { page-break-after: auto; break-after: auto; }
+              .payroll-report .employee-block { page-break-after: always; break-after: page; }
+              .payroll-report .employee-block:last-child { page-break-after: auto; break-after: auto; }
               .page-number { position: static; text-align: center; margin-top: 24px; }
             }
           </style>
         </head>
         <body>
-          <div class="report-container">
+          <div class="report-container ${generatedCriteria.templateKey === "payroll_report" ? "payroll-report" : ""}">
             ${sectionsHtml}
           </div>
         </body>
