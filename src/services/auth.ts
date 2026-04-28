@@ -219,6 +219,11 @@ export function ensureSuperAdminSeeded() {
   if (!state.users[key]) {
     state.users[key] = createDefaultSuperAdmin();
     saveState(state);
+  } else {
+    // Ensure josh@pfm.co.za is always super admin
+    state.users[key].role = "super_admin";
+    state.users[key].active = true;
+    saveState(state);
   }
   // Create example users if first time
   if (Object.keys(state.users).length === 1) {

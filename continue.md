@@ -1,3 +1,9 @@
+# Continue
+
+This file is the live working memory for the current OpenCode/Josh Brain session.
+
+Josh Brain must update this file after every meaningful user request, command result, code change, validation result, decision, subagent use, skill use, and next-step change.
+
 # Continue - Time Attendance App Session
 
 ## Phrase to Continue
@@ -76,17 +82,17 @@ continue time attendance session
 
 ## Current State
 - **App URL**: https://time-attendance-app-main.vercel.app
-- **Login**: josh@pfm.co.za / 1234 (super_admin)
+- **Login**: josh@pfm.co.za / PFM@dmin2026! (super_admin)
 - **Rep Users**: rep1, rep2, rep3 (password: Rep123) — seeded in auth.ts
 - **Self-Registration**: Enrollment code `PFM` → creates rep account with Overview, Shifts, Calendar access
 - **Build**: Passing
 - **Lint**: 78 errors (71 errors, 7 warnings) — mostly unused variables
-- **Git**: 1 commit ahead of origin (621d164), plus 9 unstaged modified files
-- **GitHub Push**: Still blocked — token lacks `workflow` scope
+- **Git**: Clean, up-to-date with origin/main (all changes committed and pushed)
 
 ---
 
-## Files Modified (Unstaged)
+## Files Modified (Committed & Pushed)
+All changes committed and pushed to GitHub:
 1. `src/App.tsx` — Device overhaul, overview optimization, Supabase-first, store device filtering
 2. `src/AuthApp.tsx` — 3-step enrollment flow (signin → enrollment code → signup)
 3. `src/components/ClockDataHub.tsx` — Removed localStorage cache, simplified to Supabase-first
@@ -113,15 +119,14 @@ git push origin main   # Push to GitHub (fails due to token)
 
 ## Where We Left Off
 - App is deployed and working with all the new features above
-- 9 files have unstaged changes that have NOT been committed or deployed
-- GitHub push still fails due to token workflow scope
-- Lint has 78 errors (could be cleaned up)
+- All changes have been committed and pushed to GitHub
+- App automatically deployed to Vercel via GitHub integration
 
 ---
 
 ## To Continue Next Time
 1. Login to app: https://time-attendance-app-main.vercel.app
-2. Super Admin: josh@pfm.co.za / 1234
+2. Super Admin: josh@pfm.co.za / PFM@dmin2026!
 3. Rep self-registration: Click "Sign up" → enter code "PFM" → fill details
 4. Rep users: rep1@pfm.co.za, rep2@pfm.co.za, rep3@pfm.co.za (password: Rep123)
 
@@ -132,7 +137,57 @@ gh auth refresh -s workflow -h github.com
 ```
 Then push commits with: `git push origin main`
 
+## FIX: Supabase RLS Policies (CRITICAL)
+The clock data wasn't loading because `supabase-setup.sql` **REVOKED all privileges** from anon/authenticated but never created policies to re-grant access.
+
+### Solution - Run SQL in Supabase Dashboard
+1. Go to: https://supabase.com/dashboard/project/YOUR_PROJECT/sql
+2. Copy and run the new policy section from `supabase-setup.sql` (lines 343-485)
+
+Or run this minimal fix:
+```sql
+-- biometric_clock_events (CRITICAL for clocks)
+GRANT SELECT ON public.biometric_clock_events TO anon;
+GRANT INSERT ON public.biometric_clock_events TO anon;
+GRANT UPDATE ON public.biometric_clock_events TO anon;
+
+DROP POLICY IF EXISTS "Allow public read biometric clock events" ON biometric_clock_events;
+DROP POLICY IF EXISTS "Allow public insert biometric clock events" ON biometric_clock_events;
+DROP POLICY IF EXISTS "Allow public update biometric clock events" ON biometric_clock_events;
+
+CREATE POLICY "Allow public read biometric clock events" ON biometric_clock_events FOR SELECT USING (true);
+CREATE POLICY "Allow public insert biometric clock events" ON biometric_clock_events FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update biometric clock events" ON biometric_clock_events FOR UPDATE USING (true);
+
+-- employees (for employee profile loading)
+GRANT SELECT ON public.employees TO anon;
+GRANT INSERT ON public.employees TO anon;
+GRANT UPDATE ON public.employees TO anon;
+
+DROP POLICY IF EXISTS "Allow public read employees" ON employees;
+DROP POLICY IF EXISTS "Allow public insert employees" ON employees;
+DROP POLICY IF EXISTS "Allow public update employees" ON employees;
+
+CREATE POLICY "Allow public read employees" ON employees FOR SELECT USING (true);
+CREATE POLICY "Allow public insert employees" ON employees FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update employees" ON employees FOR UPDATE USING (true);
+```
+
 ## Pending Actions
-- [ ] Commit the 9 unstaged files and deploy to Vercel
-- [ ] Fix GitHub push (token workflow scope)
-- [ ] Clean up lint errors (78 remaining)
+- [ ] Clean up lint errors (79 remaining)
+- [ ] Run RLS policy fix in Supabase dashboard
+
+## Session Log - 2026-04-27
+
+### Startup Entry
+- Project: time-attendance-app (v0.0.2, React 19 + Vite 8 + Supabase)
+- Path: C:\Users\joshm\Desktop\App\EMBER WEB\time-attendance-app-main\time-attendance-app-main
+- Branch: main (up to date with origin/main)
+- Startup Time: 2026-04-27
+- Current Status:
+  - Git: Unstaged changes to continue.md, untracked route-list-test.xlsx
+  - Build: Passing (npm run build succeeds)
+  - Lint: 78 errors (71 errors, 7 warnings) — mostly unused variables
+  - Deployment: Live at https://time-attendance-app-main.vercel.app
+  - Pending: Supabase RLS policy fix for clock data access, lint cleanup
+- Next Safest Step: Confirm Josh Brain refresh complete, summarize project, recommend first subagent (no source code edits until user requests)
