@@ -12,7 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsForRange, getShiftRosterHistory, getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { getAuthSession, updateUserProfile, logout, isSuperAdmin, refreshSession, type AuthSession } from "@/services/auth";
+import { updateUserProfile, logout, isSuperAdmin, refreshSession, type AuthSession } from "@/services/auth";
 import { getAllStores, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
@@ -1456,7 +1456,7 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState("all");
   const [activeNav, setActiveNav] = useState<(typeof ALL_SIDEBAR_ITEMS[number]["key"])>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(() => refreshSession());
 
   const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
 
@@ -2101,7 +2101,7 @@ export default function App() {
     return mappedRecords;
   };
 
-useEffect(() => {
+  useEffect(() => {
     // Use refreshSession to get latest session with forced super_admin
     const currentSession = refreshSession();
     setSession(currentSession);
@@ -2122,6 +2122,14 @@ useEffect(() => {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (activeNav !== "superadmin" || isSuperAdmin(session)) return;
+    const repairedSession = refreshSession();
+    if (isSuperAdmin(repairedSession)) {
+      setSession(repairedSession);
+    }
+  }, [activeNav, session?.role, session?.username]);
 
   useEffect(() => {
     if (!session || editingProfile) return;

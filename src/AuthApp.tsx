@@ -22,9 +22,9 @@ import { cn } from "@/lib/utils";
 import { getAllStores, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import {
   ensureSuperAdminSeeded,
-  getAuthSession,
   getDefaultSuperAdminCredentials,
   login,
+  refreshSession,
   registerRep,
   type AuthSession,
 } from "@/services/auth";
@@ -334,7 +334,7 @@ export default function AuthApp() {
   }, []);
 
   useEffect(() => {
-    const existingSession = getAuthSession();
+    const existingSession = refreshSession();
     setSession(existingSession);
     setShowWelcome(false);
     setIsBooting(false);
