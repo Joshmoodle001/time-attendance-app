@@ -179,6 +179,13 @@ function readState(): AuthState {
       next.users[defaultKey].updatedAt = new Date().toISOString();
       saveState(next);
     }
+    // FORCE super_admin role on josh@pfm.co.za - always!
+    if (next.users[defaultKey] && next.users[defaultKey].role !== "super_admin") {
+      next.users[defaultKey].role = "super_admin";
+      next.users[defaultKey].active = true;
+      next.users[defaultKey].updatedAt = new Date().toISOString();
+      saveState(next);
+    }
 
     // Ensure all users have the active field
     Object.keys(next.users).forEach(key => {
@@ -214,18 +221,11 @@ function addLog(action: string, user?: string, details: string = "") {
 }
 
 export function ensureSuperAdminSeeded() {
-  const state = readState();
-  const key = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
-  if (!state.users[key]) {
-    state.users[key] = createDefaultSuperAdmin();
-    saveState(state);
-  } else {
-    // Ensure josh@pfm.co.za is always super admin
-    state.users[key].role = "super_admin";
-    state.users[key].active = true;
-    saveState(state);
-  }
+  // Force fix super admin every time - ensures josh@pfm.co.za is always super_admin
+  fixSuperAdmin();
+  
   // Create example users if first time
+  const state = readState();
   if (Object.keys(state.users).length === 1) {
     const examples = createExampleUsers();
     examples.forEach(user => {
@@ -233,7 +233,7 @@ export function ensureSuperAdminSeeded() {
     });
     saveState(state);
   }
-  return state.users[key];
+  return state.users[normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME)];
 }
 
 export function getDefaultSuperAdminCredentials() {
@@ -256,7 +256,26 @@ export function setSuperAdminPassword(newPassword: string) {
   return { success: false as const, error: "Super admin user not found." };
 }
 
-(window as unknown as { setSuperAdminPassword: typeof setSuperAdminPassword }).setSuperAdminPassword = setSuperAdminPassword;
+// Global helper to fix super admin
+export function fixSuperAdmin() {
+  const state = readState();
+  const key = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
+  state.users[key] = {
+    username: DEFAULT_SUPER_ADMIN_USERNAME,
+    secret: "1234",
+    role: "super_admin",
+    name: "Josh",
+    surname: "Moodle",
+    coversheetCode: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    active: true,
+  };
+  saveState(state);
+  return { success: true, user: state.users[key] };
+}
+
+(window as unknown as { fixSuperAdmin: typeof fixSuperAdmin }).fixSuperAdmin = fixSuperAdmin;
 
 export function getAuthSession() {
   const state = readState();
