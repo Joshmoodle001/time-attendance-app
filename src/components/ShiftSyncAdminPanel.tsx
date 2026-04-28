@@ -409,16 +409,16 @@ export default function ShiftSyncAdminPanel() {
       <CardHeader>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-slate-950">
               <Waves className="h-5 w-5" />
               Live Shift Sheets
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-slate-700">
               Manage live Google Sheets here. Paste a sheet link, click outside the field, and the app will save it and process it immediately while keeping the Shifts builder unchanged.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
               <input
                 type="checkbox"
                 checked={settings.liveSyncEnabled}
@@ -426,7 +426,7 @@ export default function ShiftSyncAdminPanel() {
               />
               Live listening
             </label>
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
               <input
                 type="checkbox"
                 checked={settings.autoSyncEnabled}
@@ -442,15 +442,15 @@ export default function ShiftSyncAdminPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          <div className="font-medium text-slate-900">Status</div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-900">
+          <div className="font-medium text-slate-950">Status</div>
           <div className="mt-1">{statusMessage}</div>
-          <div className="mt-2 text-xs text-slate-500">
+          <div className="mt-2 text-xs text-slate-700">
             {settings.lastUniversalSyncedAt
               ? `Last backup sync ${new Date(settings.lastUniversalSyncedAt).toLocaleString()}`
               : "No hourly backup sync has completed yet."}
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-slate-700">
             {settings.lastLiveSyncedAt
               ? `Last live push ${new Date(settings.lastLiveSyncedAt).toLocaleString()}`
               : "No live push has completed yet."}
@@ -459,14 +459,14 @@ export default function ShiftSyncAdminPanel() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="text-sm font-semibold text-slate-900">Backup schedule</div>
-            <div className="mt-1 text-xs text-slate-500">
+            <div className="text-sm font-semibold text-slate-950">Backup schedule</div>
+            <div className="mt-1 text-xs text-slate-700">
               Save your preferred interval and daily sync times for the live sheet processing setup.
             </div>
 
             <div className="mt-4 space-y-4">
               <div>
-                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Backup interval</div>
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-700">Backup interval</div>
                 <select
                   value={settings.backupIntervalMinutes}
                   onChange={(event) => void handleIntervalChange(Number(event.target.value))}
@@ -484,7 +484,7 @@ export default function ShiftSyncAdminPanel() {
               </div>
 
               <div>
-                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Specific daily sync times</div>
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-700">Specific daily sync times</div>
                 <div className="flex flex-wrap gap-2">
                   <Input type="time" value={newScheduledTime} onChange={(event) => setNewScheduledTime(event.target.value)} />
                   <Button variant="outline" onClick={() => void handleAddScheduledTime()}>
@@ -494,14 +494,14 @@ export default function ShiftSyncAdminPanel() {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {settings.scheduledRunTimes.length === 0 ? (
-                    <div className="text-xs text-slate-500">No specific times saved yet.</div>
+                    <div className="text-xs text-slate-700">No specific times saved yet.</div>
                   ) : (
                     settings.scheduledRunTimes.map((timeValue) => (
                       <button
                         key={timeValue}
                         type="button"
                         onClick={() => void handleRemoveScheduledTime(timeValue)}
-                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700"
+                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-900"
                       >
                         {timeValue} ×
                       </button>
@@ -513,14 +513,14 @@ export default function ShiftSyncAdminPanel() {
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="text-sm font-semibold text-slate-900">Add live sheet</div>
-            <div className="mt-1 text-xs text-slate-500">
+            <div className="text-sm font-semibold text-slate-950">Add live sheet</div>
+            <div className="mt-1 text-xs text-slate-700">
               Create additional live sheet sources and save them here.
             </div>
 
             <div className="mt-4 space-y-3">
               <div>
-                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Sheet name</div>
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-700">Sheet name</div>
                 <Input
                   value={newSectionLabel}
                   placeholder="Example: Checkers Specials"
@@ -528,7 +528,7 @@ export default function ShiftSyncAdminPanel() {
                 />
               </div>
               <div>
-                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Live Google Sheet link</div>
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-700">Live Google Sheet link</div>
                 <Input
                   value={newSectionUrl}
                   placeholder="Paste the live Google Sheets link here"
@@ -546,26 +546,26 @@ export default function ShiftSyncAdminPanel() {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">Universal listener URL</div>
-                <div className="text-xs text-slate-500">Use this if one Google Apps Script should trigger all linked shift sheets together.</div>
-              </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-950">Universal listener URL</div>
+                  <div className="text-xs text-slate-700">Use this if one Google Apps Script should trigger all linked shift sheets together.</div>
+                </div>
               <Button variant="outline" size="sm" onClick={() => void copyText(universalWebhookUrl, "Universal listener URL copied.")}>
                 <Copy className="mr-2 h-4 w-4" />
                 Copy
               </Button>
             </div>
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 break-all">
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 break-all">
               {universalWebhookUrl || "Listener URL will appear once settings are loaded."}
             </div>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">Google Apps Script</div>
-                <div className="text-xs text-slate-500">Install this in the Google Sheet so edits can push changes back to the app for processing.</div>
-              </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-950">Google Apps Script</div>
+                  <div className="text-xs text-slate-700">Install this in the Google Sheet so edits can push changes back to the app for processing.</div>
+                </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -583,7 +583,7 @@ export default function ShiftSyncAdminPanel() {
             <textarea
               readOnly
               value={buildShiftAppsScriptSnippet(universalWebhookUrl)}
-              className="mt-3 min-h-[150px] w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700"
+            className="mt-3 min-h-[150px] w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900"
             />
           </div>
         </div>
@@ -596,8 +596,8 @@ export default function ShiftSyncAdminPanel() {
               <div key={section.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-base font-semibold text-slate-900">{section.label}</div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="text-base font-semibold text-slate-950">{section.label}</div>
+                    <div className="mt-1 text-xs text-slate-700">
                       {section.lastSyncedAt ? `Last processed ${new Date(section.lastSyncedAt).toLocaleString()}` : "No processing yet"}
                     </div>
                   </div>
@@ -648,17 +648,17 @@ export default function ShiftSyncAdminPanel() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">{section.lastStatus}</div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">{section.lastStatus}</div>
 
                   <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-xs font-medium uppercase tracking-wide text-slate-400">Listener URL</div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-slate-700">Listener URL</div>
                       <Button variant="outline" size="sm" onClick={() => void copyText(listenerUrl, `${section.label} listener URL copied.`)}>
                         <Link2 className="mr-2 h-4 w-4" />
                         Copy link
                       </Button>
                     </div>
-                    <div className="mt-2 break-all text-xs text-slate-700">{listenerUrl}</div>
+                    <div className="mt-2 break-all text-xs text-slate-900">{listenerUrl}</div>
                   </div>
 
                   <div className="flex flex-wrap gap-2">

@@ -61,11 +61,11 @@ export default function PayrollAdminPanel() {
   return (
     <Card className="rounded-2xl border-emerald-200 bg-emerald-50/60">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-emerald-950">
+        <CardTitle className="flex items-center gap-2 text-slate-950">
           <Banknote className="h-5 w-5" />
           Payroll
         </CardTitle>
-        <CardDescription className="text-emerald-900/80">
+        <CardDescription className="text-slate-700">
           Set the universal hourly rate used by payroll reports across the app.
         </CardDescription>
       </CardHeader>
@@ -73,7 +73,7 @@ export default function PayrollAdminPanel() {
         <div className="rounded-xl border border-emerald-200 bg-white p-4">
           <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <div>
-              <label className="text-sm font-medium text-slate-700">Hourly rate</label>
+              <label className="text-sm font-medium text-slate-900">Hourly rate</label>
               <Input
                 type="number"
                 min="0"
@@ -97,14 +97,14 @@ export default function PayrollAdminPanel() {
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Badge className="bg-emerald-100 text-emerald-700">Current: R{settings.hourlyRate.toFixed(2)} / hour</Badge>
-            <Badge className="bg-slate-100 text-slate-600">
+            <Badge className="bg-emerald-100 text-emerald-800">Current: R{settings.hourlyRate.toFixed(2)} / hour</Badge>
+            <Badge className="bg-slate-100 text-slate-800">
               Last updated: {settings.updatedAt ? new Date(settings.updatedAt).toLocaleString("en-ZA") : "Not yet saved"}
             </Badge>
           </div>
         </div>
 
-        {message && <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{message}</div>}
+        {message && <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900">{message}</div>}
       </CardContent>
     </Card>
   );

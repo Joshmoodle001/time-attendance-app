@@ -1034,7 +1034,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
             );
           })}
         </div>
-        <div className="px-2 pt-2 text-xs text-slate-500">{statusMessage}</div>
+        <div className="px-2 pt-2 text-xs text-slate-300">{statusMessage}</div>
       </div>
 
       <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
@@ -1050,7 +1050,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   {showDetails ? "Collapse" : "Expand"}
                 </Button>
               </div>
-              <CardDescription className="text-slate-500">
+              <CardDescription className="text-slate-700">
                 {selectedRoster ? `${selectedRoster.rows.length} shift rows | ${rowGroups.length} groups` : "Upload a workbook to start"}
               </CardDescription>
             </div>
@@ -1081,7 +1081,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
 
         <CardContent className="p-0">
           {!selectedRoster ? (
-            <div className="p-10 text-center text-slate-500">Upload a workbook to start editing shifts.</div>
+            <div className="p-10 text-center text-slate-700">Upload a workbook to start editing shifts.</div>
           ) : (
             <>
               <div className="grid gap-3 p-3 md:hidden">
@@ -1104,7 +1104,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-slate-900">{row.employee_name || "Blank"}</div>
-                          <div className="mt-0.5 text-xs text-slate-500">
+                          <div className="mt-0.5 text-xs text-slate-700">
                             {row.week_label} | {row.employee_code || "No code"} | {row.time_label || "No time"}
                           </div>
                         </div>
@@ -1115,7 +1115,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                         {DAY_COLUMNS.map((day) => (
                           <div key={`${row.row_key}-${day.key}-mobile`} className="rounded-lg bg-slate-50 px-2 py-1.5">
-                            <div className="uppercase tracking-wide text-slate-400">{day.label}</div>
+                            <div className="uppercase tracking-wide text-slate-700">{day.label}</div>
                             <div className="mt-0.5 font-medium text-slate-900">{getCellValue(row, day.key) || "-"}</div>
                           </div>
                         ))}
@@ -1344,7 +1344,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
         <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
           <CardHeader className="border-b border-slate-200 pb-4">
             <CardTitle className="text-base font-semibold text-slate-900">Expanded shift hours</CardTitle>
-            <CardDescription className="text-slate-500">
+            <CardDescription className="text-slate-700">
               Hidden hours, weekly totals, and overall merchandiser totals only show here when expanded.
             </CardDescription>
           </CardHeader>
@@ -1355,7 +1355,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="font-semibold text-slate-900">{item.row.employee_name || "Blank"}</div>
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-slate-700">
                         {item.row.week_label} • {item.row.employee_code || "Blank"}
                       </div>
                     </div>
@@ -1364,7 +1364,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {item.dailyHours.map((day) => (
                       <div key={`${item.row.row_key}-${day.key}-mobile`} className="rounded-lg bg-white px-3 py-2 text-sm">
-                        <div className="text-xs uppercase tracking-wide text-slate-400">{day.label}</div>
+                        <div className="text-xs uppercase tracking-wide text-slate-700">{day.label}</div>
                         <div className="mt-1 font-medium text-slate-900">{formatHours(day.hours)}</div>
                       </div>
                     ))}
@@ -1410,7 +1410,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Weekly merchandiser totals</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-700">Weekly merchandiser totals</div>
                 <div className="mt-3 space-y-4 text-sm text-slate-700">
                   {Array.from(weeklyTotals.entries())
                     .sort((a, b) => a[0] - b[0])
@@ -1422,7 +1422,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                             <div key={`${week}-${item.employeeCode}`} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
                               <div>
                                 <div className="font-medium text-slate-900">{item.employeeName}</div>
-                                <div className="text-xs text-slate-500">{item.employeeCode}</div>
+                                <div className="text-xs text-slate-700">{item.employeeCode}</div>
                               </div>
                               <div className="text-sm font-semibold text-slate-900">{formatHours(item.totalHours)}h</div>
                             </div>
@@ -1434,13 +1434,13 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Weeks 1-4 totals</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-700">Weeks 1-4 totals</div>
                 <div className="mt-3 space-y-2 text-sm text-slate-700">
                   {grandTotals.map((item) => (
                     <div key={item.employeeCode} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                       <div>
                         <div className="font-medium text-slate-900">{item.employeeName}</div>
-                        <div className="text-xs text-slate-500">{item.employeeCode}</div>
+                        <div className="text-xs text-slate-700">{item.employeeCode}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900">{formatHours(item.totalHours)}h</div>
                     </div>
@@ -1452,8 +1452,8 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
             <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Shift logs</div>
-                  <div className="text-sm text-slate-500">Latest changes for the selected row.</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-700">Shift logs</div>
+                  <div className="text-sm text-slate-700">Latest changes for the selected row.</div>
                 </div>
                 <Badge className="bg-slate-100 text-slate-700">{selectedRow.logs.length} logs</Badge>
               </div>
@@ -1466,16 +1466,16 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
               </div>
               <div className="mt-4 space-y-3">
                   {selectedRow.logs.length === 0 ? (
-                    <div className="rounded-xl border border-dashed p-4 text-sm text-slate-500">No logs yet.</div>
+                    <div className="rounded-xl border border-dashed p-4 text-sm text-slate-700">No logs yet.</div>
                   ) : (
                     selectedRow.logs.slice(-4).reverse().map((log) => (
                       <div key={log.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge className="bg-slate-900 text-white">{log.source}</Badge>
-                          <span className="text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
+                          <span className="text-slate-700">{new Date(log.timestamp).toLocaleString()}</span>
                         </div>
-                        <div className="mt-1 font-medium text-slate-700">{log.field}</div>
-                        <div className="mt-1 text-slate-600">
+                        <div className="mt-1 font-medium text-slate-900">{log.field}</div>
+                        <div className="mt-1 text-slate-800">
                           {log.before || "blank"}{" -> "}{log.after || "blank"}
                         </div>
                       </div>

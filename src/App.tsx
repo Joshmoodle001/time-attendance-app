@@ -4985,17 +4985,17 @@ export default function App() {
               onChange={handleDeviceUpload}
             />
             {deviceRecords.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">
+              <div className="text-center py-8 text-slate-300">
                 <Monitor className="h-12 w-12 mx-auto mb-3 opacity-40" />
                 <p className="text-sm">No device data imported yet</p>
-                <p className="text-xs text-slate-500 mt-1">Use the Upload Device Data button to import a workbook</p>
+                <p className="text-xs text-slate-300 mt-1">Use the Upload Device Data button to import a workbook</p>
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-5">
                   <div className="p-4 bg-slate-100 rounded-xl text-center">
                     <div className="text-2xl font-bold">{deviceRecords.length}</div>
-                    <div className="text-sm text-slate-600">Total Stores</div>
+                    <div className="text-sm text-slate-700">Total Stores</div>
                   </div>
                   <div className="p-4 bg-green-50 rounded-xl text-center">
                     <div className="text-2xl font-bold text-green-700">{physicalCount}</div>
@@ -5018,13 +5018,13 @@ export default function App() {
                   <table className="w-full">
                     <thead className="bg-slate-100">
                       <tr>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Store</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Store Code</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Serial</th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">Type</th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">Has Device</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Reader</th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">Status</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Store</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Store Code</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Serial</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-slate-900">Type</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-slate-900">Has Device</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Reader</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-slate-900">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5032,7 +5032,7 @@ export default function App() {
                         <tr key={device.id} className="border-t hover:bg-slate-50">
                           <td className="px-4 py-3">
                             <div className="font-medium text-sm">{device.storeName || device.name}</div>
-                            <div className="text-xs text-slate-500">{device.name}</div>
+                            <div className="text-xs text-slate-700">{device.name}</div>
                           </td>
                           <td className="px-4 py-3 text-sm font-mono">{device.storeCode || "-"}</td>
                           <td className="px-4 py-3 text-sm font-mono">{device.id}</td>
@@ -5073,7 +5073,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-xs text-slate-400">{physicalCount} physical stores ({onlineCount} online, {offlineCount + warningCount} offline/warning) - {logicalCount} logical stores (excluded from overview)</p>
+                <p className="text-xs text-slate-300">{physicalCount} physical stores ({onlineCount} online, {offlineCount + warningCount} offline/warning) - {logicalCount} logical stores (excluded from overview)</p>
               </div>
             )}
           </CardContent>

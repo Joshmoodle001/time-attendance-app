@@ -570,8 +570,8 @@ export default function ClockDataHub({ employees, onEmployeesRefresh }: ClockDat
           {isLoadingData ? (
             <div className="section-tech-subpanel tech-loader border-gray-400 bg-gray-100 px-4 py-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-gray-700">{loadStage || "Loading clock data..."}</div>
-                <div className="shrink-0 text-sm font-semibold text-gray-700">{Math.max(0, Math.min(loadPercent, 100))}%</div>
+                <div className="text-sm font-medium text-slate-900">{loadStage || "Loading clock data..."}</div>
+                <div className="shrink-0 text-sm font-semibold text-slate-900">{Math.max(0, Math.min(loadPercent, 100))}%</div>
               </div>
               <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/10">
                 <div
