@@ -1037,7 +1037,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
         <div className="px-2 pt-2 text-xs text-slate-300">{statusMessage}</div>
       </div>
 
-      <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+      <Card className="shift-light-surface rounded-2xl border-slate-200 bg-white shadow-sm">
         <CardHeader className="border-b border-slate-200 pb-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
@@ -1050,7 +1050,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   size="sm"
                   onClick={() => setShowDetails((current) => !current)}
                   disabled={!selectedRoster}
-                  className="border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950"
+                  className="border-slate-300 bg-white !text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:!text-slate-950"
                 >
                   {showDetails ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                   {showDetails ? "Collapse" : "Expand"}
@@ -1065,7 +1065,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                 <>
                   <Button
                     variant="outline"
-                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    className="flex-1 border-slate-300 bg-white !text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:!text-slate-950 sm:flex-none"
                     onClick={handleAddGroup}
                     disabled={!selectedRoster}
                   >
@@ -1074,7 +1074,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   </Button>
                   <Button
                     variant="outline"
-                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    className="flex-1 border-slate-300 bg-white !text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:!text-slate-950 sm:flex-none"
                     onClick={() => void handleMove(-1)}
                     disabled={!selectedCell}
                   >
@@ -1083,7 +1083,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   </Button>
                   <Button
                     variant="outline"
-                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    className="flex-1 border-slate-300 bg-white !text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:!text-slate-950 sm:flex-none"
                     onClick={() => void handleMove(1)}
                     disabled={!selectedCell}
                   >
@@ -1092,7 +1092,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                   </Button>
                   <Button
                     variant="outline"
-                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    className="flex-1 border-slate-300 bg-white !text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:!text-slate-950 sm:flex-none"
                     onClick={handleRemoveGroup}
                     disabled={!selectedCell}
                   >
@@ -1367,7 +1367,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
       </Card>
 
       {showDetails && selectedRow && (
-        <Card className="rounded-2xl border-slate-200 bg-white text-slate-900 shadow-sm">
+        <Card className="shift-light-surface rounded-2xl border-slate-200 bg-white text-slate-900 shadow-sm">
           <CardHeader className="border-b border-slate-200 pb-4">
             <CardTitle className="text-base font-semibold text-slate-900">Expanded shift hours</CardTitle>
             <CardDescription className="text-slate-700">

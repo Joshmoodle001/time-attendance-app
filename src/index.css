@@ -480,6 +480,26 @@
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;
   }
+
+  .shift-light-surface {
+    color: #0f172a;
+    color-scheme: light;
+  }
+
+  .shift-light-surface :where(h1, h2, h3, h4, h5, h6, p, label, span, div, table, thead, tbody, tr, th, td, button, input) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  .shift-light-surface :where(th, td, td button) {
+    color: #020617 !important;
+    -webkit-text-fill-color: #020617 !important;
+  }
+
+  .shift-light-surface :where([class*="bg-slate-900"], [class*="bg-cyan-600"], [class*="from-cyan-600"]) {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+  }
 }
 
 #root {
