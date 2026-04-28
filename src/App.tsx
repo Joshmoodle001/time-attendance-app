@@ -1445,7 +1445,11 @@ function mapDatabaseAttendanceRecord(
   };
 }
 
-export default function App() {
+type AppProps = {
+  initialSession?: AuthSession | null;
+};
+
+export default function App({ initialSession = null }: AppProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const deviceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -1455,7 +1459,7 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState("all");
   const [activeNav, setActiveNav] = useState<(typeof ALL_SIDEBAR_ITEMS[number]["key"])>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(() => refreshSession());
+  const [session, setSession] = useState<AuthSession | null>(() => initialSession || refreshSession());
   const superAdminSession = useMemo<AuthSession>(
     () => ({
       username: DEFAULT_SUPER_ADMIN_USERNAME,
@@ -1471,13 +1475,19 @@ export default function App() {
   const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
 
   const sidebarItems = useMemo(() => {
-    if (!session) return ALL_SIDEBAR_ITEMS;
+    if (!session) return ALL_SIDEBAR_ITEMS.filter((i) => i.key === "overview");
     if (session.role === "super_admin" || session.role === "admin") return ALL_SIDEBAR_ITEMS.filter((i) => i.key !== "myportal");
     if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
       return ALL_SIDEBAR_ITEMS.filter((i) => FIELD_ROLE_NAV_KEYS.includes(i.key as (typeof FIELD_ROLE_NAV_KEYS)[number]));
     }
     return ALL_SIDEBAR_ITEMS.filter((i) => !["admin", "superadmin", "devices", "myportal"].includes(i.key));
   }, [session?.role]);
+
+  useEffect(() => {
+    if (initialSession) {
+      setSession(initialSession);
+    }
+  }, [initialSession?.username, initialSession?.role, initialSession?.name, initialSession?.surname, initialSession?.coversheetCode]);
 
   useEffect(() => {
     if (!sidebarItems.some((item) => item.key === activeNav)) {
@@ -5920,6 +5930,11 @@ export default function App() {
   };
 
   const renderMainSection = () => {
+    const allowedNavKeys = new Set(sidebarItems.map((item) => item.key));
+    if (!allowedNavKeys.has(activeNav)) {
+      return renderOverview();
+    }
+
     if (activeNav === "myportal") {
       return renderMyProfiles();
     }
@@ -5934,7 +5949,8 @@ export default function App() {
     if (activeNav === "reports") return renderReports();
     if (activeNav === "devices") return renderDevices();
     if (activeNav === "superadmin") {
-      return <SuperAdminPanel session={superAdminSession} />;
+      if (session?.role !== "super_admin") return renderOverview();
+      return <SuperAdminPanel session={session.username.toLowerCase() === DEFAULT_SUPER_ADMIN_USERNAME.toLowerCase() ? superAdminSession : session} />;
     }
     return renderOverview();
   };

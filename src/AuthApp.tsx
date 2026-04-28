@@ -972,7 +972,7 @@ export default function AuthApp() {
 
   return (
     <>
-      <App />
+      <App initialSession={session} />
     </>
   );
 }
