@@ -1045,7 +1045,13 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
                 <CardTitle className="text-base font-semibold text-slate-900 sm:text-lg">
                   {selectedRoster?.sheet_name || "No workbook selected"}
                 </CardTitle>
-                <Button variant="outline" size="sm" onClick={() => setShowDetails((current) => !current)} disabled={!selectedRoster}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowDetails((current) => !current)}
+                  disabled={!selectedRoster}
+                  className="border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950"
+                >
                   {showDetails ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                   {showDetails ? "Collapse" : "Expand"}
                 </Button>
@@ -1057,19 +1063,39 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
             <div className="flex flex-wrap gap-2">
               {!readOnly && (
                 <>
-                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleAddGroup} disabled={!selectedRoster}>
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    onClick={handleAddGroup}
+                    disabled={!selectedRoster}
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     Add row group
                   </Button>
-                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(-1)} disabled={!selectedCell}>
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    onClick={() => void handleMove(-1)}
+                    disabled={!selectedCell}
+                  >
                     <ArrowUp className="mr-2 h-4 w-4" />
                     Move up
                   </Button>
-                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(1)} disabled={!selectedCell}>
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    onClick={() => void handleMove(1)}
+                    disabled={!selectedCell}
+                  >
                     <ArrowDown className="mr-2 h-4 w-4" />
                     Move down
                   </Button>
-                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleRemoveGroup} disabled={!selectedCell}>
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 sm:flex-none"
+                    onClick={handleRemoveGroup}
+                    disabled={!selectedCell}
+                  >
                     <Trash2 className="mr-2 h-4 w-4" />
                     Remove group
                   </Button>
