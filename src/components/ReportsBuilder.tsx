@@ -190,6 +190,20 @@ function normalizeCompare(value: unknown) {
   return normalizeText(value).toLowerCase();
 }
 
+function getSearchTokens(query: unknown) {
+  return normalizeCompare(query)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function fieldsMatchSearch(fields: unknown[], query: unknown) {
+  const tokens = getSearchTokens(query);
+  if (tokens.length === 0) return false;
+  const normalizedFields = fields.map(normalizeCompare).filter(Boolean);
+  return tokens.every((token) => normalizedFields.some((field) => field.includes(token)));
+}
+
 function hasPhysicalDeviceForStoreInReports(
   storeDeviceMap: Map<string, StoreDeviceEntry>,
   storeCode: unknown,
@@ -248,23 +262,17 @@ function buildStoreDisplayName(store: unknown, storeCode: unknown) {
  }
 
 function matchesEmployeeSearch(employee: Employee, query: string) {
-   const normalizedQuery = normalizeCompare(query);
-   if (!normalizedQuery) return false;
-
-   const haystack = [
-     employee.employee_code,
-     employee.id_number,
-     employee.first_name,
-     employee.last_name,
-     `${employee.first_name} ${employee.last_name}`,
-     `${employee.last_name} ${employee.first_name}`,
-     employee.store,
-     employee.store_code,
-   ]
-     .map(normalizeText)
-     .join(" ");
-
-   return normalizeCompare(haystack).includes(normalizedQuery);
+   return fieldsMatchSearch(
+     [
+       employee.employee_code,
+       employee.id_number,
+       employee.first_name,
+       employee.last_name,
+       `${employee.first_name} ${employee.last_name}`,
+       `${employee.last_name} ${employee.first_name}`,
+     ],
+     query
+   );
  }
 
 function parseDateKey(dateKey: string) {
@@ -702,6 +710,7 @@ export default function ReportsBuilder({
   const [endDate, setEndDate] = useState("");
   const [awolThresholdDays, setAwolThresholdDays] = useState(3);
   const [generatedCriteria, setGeneratedCriteria] = useState<GeneratedCriteria | null>(null);
+  const [generatedPreviewMode, setGeneratedPreviewMode] = useState<"attendance" | "payroll">("attendance");
   const [generatedRecords, setGeneratedRecords] = useState<AttendanceRecord[]>([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(() => loadPayrollSettings());
@@ -827,9 +836,7 @@ export default function ReportsBuilder({
 
     return storeOptions
       .filter((opt) => !selectedSet.has(opt.key))
-      .filter((opt) =>
-        normalizeCompare(`${opt.displayName} ${opt.store} ${opt.storeCode}`).includes(query)
-      )
+      .filter((opt) => fieldsMatchSearch([opt.displayName, opt.store, opt.storeCode], query))
       .slice(0, 10);
   }, [selectedStores, storeOptions, storeSearch]);
 
@@ -1119,6 +1126,9 @@ export default function ReportsBuilder({
     );
   }, [generatedSections]);
   const isPayrollReport = generatedCriteria?.templateKey === "payroll_report";
+  const previewIsPayrollReport =
+    generatedCriteria?.templateKey !== "awol_report" &&
+    (generatedPreviewMode === "payroll" || isPayrollReport);
 
   const generatedAwolRows = useMemo<AwolReportRow[]>(() => {
     if (!generatedCriteria || generatedCriteria.templateKey !== "awol_report") return [];
@@ -1264,6 +1274,7 @@ export default function ReportsBuilder({
         employeeCodes: normalizedEmployeeCodes,
         awolThresholdDays,
       });
+      setGeneratedPreviewMode("attendance");
 
       setStatusMessage(
         selectedTemplateId === "awol_report"
@@ -2335,11 +2346,33 @@ export default function ReportsBuilder({
                 <UserRound className="section-tech-header-icon" />
                 {generatedCriteria?.templateKey === "awol_report"
                   ? "AWOL Report Preview"
-                  : isPayrollReport
+                  : previewIsPayrollReport
                     ? "Payroll Report Preview"
                     : "Attendance Report Preview"}
               </CardTitle>
               <div className="flex flex-wrap gap-2">
+                {generatedCriteria && generatedCriteria.templateKey !== "awol_report" && (
+                  <div className="flex rounded-xl border border-slate-300 bg-white p-1">
+                    <button
+                      type="button"
+                      onClick={() => setGeneratedPreviewMode("attendance")}
+                      className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                        !previewIsPayrollReport ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Attendance Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGeneratedPreviewMode("payroll")}
+                      className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                        previewIsPayrollReport ? "bg-emerald-700 text-white" : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Payroll Preview
+                    </button>
+                  </div>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => void handleExportPdf()}
@@ -2492,16 +2525,16 @@ export default function ReportsBuilder({
                     <div className="mt-2 text-2xl font-bold text-red-700">{generatedTotals.awol}</div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{isPayrollReport ? "Worked Hours" : "Worked Hours"}</div>
-                    <div className="mt-2 text-2xl font-bold text-slate-900">{formatWorkedHours(isPayrollReport ? generatedTotals.payableHours : generatedTotals.workedHours)}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Worked Hours</div>
+                    <div className="mt-2 text-2xl font-bold text-slate-900">{formatWorkedHours(previewIsPayrollReport ? generatedTotals.payableHours : generatedTotals.workedHours)}</div>
                   </div>
-                  {isPayrollReport && (
+                  {previewIsPayrollReport && (
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                       <div className="text-xs uppercase tracking-[0.2em] text-emerald-600">Pay Owed</div>
                       <div className="mt-2 text-2xl font-bold text-emerald-700">{formatPayrollMoney(generatedTotals.payAmount)}</div>
                     </div>
                   )}
-                  {isPayrollReport && (
+                  {previewIsPayrollReport && (
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Rate</div>
                       <div className="mt-2 text-2xl font-bold text-slate-900">{formatPayrollMoney(payrollSettings.hourlyRate)}</div>
@@ -2519,7 +2552,7 @@ export default function ReportsBuilder({
                       <section key={section.key} className="overflow-hidden rounded-[28px] border border-gray-300 bg-slate-950/45 shadow-[0_24px_60px_rgba(2,6,23,0.28)]">
                         <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-4 py-5 text-white sm:px-6">
                           <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-600">
-                            {isPayrollReport ? "Payroll Report" : "Attendance Report"}
+                            {previewIsPayrollReport ? "Payroll Report" : "Attendance Report"}
                           </div>
                           <div className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">
                             {section.storeCode ? `${section.storeCode} - ${section.store}` : section.store}
@@ -2546,7 +2579,7 @@ export default function ReportsBuilder({
                           {section.employees.map((employee) => {
                             const inOutCount = employee.rows.filter((row) => row.status === "In/Out").length;
                             const awolCount = employee.rows.filter((row) => row.status === "AWOL").length;
-                            const workedHours = employee.rows.reduce((sum, row) => sum + (isPayrollReport ? row.payableHours : row.workedHours), 0);
+                            const workedHours = employee.rows.reduce((sum, row) => sum + (previewIsPayrollReport ? row.payableHours : row.workedHours), 0);
                             const payableHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                             const payAmount = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
 
@@ -2565,7 +2598,7 @@ export default function ReportsBuilder({
                                     </div>
                                   </div>
 
-                                  <div className={`grid gap-4 ${isPayrollReport ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+                                  <div className={`grid gap-4 ${previewIsPayrollReport ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
                                     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                                       <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">In/Out Days</div>
                                       <div className="mt-2 text-xl font-bold text-gray-700">{inOutCount}</div>
@@ -2578,14 +2611,14 @@ export default function ReportsBuilder({
                                       <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Worked Hours</div>
                                       <div className="mt-2 text-xl font-bold text-white">{formatWorkedHours(workedHours)}</div>
                                     </div>
-                                    {isPayrollReport && (
+                                    {previewIsPayrollReport && (
                                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                                         <div className="text-[11px] uppercase tracking-[0.2em] text-emerald-600">Pay Owed</div>
                                         <div className="mt-2 text-xl font-bold text-emerald-700">{formatPayrollMoney(payAmount)}</div>
                                       </div>
                                     )}
                                   </div>
-                                  {isPayrollReport && (
+                                  {previewIsPayrollReport && (
                                     <div className="mt-3 text-xs text-slate-400">
                                       Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Sundays paid at 1.5x
                                     </div>
@@ -2604,10 +2637,10 @@ export default function ReportsBuilder({
                                       </div>
                                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Roster: {row.scheduleLabel}</div>
-                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(isPayrollReport ? row.payableHours : row.workedHours)}</div>
+                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(previewIsPayrollReport ? row.payableHours : row.workedHours)}</div>
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">In: {row.firstClock || "-"}</div>
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
-                                        {isPayrollReport && (
+                                        {previewIsPayrollReport && (
                                           <div className="rounded-lg bg-emerald-950/30 px-2 py-1.5 text-emerald-200">Pay: {formatPayrollMoney(row.payAmount)}</div>
                                         )}
                                       </div>
@@ -2627,7 +2660,7 @@ export default function ReportsBuilder({
                                         <th className="border-b border-slate-200 px-3 py-3 text-center">Worked Hrs</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-center">In</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-center">Out</th>
-                                        {isPayrollReport && <th className="border-b border-slate-200 px-3 py-3 text-center">Pay</th>}
+                                        {previewIsPayrollReport && <th className="border-b border-slate-200 px-3 py-3 text-center">Pay</th>}
                                         <th className="border-b border-slate-200 px-3 py-3 text-left">Clocks</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-right">Status</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-left">Notes</th>
@@ -2648,10 +2681,10 @@ export default function ReportsBuilder({
                                     <div className="mt-1 text-[11px] font-normal text-slate-500">From {row.rosterVersionFrom}</div>
                                   ) : null}
                                 </td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(isPayrollReport ? row.payableHours : row.workedHours)}</td>
+                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(previewIsPayrollReport ? row.payableHours : row.workedHours)}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
-                                          {isPayrollReport && <td className="border-b border-slate-200 px-3 py-3 text-center">{formatPayrollMoney(row.payAmount)}</td>}
+                                          {previewIsPayrollReport && <td className="border-b border-slate-200 px-3 py-3 text-center">{formatPayrollMoney(row.payAmount)}</td>}
                                           <td className="border-b border-slate-200 px-3 py-3 text-xs text-slate-500">
                                             {row.clockings.length > 0 ? row.clockings.join("  |  ") : "No clocks"}
                                           </td>

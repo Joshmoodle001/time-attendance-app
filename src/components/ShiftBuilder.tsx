@@ -60,6 +60,21 @@ function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
 }
 
+function getSearchTokens(query: unknown) {
+  return normalizeText(query)
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function fieldsMatchSearch(fields: unknown[], query: unknown) {
+  const tokens = getSearchTokens(query);
+  if (tokens.length === 0) return false;
+  const normalizedFields = fields.map((field) => normalizeText(field).toLowerCase()).filter(Boolean);
+  return tokens.every((token) => normalizedFields.some((field) => field.includes(token)));
+}
+
 function randomId() {
   return globalThis.crypto?.randomUUID?.() ?? `shift_${Math.random().toString(36).slice(2)}_${Date.now()}`;
 }
@@ -474,8 +489,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
 
   const rowGroups = useMemo(() => getGroupRows(selectedRoster), [selectedRoster]);
   const shiftSearchResults = useMemo(() => {
-    const query = normalizeText(shiftSearch).toLowerCase();
-    if (!query) return [];
+    if (getSearchTokens(shiftSearch).length === 0) return [];
 
     const results: Array<{
       id: string;
@@ -487,8 +501,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
     }> = [];
 
     rosters.forEach((roster) => {
-      const storeLabel = `${roster.store_name} ${roster.sheet_name} ${roster.store_code}`.toLowerCase();
-      if (storeLabel.includes(query)) {
+      if (fieldsMatchSearch([roster.store_name, roster.sheet_name, roster.store_code], shiftSearch)) {
         results.push({
           id: `store-${roster.sheet_name}`,
           type: "store",
@@ -499,8 +512,7 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
       }
 
       roster.rows.forEach((row) => {
-        const haystack = `${row.employee_name} ${row.employee_code} ${row.department} ${row.week_label} ${roster.store_name}`.toLowerCase();
-        if (haystack.includes(query)) {
+        if (fieldsMatchSearch([row.employee_name, row.employee_code, row.department, row.week_label], shiftSearch)) {
           results.push({
             id: `employee-${roster.sheet_name}-${row.row_key}`,
             type: "employee",

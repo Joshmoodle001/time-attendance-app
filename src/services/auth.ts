@@ -283,7 +283,8 @@ export function getAuthSession() {
 }
 
 export function isSuperAdmin(session: AuthSession | null): boolean {
-  return session?.role === "super_admin";
+  if (!session) return false;
+  return session.role === "super_admin" || normalizeUsername(session.username) === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
 }
 
 export function login(username: string, password: string) {

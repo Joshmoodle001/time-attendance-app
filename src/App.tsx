@@ -1079,6 +1079,20 @@ function normalizeOverviewCompare(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
+function getSearchTokens(query: unknown) {
+  return normalizeOverviewCompare(query)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function fieldsMatchSearch(fields: unknown[], query: unknown) {
+  const tokens = getSearchTokens(query);
+  if (tokens.length === 0) return true;
+  const normalizedFields = fields.map(normalizeOverviewCompare).filter(Boolean);
+  return tokens.every((token) => normalizedFields.some((field) => field.includes(token)));
+}
+
 function isOverviewEmployeeReportable(employee: Employee | undefined | null) {
   if (!employee) return false;
   if (employee.active === false) return false;
@@ -1534,11 +1548,10 @@ export default function App() {
     [profileAssignedStoreKeys]
   );
   const profileStoreMatches = useMemo(() => {
-    const query = String(profileStoreSearch || "").toLowerCase().trim();
     const available = profileStoreUniverse.filter((store) => !profileAssignedStoreSet.has(store.storeKey));
-    if (!query) return available.slice(0, 12);
+    if (getSearchTokens(profileStoreSearch).length === 0) return available.slice(0, 12);
     return available
-      .filter((store) => `${store.storeCode} ${store.storeName} ${store.region}`.toLowerCase().includes(query))
+      .filter((store) => fieldsMatchSearch([store.storeCode, store.storeName, store.region], profileStoreSearch))
       .slice(0, 12);
   }, [profileAssignedStoreSet, profileStoreSearch, profileStoreUniverse]);
   const profileAssignedStoresDetailed = useMemo(() => {
@@ -2359,25 +2372,24 @@ useEffect(() => {
     const queryText = deferredClockProfileSearch.trim().toLowerCase();
 
     return selectedClockProfileEvents.filter((event) => {
-      const haystack = [
-        event.employee_code,
-        event.first_name,
-        event.last_name,
-        event.alias,
-        event.id_number,
-        event.device_name,
-        event.store,
-        event.method,
-        event.direction,
-        event.source_file_name,
-        event.department,
-        event.team,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch = !queryText || haystack.includes(queryText);
+      const matchesSearch = !queryText || fieldsMatchSearch(
+        [
+          event.employee_code,
+          event.first_name,
+          event.last_name,
+          `${event.first_name} ${event.last_name}`,
+          event.alias,
+          event.id_number,
+          event.device_name,
+          event.store,
+          event.method,
+          event.direction,
+          event.source_file_name,
+          event.department,
+          event.team,
+        ],
+        queryText
+      );
       const matchesStartDate = !clockProfileStartDate || event.clock_date >= clockProfileStartDate;
       const matchesEndDate = !clockProfileEndDate || event.clock_date <= clockProfileEndDate;
       return matchesSearch && matchesStartDate && matchesEndDate;
@@ -2562,23 +2574,22 @@ useEffect(() => {
   };
 
   const filteredEmployees = useMemo(() => {
-    const query = deferredEmployeeSearch.trim().toLowerCase();
-
     return employees.filter((employee) => {
       const matchesStatus = employeeFilterStatus === "all" || employee.status === employeeFilterStatus;
       const matchesRegion = employeeFilterRegion === "all" || employee.region === employeeFilterRegion;
-      const haystack = [
-        employee.employee_code,
-        employee.first_name,
-        employee.last_name,
-        employee.id_number,
-        employee.alias,
-        employee.email,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const matchesSearch = !query || haystack.includes(query);
+      const matchesSearch = fieldsMatchSearch(
+        [
+          employee.employee_code,
+          employee.first_name,
+          employee.last_name,
+          `${employee.first_name} ${employee.last_name}`,
+          `${employee.last_name} ${employee.first_name}`,
+          employee.id_number,
+          employee.alias,
+          employee.email,
+        ],
+        deferredEmployeeSearch
+      );
       return matchesStatus && matchesRegion && matchesSearch;
     });
   }, [deferredEmployeeSearch, employeeFilterRegion, employeeFilterStatus, employees]);
@@ -3283,10 +3294,9 @@ useEffect(() => {
   );
 
   const filteredOverviewStoreOptions = useMemo(() => {
-    const query = normalizeOverviewCompare(overviewStoreSearch);
-    if (!query) return [];
+    if (getSearchTokens(overviewStoreSearch).length === 0) return [];
     return overviewStoreOptions
-      .filter((option) => normalizeOverviewCompare(`${option.label} ${option.store} ${option.storeCode}`).includes(query))
+      .filter((option) => fieldsMatchSearch([option.label, option.store, option.storeCode], overviewStoreSearch))
       .slice(0, 10);
   }, [overviewStoreOptions, overviewStoreSearch]);
 
@@ -3572,10 +3582,7 @@ useEffect(() => {
 
   const filteredRecords = useMemo(() => {
     return attendanceRecords.filter(record => {
-      const matchesSearch = !searchTerm || 
-        record.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        record.employeeCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        record.store.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = fieldsMatchSearch([record.name, record.employeeCode, record.store], searchTerm);
       const matchesRegion = selectedRegion === "all" || record.region === selectedRegion;
       const matchesStore = selectedStore === "all" || record.store === selectedStore;
       return matchesSearch && matchesRegion && matchesStore;

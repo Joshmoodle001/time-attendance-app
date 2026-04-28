@@ -33,6 +33,25 @@ import {
   type EmployeeUpdateUploadLog,
 } from "@/services/employeeUpdateLogs";
 import { getClockEventsForEmployeeProfile, getClockOverview, initializeClockDatabase, type BiometricClockEvent } from "@/services/clockData";
+
+function normalizeSearchValue(value: unknown) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function getSearchTokens(query: unknown) {
+  return normalizeSearchValue(query)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function fieldsMatchSearch(fields: unknown[], query: unknown) {
+  const tokens = getSearchTokens(query);
+  if (tokens.length === 0) return true;
+  const normalizedFields = fields.map(normalizeSearchValue).filter(Boolean);
+  return tokens.every((token) => normalizedFields.some((field) => field.includes(token)));
+}
+
 // Format helpers
 function formatClockAuditTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
@@ -284,22 +303,23 @@ export default function EmployeesHub({
 
   // Filtered employees
   const filteredEmployees = useMemo(() => {
-    const query = deferredEmployeeSearch.trim().toLowerCase();
     return employees.filter((employee) => {
       const matchesStatus = employeeFilterStatus === "all" || employee.status === employeeFilterStatus;
       const matchesRegion = employeeFilterRegion === "all" || employee.region === employeeFilterRegion;
-      const haystack = [
+      const matchesSearch = fieldsMatchSearch(
+        [
         employee.employee_code,
         employee.first_name,
         employee.last_name,
+          `${employee.first_name} ${employee.last_name}`,
+          `${employee.last_name} ${employee.first_name}`,
         employee.id_number,
         employee.store,
+          employee.store_code,
         employee.department,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const matchesSearch = !query || haystack.includes(query);
+        ],
+        deferredEmployeeSearch
+      );
       return matchesStatus && matchesRegion && matchesSearch;
     });
   }, [deferredEmployeeSearch, employeeFilterRegion, employeeFilterStatus, employees]);
@@ -473,7 +493,6 @@ export default function EmployeesHub({
   };
 
   const selectedClockProfileTimeline = useMemo(() => {
-    const query = deferredClockProfileSearch.trim().toLowerCase();
     const start = clockProfileStartDate ? new Date(clockProfileStartDate) : null;
     const end = clockProfileEndDate ? new Date(clockProfileEndDate) : null;
 
@@ -481,9 +500,10 @@ export default function EmployeesHub({
       .filter((event) => {
         if (start && new Date(event.clocked_at) < start) return false;
         if (end && new Date(event.clocked_at) > end) return false;
-        if (query) {
-          const haystack = `${event.store} ${event.device_name} ${event.method} ${event.direction} ${event.source_file_name}`.toLowerCase();
-          if (!haystack.includes(query)) return false;
+        if (getSearchTokens(deferredClockProfileSearch).length > 0) {
+          if (!fieldsMatchSearch([event.store, event.device_name, event.method, event.direction, event.source_file_name], deferredClockProfileSearch)) {
+            return false;
+          }
         }
         return true;
       })
