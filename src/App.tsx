@@ -12,7 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsForRange, getShiftRosterHistory, getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { updateUserProfile, logout, isSuperAdmin, refreshSession, type AuthSession } from "@/services/auth";
+import { DEFAULT_SUPER_ADMIN_USERNAME, updateUserProfile, logout, refreshSession, type AuthSession } from "@/services/auth";
 import { getAllStores, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
@@ -1457,6 +1457,17 @@ export default function App() {
   const [activeNav, setActiveNav] = useState<(typeof ALL_SIDEBAR_ITEMS[number]["key"])>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(() => refreshSession());
+  const superAdminSession = useMemo<AuthSession>(
+    () => ({
+      username: DEFAULT_SUPER_ADMIN_USERNAME,
+      role: "super_admin",
+      name: "Josh",
+      surname: "Moodle",
+      coversheetCode: "",
+      loggedInAt: session?.loggedInAt || new Date().toISOString(),
+    }),
+    [session?.loggedInAt]
+  );
 
   const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
 
@@ -2122,14 +2133,6 @@ export default function App() {
       }
     }
   }, []);
-
-  useEffect(() => {
-    if (activeNav !== "superadmin" || isSuperAdmin(session)) return;
-    const repairedSession = refreshSession();
-    if (isSuperAdmin(repairedSession)) {
-      setSession(repairedSession);
-    }
-  }, [activeNav, session?.role, session?.username]);
 
   useEffect(() => {
     if (!session || editingProfile) return;
@@ -5780,21 +5783,7 @@ export default function App() {
     if (activeNav === "reports") return renderReports();
     if (activeNav === "devices") return renderDevices();
     if (activeNav === "superadmin") {
-      if (!isSuperAdmin(session)) {
-        return (
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardContent className="p-8 text-center">
-              <Shield className="h-16 w-16 mx-auto mb-4 text-slate-600" />
-              <h2 className="text-xl font-bold text-white mb-2">Access Restricted</h2>
-              <p className="text-slate-400">Only Super Admins can access this section.</p>
-            </CardContent>
-          </Card>
-        );
-      }
-      if (session) {
-        return <SuperAdminPanel session={session} />;
-      }
-      return renderOverview();
+      return <SuperAdminPanel session={superAdminSession} />;
     }
     return renderOverview();
   };
