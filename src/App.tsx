@@ -5868,7 +5868,7 @@ export default function App({ initialSession = null }: AppProps) {
                   <h3 className="text-lg font-semibold text-white">{title}</h3>
                   <p className="text-sm text-slate-400">Search, add multiple assignments, then save.</p>
                 </div>
-                <Button onClick={handleSaveProfile} disabled={profileSaving} className="bg-cyan-600 hover:bg-cyan-500">
+                <Button onClick={handleSaveProfileAssignments} disabled={profileSaving} className="bg-cyan-600 hover:bg-cyan-500">
                   <Save className="mr-2 h-4 w-4" />
                   {profileSaving ? "Saving..." : "Save Profile"}
                 </Button>
@@ -6004,6 +6004,27 @@ export default function App({ initialSession = null }: AppProps) {
       setProfileMessage("Profile assignments updated successfully.");
       setEditingProfile(false);
       setTimeout(() => setProfileMessage(""), 3500);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleSaveProfileAssignments = async () => {
+    if (!session || !isFieldRole) return;
+    setProfileSaving(true);
+    setProfileMessage("");
+    try {
+      const result = await saveStoreAssignments(session.username, profileAssignedStoreKeys);
+      if (!result.success) {
+        setProfileMessage(result.error || "Could not update profile assignments.");
+        return;
+      }
+      const effectiveStores = await getResolvedStoreAssignments(session.username, session.role);
+      setProfileEffectiveStoreKeys(effectiveStores);
+      setProfileMessage("Profile assignments updated successfully.");
+      setTimeout(() => setProfileMessage(""), 3500);
+    } catch (error) {
+      setProfileMessage(error instanceof Error ? error.message : "Could not update profile assignments.");
     } finally {
       setProfileSaving(false);
     }
