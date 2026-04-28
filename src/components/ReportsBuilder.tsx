@@ -415,9 +415,12 @@ function calculatePayrollHours(row: AttendanceDayRow, shiftRow: ShiftRow | undef
     return { payableHours: 0, payAmount: 0 };
   }
 
+  const rateMultiplier = day === "sunday" ? 1.5 : 1;
+  const effectiveRate = Number((payrollRate * rateMultiplier).toFixed(2));
+
   if (row.isPublicHoliday) {
     const holidayHours = Number(row.workedHours.toFixed(2));
-    return { payableHours: holidayHours, payAmount: Number((holidayHours * payrollRate).toFixed(2)) };
+    return { payableHours: holidayHours, payAmount: Number((holidayHours * effectiveRate).toFixed(2)) };
   }
 
   const scheduledStart = getShiftStartSeconds(shiftRow, day);
@@ -430,7 +433,7 @@ function calculatePayrollHours(row: AttendanceDayRow, shiftRow: ShiftRow | undef
   const payableHours = Number(Math.min(row.workedHours, basePayable).toFixed(2));
   return {
     payableHours,
-    payAmount: Number((payableHours * payrollRate).toFixed(2)),
+    payAmount: Number((payableHours * effectiveRate).toFixed(2)),
   };
 }
 
@@ -2556,7 +2559,7 @@ export default function ReportsBuilder({
                                   </div>
                                   {isPayrollReport && (
                                     <div className="mt-3 text-xs text-slate-400">
-                                      Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour
+                                      Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Sundays paid at 1.5x
                                     </div>
                                   )}
                                 </div>
