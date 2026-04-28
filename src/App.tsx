@@ -1449,6 +1449,18 @@ type AppProps = {
   initialSession?: AuthSession | null;
 };
 
+function normalizeDashboardSession(session: AuthSession | null | undefined): AuthSession | null {
+  if (!session) return null;
+  if (session.username?.toLowerCase() !== DEFAULT_SUPER_ADMIN_USERNAME.toLowerCase()) return session;
+  return {
+    ...session,
+    username: DEFAULT_SUPER_ADMIN_USERNAME,
+    role: "super_admin",
+    name: session.name || "Josh",
+    surname: session.surname || "Moodle",
+  };
+}
+
 export default function App({ initialSession = null }: AppProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const deviceUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -1459,7 +1471,7 @@ export default function App({ initialSession = null }: AppProps) {
   const [selectedStore, setSelectedStore] = useState("all");
   const [activeNav, setActiveNav] = useState<(typeof ALL_SIDEBAR_ITEMS[number]["key"])>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(() => initialSession || refreshSession());
+  const [session, setSession] = useState<AuthSession | null>(() => normalizeDashboardSession(initialSession || refreshSession()));
   const superAdminSession = useMemo<AuthSession>(
     () => ({
       username: DEFAULT_SUPER_ADMIN_USERNAME,
@@ -1486,7 +1498,7 @@ export default function App({ initialSession = null }: AppProps) {
 
   useEffect(() => {
     if (initialSession) {
-      setSession(initialSession);
+      setSession(normalizeDashboardSession(initialSession));
     }
   }, [initialSession?.username, initialSession?.role, initialSession?.name, initialSession?.surname, initialSession?.coversheetCode]);
 
@@ -2148,7 +2160,7 @@ export default function App({ initialSession = null }: AppProps) {
 
   useEffect(() => {
     // Use refreshSession to get latest session with forced super_admin
-    const currentSession = refreshSession();
+    const currentSession = normalizeDashboardSession(refreshSession()) || normalizeDashboardSession(initialSession) || session;
     setSession(currentSession);
     console.log("📛 Session loaded:", currentSession);
     if (currentSession) {
