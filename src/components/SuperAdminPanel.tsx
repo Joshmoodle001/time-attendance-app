@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getAuthSession, getUsers, createUser, updateUser, deleteUser, resetUserPassword, getLogs, clearLogs, getRoleLabel, getAllRoles, type AuthSession, type AuthRole, type AuthUser } from "@/services/auth";
+import { DEFAULT_SUPER_ADMIN_USERNAME, getUsers, createUser, updateUser, deleteUser, resetUserPassword, getLogs, clearLogs, getRoleLabel, getAllRoles, type AuthSession, type AuthRole, type AuthUser } from "@/services/auth";
 
 type Tab = "users" | "database" | "vercel" | "logs";
 
@@ -38,6 +38,7 @@ const ROLE_COLORS: Record<AuthRole, string> = {
 };
 
 export default function SuperAdminPanel({ session }: { session: AuthSession }) {
+  const isRootSuperAdmin = session.username.toLowerCase() === DEFAULT_SUPER_ADMIN_USERNAME.toLowerCase();
   const [activeTab, setActiveTab] = useState<Tab>("users");
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [logs, setLogs] = useState<Array<{ timestamp: string; action: string; user?: string; details: string }>>([]);
@@ -226,7 +227,7 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
                       <Key className="h-3 w-3 mr-1" />
                       Reset
                     </Button>
-                    {user.role !== "super_admin" && (
+                    {(user.role !== "super_admin" || isRootSuperAdmin) && user.username.toLowerCase() !== DEFAULT_SUPER_ADMIN_USERNAME.toLowerCase() && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -315,7 +316,7 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
           onPasswordReset={(password) => handleResetPassword(showEditModal.username, password)}
           isLoading={isLoading}
           roles={getAllRoles()}
-          canChangeRole={showEditModal.role !== "super_admin" || session.username === showEditModal.username}
+          canChangeRole={isRootSuperAdmin || showEditModal.role !== "super_admin" || session.username === showEditModal.username}
         />
       )}
 

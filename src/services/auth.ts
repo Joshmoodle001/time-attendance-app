@@ -60,6 +60,17 @@ export function canManageRole(requestingRole: AuthRole, targetRole: AuthRole): b
   return ROLE_HIERARCHY[requestingRole] > ROLE_HIERARCHY[targetRole];
 }
 
+function isRootSuperAdminUsername(username: string | undefined | null) {
+  return normalizeUsername(String(username || "")) === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
+}
+
+function canManageRequestedRole(requestingSession: AuthSession, targetRole: AuthRole): boolean {
+  if (isRootSuperAdminUsername(requestingSession.username) && requestingSession.role === "super_admin") {
+    return true;
+  }
+  return canManageRole(requestingSession.role, targetRole);
+}
+
 export function getRoleLabel(role: AuthRole): string {
   return ROLE_LABELS[role] || role;
 }
@@ -397,7 +408,7 @@ export function createUser(
     return { success: false as const, error: "Only super admins can create users." };
   }
 
-  if (!canManageRole(requestingSession.role, userData.role)) {
+  if (!canManageRequestedRole(requestingSession, userData.role)) {
     return { success: false as const, error: "You cannot create users with this role level." };
   }
 
@@ -444,11 +455,11 @@ export function updateUser(
     return { success: false as const, error: "User not found." };
   }
 
-  if (user.role === "super_admin" && requestingSession.username !== targetUsername) {
+  if (user.role === "super_admin" && normalizeUsername(requestingSession.username) !== normalizeUsername(targetUsername) && !isRootSuperAdminUsername(requestingSession.username)) {
     return { success: false as const, error: "Cannot modify another super admin." };
   }
 
-  if (updates.role && !canManageRole(requestingSession.role, updates.role)) {
+  if (updates.role && !canManageRequestedRole(requestingSession, updates.role)) {
     return { success: false as const, error: "Cannot assign this role level." };
   }
 
@@ -477,7 +488,7 @@ export function resetUserPassword(requestingSession: AuthSession, targetUsername
     return { success: false as const, error: "User not found." };
   }
 
-  if (user.role === "super_admin" && requestingSession.username !== targetUsername) {
+  if (user.role === "super_admin" && normalizeUsername(requestingSession.username) !== normalizeUsername(targetUsername) && !isRootSuperAdminUsername(requestingSession.username)) {
     return { success: false as const, error: "Cannot reset another super admin's password." };
   }
 
@@ -502,7 +513,11 @@ export function deleteUser(requestingSession: AuthSession, targetUsername: strin
     return { success: false as const, error: "User not found." };
   }
 
-  if (user.role === "super_admin") {
+  if (isRootSuperAdminUsername(targetUsername)) {
+    return { success: false as const, error: "Cannot delete the root super admin account." };
+  }
+
+  if (user.role === "super_admin" && !isRootSuperAdminUsername(requestingSession.username)) {
     return { success: false as const, error: "Cannot delete super admin accounts." };
   }
 
