@@ -4964,7 +4964,7 @@ export default function App() {
 
     return (
       <div className="space-y-6">
-        <Card className="rounded-2xl">
+        <Card className="device-light-surface rounded-2xl">
           <CardHeader>
             <CardTitle>Device Status</CardTitle>
             <CardDescription>
@@ -4994,7 +4994,7 @@ export default function App() {
               <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-5">
                   <div className="p-4 bg-slate-100 rounded-xl text-center">
-                    <div className="text-2xl font-bold">{deviceRecords.length}</div>
+                    <div className="text-2xl font-bold text-slate-900">{deviceRecords.length}</div>
                     <div className="text-sm text-slate-700">Total Stores</div>
                   </div>
                   <div className="p-4 bg-green-50 rounded-xl text-center">
@@ -5015,7 +5015,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="rounded-xl border overflow-hidden">
-                  <table className="w-full">
+                  <table className="w-full text-slate-900">
                     <thead className="bg-slate-100">
                       <tr>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Store</th>
@@ -5029,13 +5029,13 @@ export default function App() {
                     </thead>
                     <tbody>
                       {deviceRecords.map((device) => (
-                        <tr key={device.id} className="border-t hover:bg-slate-50">
+                        <tr key={device.id} className="border-t transition-colors hover:bg-cyan-50">
                           <td className="px-4 py-3">
-                            <div className="font-medium text-sm">{device.storeName || device.name}</div>
+                            <div className="font-medium text-sm text-slate-900">{device.storeName || device.name}</div>
                             <div className="text-xs text-slate-700">{device.name}</div>
                           </td>
-                          <td className="px-4 py-3 text-sm font-mono">{device.storeCode || "-"}</td>
-                          <td className="px-4 py-3 text-sm font-mono">{device.id}</td>
+                          <td className="px-4 py-3 text-sm font-mono text-slate-900">{device.storeCode || "-"}</td>
+                          <td className="px-4 py-3 text-sm font-mono text-slate-900">{device.id}</td>
                           <td className="px-4 py-3 text-center">
                             {isPhysicalDeviceType(device.deviceType) ? (
                               <Badge className="bg-sky-100 text-sky-700">Physical</Badge>
@@ -5054,7 +5054,7 @@ export default function App() {
                               </Badge>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-sm">{device.readerType}</td>
+                          <td className="px-4 py-3 text-sm text-slate-900">{device.readerType}</td>
                           <td className="px-4 py-3 text-center">
                             {device.status === "online" && (
                               <Badge className="bg-green-100 text-green-700">Online</Badge>
