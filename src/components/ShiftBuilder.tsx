@@ -1367,14 +1367,14 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
       </Card>
 
       {showDetails && selectedRow && (
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-2xl border-slate-200 bg-white text-slate-900 shadow-sm">
           <CardHeader className="border-b border-slate-200 pb-4">
             <CardTitle className="text-base font-semibold text-slate-900">Expanded shift hours</CardTitle>
             <CardDescription className="text-slate-700">
               Hidden hours, weekly totals, and overall merchandiser totals only show here when expanded.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-4 text-slate-900">
             <div className="grid gap-3 md:hidden" style={{ zoom: zoomLevel } as React.CSSProperties}>
               {detailedRows.map((item) => (
                 <div key={`${item.row.row_key}-hours-mobile`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -1401,32 +1401,32 @@ export default function ShiftBuilder({ readOnly = false }: ShiftBuilderProps) {
 
             <div className="hidden w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 overscroll-x-contain md:block">
               <div style={{ zoom: zoomLevel } as React.CSSProperties}>
-              <table className="w-full min-w-[980px] border-collapse text-sm lg:min-w-[1180px]">
+              <table className="w-full min-w-[980px] border-collapse text-sm text-slate-900 lg:min-w-[1180px]">
                 <thead>
                   <tr className="bg-slate-50">
-                    <th className="border border-slate-200 px-3 py-2 text-left">Week</th>
-                    <th className="border border-slate-200 px-3 py-2 text-left">Employee</th>
-                    <th className="border border-slate-200 px-3 py-2 text-left">Code</th>
+                    <th className="border border-slate-200 px-3 py-2 text-left text-slate-900">Week</th>
+                    <th className="border border-slate-200 px-3 py-2 text-left text-slate-900">Employee</th>
+                    <th className="border border-slate-200 px-3 py-2 text-left text-slate-900">Code</th>
                     {DAY_COLUMNS.map((day) => (
-                      <th key={day.key} className="border border-slate-200 px-3 py-2 text-center">
+                      <th key={day.key} className="border border-slate-200 px-3 py-2 text-center text-slate-900">
                         {day.label}
                       </th>
                     ))}
-                    <th className="border border-slate-200 px-3 py-2 text-center">Week total</th>
+                    <th className="border border-slate-200 px-3 py-2 text-center text-slate-900">Week total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detailedRows.map((item) => (
                     <tr key={`${item.row.row_key}-hours`} className="bg-white">
-                      <td className="border border-slate-200 px-3 py-2">{item.row.week_label}</td>
-                      <td className="border border-slate-200 px-3 py-2">{item.row.employee_name || "Blank"}</td>
-                      <td className="border border-slate-200 px-3 py-2">{item.row.employee_code || "Blank"}</td>
+                      <td className="border border-slate-200 px-3 py-2 text-slate-900">{item.row.week_label}</td>
+                      <td className="border border-slate-200 px-3 py-2 text-slate-900">{item.row.employee_name || "Blank"}</td>
+                      <td className="border border-slate-200 px-3 py-2 text-slate-900">{item.row.employee_code || "Blank"}</td>
                       {item.dailyHours.map((day) => (
-                        <td key={`${item.row.row_key}-${day.key}-hours`} className="border border-slate-200 px-3 py-2 text-center">
+                        <td key={`${item.row.row_key}-${day.key}-hours`} className="border border-slate-200 px-3 py-2 text-center text-slate-900">
                           {formatHours(day.hours)}
                         </td>
                       ))}
-                      <td className="border border-slate-200 px-3 py-2 text-center font-semibold">{formatHours(item.weekTotal)}</td>
+                      <td className="border border-slate-200 px-3 py-2 text-center font-semibold text-slate-900">{formatHours(item.weekTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
