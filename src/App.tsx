@@ -1473,15 +1473,16 @@ export default function App({ initialSession = null }: AppProps) {
   );
 
   const isFieldRole = session?.role === "rep" || session?.role === "regional" || session?.role === "divisional";
+  const isRootSuperAdminSession = session?.username?.toLowerCase() === DEFAULT_SUPER_ADMIN_USERNAME.toLowerCase();
 
   const sidebarItems = useMemo(() => {
     if (!session) return ALL_SIDEBAR_ITEMS.filter((i) => i.key === "overview");
-    if (session.role === "super_admin" || session.role === "admin") return ALL_SIDEBAR_ITEMS.filter((i) => i.key !== "myportal");
+    if (isRootSuperAdminSession || session.role === "super_admin" || session.role === "admin") return ALL_SIDEBAR_ITEMS.filter((i) => i.key !== "myportal");
     if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
       return ALL_SIDEBAR_ITEMS.filter((i) => FIELD_ROLE_NAV_KEYS.includes(i.key as (typeof FIELD_ROLE_NAV_KEYS)[number]));
     }
     return ALL_SIDEBAR_ITEMS.filter((i) => !["admin", "superadmin", "devices", "myportal"].includes(i.key));
-  }, [session?.role]);
+  }, [isRootSuperAdminSession, session?.role]);
 
   useEffect(() => {
     if (initialSession) {
@@ -5949,8 +5950,8 @@ export default function App({ initialSession = null }: AppProps) {
     if (activeNav === "reports") return renderReports();
     if (activeNav === "devices") return renderDevices();
     if (activeNav === "superadmin") {
-      if (session?.role !== "super_admin") return renderOverview();
-      return <SuperAdminPanel session={session.username.toLowerCase() === DEFAULT_SUPER_ADMIN_USERNAME.toLowerCase() ? superAdminSession : session} />;
+      if (!session || (session.role !== "super_admin" && !isRootSuperAdminSession)) return renderOverview();
+      return <SuperAdminPanel session={isRootSuperAdminSession ? superAdminSession : session} />;
     }
     return renderOverview();
   };

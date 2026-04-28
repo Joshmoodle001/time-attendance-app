@@ -29,7 +29,7 @@ type AuthState = {
 };
 
 const STORAGE_KEY = "pfm-auth-state-v2";
-export const DEFAULT_SUPER_ADMIN_USERNAME = ["josh", "pfm.co.za"].join("@");
+export const DEFAULT_SUPER_ADMIN_USERNAME = "josh@pfm.co.za";
 export const DEFAULT_SUPER_ADMIN_SECRET = "PFM@dmin2026!";
 
 function normalizeUsername(value: string) {
