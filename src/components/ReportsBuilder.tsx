@@ -384,10 +384,15 @@ function getTargetHours(row: ShiftRow | undefined, day: ShiftDayKey) {
   if (!row) return 0;
   const raw = normalizeText(row[day]).toUpperCase();
   if (!raw || raw === "OFF") return 0;
-  if (day === "saturday") return 6;
   if (day === "sunday") return 5.5;
-  if (raw === "X") return parseShiftLength(row.time_label) ?? row.expected_hours[day] ?? 0;
-  return parseShiftLength(row[day]) ?? row.expected_hours[day] ?? 0;
+  if (day === "saturday") return 6;
+  return 7;
+}
+
+function getPayrollDayCap(day: ShiftDayKey) {
+  if (day === "sunday") return 5.5;
+  if (day === "saturday") return 6;
+  return 7;
 }
 
 function parseClockTimeToSeconds(value: string) {
@@ -414,7 +419,7 @@ function calculatePayrollHours(row: AttendanceDayRow, shiftRow: ShiftRow | undef
   const effectiveRate = Number((payrollRate * rateMultiplier).toFixed(2));
 
   if (row.isPublicHoliday) {
-    const holidayHours = Number(row.workedHours.toFixed(2));
+    const holidayHours = Number(Math.min(row.workedHours, getPayrollDayCap(day)).toFixed(2));
     return { payableHours: holidayHours, payAmount: Number((holidayHours * effectiveRate).toFixed(2)) };
   }
 
@@ -424,7 +429,7 @@ function calculatePayrollHours(row: AttendanceDayRow, shiftRow: ShiftRow | undef
     scheduledStart !== null && clockInSeconds !== null && clockInSeconds > scheduledStart
       ? Number(((clockInSeconds - scheduledStart) / 3600).toFixed(2))
       : 0;
-  const basePayable = Math.max(0, Number((row.targetHours - lateHours).toFixed(2)));
+  const basePayable = Math.max(0, Number((getPayrollDayCap(day) - lateHours).toFixed(2)));
   const payableHours = Number(Math.min(row.workedHours, basePayable).toFixed(2));
   return {
     payableHours,
@@ -1454,7 +1459,7 @@ export default function ReportsBuilder({
 
         const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
         const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-        const empWorked = Number(employee.rows.reduce((sum, row) => sum + row.workedHours, 0).toFixed(2));
+        const empWorked = Number(employee.rows.reduce((sum, row) => sum + (exportIsPayrollReport ? row.payableHours : row.workedHours), 0).toFixed(2));
         const empPayable = Number(employee.rows.reduce((sum, row) => sum + row.payableHours, 0).toFixed(2));
         const empPay = Number(employee.rows.reduce((sum, row) => sum + row.payAmount, 0).toFixed(2));
 
@@ -1593,7 +1598,7 @@ export default function ReportsBuilder({
                   row.weekdayLabel,
                   row.weekLabel.replace(/^WEEK\s+/i, "W"),
                   row.scheduleLabel,
-                  formatWorkedHours(row.workedHours),
+                  formatWorkedHours(row.payableHours),
                   row.firstClock || "-",
                   row.lastClock || "-",
                   formatPayrollMoney(row.payAmount),
@@ -1814,7 +1819,7 @@ export default function ReportsBuilder({
                 (employee) => {
                   const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
                   const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-                  const empWorked = employee.rows.reduce((sum, row) => sum + row.workedHours, 0);
+                  const empWorked = employee.rows.reduce((sum, row) => sum + (generatedCriteria.templateKey === "payroll_report" ? row.payableHours : row.workedHours), 0);
                   const empPayable = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                   const empPay = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
                   return `
@@ -1874,7 +1879,7 @@ export default function ReportsBuilder({
                               <td>${escapeHtml(row.weekdayLabel)}</td>
                               <td>${escapeHtml(row.weekLabel)}</td>
                               <td>${escapeHtml(row.scheduleLabel)}</td>
-                              <td style="text-align:center">${escapeHtml(formatWorkedHours(row.workedHours))}</td>
+                              <td style="text-align:center">${escapeHtml(formatWorkedHours(generatedCriteria.templateKey === "payroll_report" ? row.payableHours : row.workedHours))}</td>
                               <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
                               <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
                               ${generatedCriteria.templateKey === "payroll_report" ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
@@ -2488,7 +2493,7 @@ export default function ReportsBuilder({
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{isPayrollReport ? "Worked Hours" : "Worked Hours"}</div>
-                    <div className="mt-2 text-2xl font-bold text-slate-900">{formatWorkedHours(generatedTotals.workedHours)}</div>
+                    <div className="mt-2 text-2xl font-bold text-slate-900">{formatWorkedHours(isPayrollReport ? generatedTotals.payableHours : generatedTotals.workedHours)}</div>
                   </div>
                   {isPayrollReport && (
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
@@ -2541,7 +2546,7 @@ export default function ReportsBuilder({
                           {section.employees.map((employee) => {
                             const inOutCount = employee.rows.filter((row) => row.status === "In/Out").length;
                             const awolCount = employee.rows.filter((row) => row.status === "AWOL").length;
-                            const workedHours = employee.rows.reduce((sum, row) => sum + row.workedHours, 0);
+                            const workedHours = employee.rows.reduce((sum, row) => sum + (isPayrollReport ? row.payableHours : row.workedHours), 0);
                             const payableHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                             const payAmount = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
 
@@ -2599,7 +2604,7 @@ export default function ReportsBuilder({
                                       </div>
                                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Roster: {row.scheduleLabel}</div>
-                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(row.workedHours)}</div>
+                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(isPayrollReport ? row.payableHours : row.workedHours)}</div>
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">In: {row.firstClock || "-"}</div>
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
                                         {isPayrollReport && (
@@ -2643,7 +2648,7 @@ export default function ReportsBuilder({
                                     <div className="mt-1 text-[11px] font-normal text-slate-500">From {row.rosterVersionFrom}</div>
                                   ) : null}
                                 </td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(row.workedHours)}</td>
+                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(isPayrollReport ? row.payableHours : row.workedHours)}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
                                           {isPayrollReport && <td className="border-b border-slate-200 px-3 py-3 text-center">{formatPayrollMoney(row.payAmount)}</td>}
