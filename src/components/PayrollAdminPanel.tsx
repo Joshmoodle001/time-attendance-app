@@ -34,19 +34,27 @@ export default function PayrollAdminPanel() {
     }
 
     setIsSaving(true);
-    const next = savePayrollSettings(nextRate);
-    setSettings(next);
-    setRateInput(next.hourlyRate.toFixed(2));
-    setMessage(`Payroll rate saved at ${next.hourlyRate.toFixed(2)} per hour.`);
+    const result = savePayrollSettings(nextRate);
+    setSettings(result.settings);
+    setRateInput(result.settings.hourlyRate.toFixed(2));
+    setMessage(
+      result.persisted
+        ? `Payroll rate saved at ${result.settings.hourlyRate.toFixed(2)} per hour.`
+        : `Payroll rate updated in this session, but the browser storage is full so it could not be saved permanently.`
+    );
     setIsSaving(false);
   };
 
   const handleReset = () => {
     setIsSaving(true);
-    const next = resetPayrollSettings();
-    setSettings(next);
-    setRateInput(next.hourlyRate.toFixed(2));
-    setMessage(`Payroll rate reset to the default of ${DEFAULT_PAYROLL_HOURLY_RATE.toFixed(2)} per hour.`);
+    const result = resetPayrollSettings();
+    setSettings(result.settings);
+    setRateInput(result.settings.hourlyRate.toFixed(2));
+    setMessage(
+      result.persisted
+        ? `Payroll rate reset to the default of ${DEFAULT_PAYROLL_HOURLY_RATE.toFixed(2)} per hour.`
+        : `Payroll rate reset for this session, but the browser storage is full so it could not be saved permanently.`
+    );
     setIsSaving(false);
   };
 

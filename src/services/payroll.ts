@@ -3,10 +3,20 @@ export type PayrollSettings = {
   updatedAt: string;
 };
 
+export type PayrollSaveResult = {
+  settings: PayrollSettings;
+  persisted: boolean;
+};
+
 export const DEFAULT_PAYROLL_HOURLY_RATE = 30.23;
 export const PAYROLL_SETTINGS_STORAGE_KEY = "payroll-settings-v1";
 
 const PAYROLL_SETTINGS_EVENT = "payroll-settings-updated";
+
+let memoryPayrollSettings: PayrollSettings = {
+  hourlyRate: DEFAULT_PAYROLL_HOURLY_RATE,
+  updatedAt: "",
+};
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -32,47 +42,41 @@ function savePayrollSettingsToStorage(settings: PayrollSettings) {
 }
 
 export function loadPayrollSettings(): PayrollSettings {
-  if (!canUseStorage()) {
-    return {
-      hourlyRate: DEFAULT_PAYROLL_HOURLY_RATE,
-      updatedAt: "",
-    };
-  }
+  if (!canUseStorage()) return memoryPayrollSettings;
 
   try {
     const raw = window.localStorage.getItem(PAYROLL_SETTINGS_STORAGE_KEY);
     if (!raw) {
-      const settings = {
-        hourlyRate: DEFAULT_PAYROLL_HOURLY_RATE,
-        updatedAt: "",
-      };
-      savePayrollSettingsToStorage(settings);
-      return settings;
+      return memoryPayrollSettings;
     }
 
-    return normalizePayrollSettings(JSON.parse(raw));
-  } catch {
-    const settings = {
-      hourlyRate: DEFAULT_PAYROLL_HOURLY_RATE,
-      updatedAt: "",
-    };
-    savePayrollSettingsToStorage(settings);
+    const settings = normalizePayrollSettings(JSON.parse(raw));
+    memoryPayrollSettings = settings;
     return settings;
+  } catch {
+    return memoryPayrollSettings;
   }
 }
 
-export function savePayrollSettings(hourlyRate: number) {
+export function savePayrollSettings(hourlyRate: number): PayrollSaveResult {
   const settings: PayrollSettings = {
     hourlyRate: normalizeRate(hourlyRate),
     updatedAt: new Date().toISOString(),
   };
-  savePayrollSettingsToStorage(settings);
+  memoryPayrollSettings = settings;
+
+  let persisted = true;
+  try {
+    savePayrollSettingsToStorage(settings);
+  } catch {
+    persisted = false;
+  }
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(PAYROLL_SETTINGS_EVENT));
   }
 
-  return settings;
+  return { settings, persisted };
 }
 
 export function resetPayrollSettings() {
