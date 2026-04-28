@@ -1278,13 +1278,18 @@ export default function ReportsBuilder({
     }
   };
 
-  const handleExportPdf = async () => {
+  const handleExportPdf = async (exportMode: "current" | "payroll" = "current") => {
     if (!generatedCriteria) {
       setStatusMessage("Generate a report before exporting it.");
       return;
     }
 
     const { jsPDF, autoTable } = await loadPdfRuntime();
+
+    if (exportMode === "payroll" && generatedCriteria.templateKey === "awol_report") {
+      setStatusMessage("Generate an attendance report before exporting a payroll PDF.");
+      return;
+    }
 
     if (generatedCriteria.templateKey === "awol_report") {
       if (generatedAwolRows.length === 0) {
@@ -1347,7 +1352,8 @@ export default function ReportsBuilder({
     const topY = 30;
     const contentWidth = pageWidth - marginX * 2;
     const bottomMargin = 34;
-    const reportTitle = generatedCriteria.templateKey === "payroll_report" ? "Payroll Report" : "Attendance Report";
+    const exportIsPayrollReport = exportMode === "payroll" || generatedCriteria.templateKey === "payroll_report";
+    const reportTitle = exportIsPayrollReport ? "Payroll Report" : "Attendance Report";
 
     const parseClockTimeToSeconds = (value: string) => {
       if (!value || value === "-") return null;
@@ -1483,7 +1489,7 @@ export default function ReportsBuilder({
         const metaLines = doc.splitTextToSize(metaLine || "-", metricsStartX - employeeMetaX - 24);
         doc.text(metaLines.slice(0, 2), employeeMetaX, cursorY + 31);
 
-        const metricCols = isPayrollReport
+        const metricCols = exportIsPayrollReport
           ? [
               { label: "IN/OUT", value: String(empInOut), x: employeeCardRight - 162, color: [21, 128, 61] as [number, number, number] },
               { label: "AWOL", value: String(empAwol), x: employeeCardRight - 116, color: [185, 28, 28] as [number, number, number] },
@@ -1541,7 +1547,7 @@ export default function ReportsBuilder({
           alternateRowStyles: {
             fillColor: [255, 255, 255],
           },
-          head: [isPayrollReport ? ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "PAY", "STATUS"] : ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "NOTES", "STATUS"]],
+          head: [exportIsPayrollReport ? ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "PAY", "STATUS"] : ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "NOTES", "STATUS"]],
           columnStyles: {
             0: { cellWidth: 60 },
             1: { cellWidth: 28 },
@@ -1550,11 +1556,11 @@ export default function ReportsBuilder({
             4: { cellWidth: 44, halign: "center" },
             5: { cellWidth: 40, halign: "center" },
             6: { cellWidth: 40, halign: "center" },
-            7: isPayrollReport ? { cellWidth: 56, halign: "right" } : { cellWidth: 150 },
+            7: exportIsPayrollReport ? { cellWidth: 56, halign: "right" } : { cellWidth: 150 },
             8: { cellWidth: 38, halign: "right" },
           },
           body: employee.rows.map((row) =>
-            isPayrollReport
+            exportIsPayrollReport
               ? [
                   row.dateLabel,
                   row.weekdayLabel,
@@ -1616,7 +1622,7 @@ export default function ReportsBuilder({
         cursorY =
           ((doc as InstanceType<JsPdfConstructor> & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY + 120) + 14;
 
-        if (isPayrollReport) {
+        if (exportIsPayrollReport) {
           const signatureHeight = 96;
           if (cursorY + signatureHeight > pageHeight - bottomMargin) {
             doc.addPage();
@@ -1652,10 +1658,10 @@ export default function ReportsBuilder({
       });
     });
 
-    const exportPrefix = generatedCriteria.templateKey === "payroll_report" ? "payroll-report" : "attendance-report";
+    const exportPrefix = exportIsPayrollReport ? "payroll-report" : "attendance-report";
     doc.save(`${exportPrefix}-${generatedCriteria.startDate}-to-${generatedCriteria.endDate}.pdf`);
     setStatusMessage(
-      generatedCriteria.templateKey === "payroll_report"
+      exportIsPayrollReport
         ? "Payroll report exported to clean professional portrait A4 PDF."
         : "Attendance report exported to clean professional portrait A4 PDF."
     );
@@ -2301,6 +2307,14 @@ export default function ReportsBuilder({
                 >
                   <Download className="mr-2 h-4 w-4" />
                   Export PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void handleExportPdf("payroll")}
+                  disabled={!generatedCriteria || generatedCriteria.templateKey === "awol_report" || generatedSections.length === 0}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Payroll PDF
                 </Button>
                 <Button
                   variant="outline"
