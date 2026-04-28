@@ -174,11 +174,6 @@ const BUILT_IN_TEMPLATES = [
     description: "Store-based attendance template that joins roster dates to clockings and applies AWOL / No In-Out rules per day.",
   },
   {
-    id: "payroll_report",
-    title: "Payroll Report",
-    description: "Attendance report with payroll hours and pay owed using the admin hourly rate.",
-  },
-  {
     id: "awol_report",
     title: "AWOL Report",
     description: "Ranks merchandisers from worst to best by current consecutive AWOL streak while ignoring leave days and off days.",
@@ -1268,8 +1263,6 @@ export default function ReportsBuilder({
       setStatusMessage(
         selectedTemplateId === "awol_report"
           ? `Generated AWOL streak report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"} with a threshold of ${awolThresholdDays} day${awolThresholdDays === 1 ? "" : "s"}.`
-          : selectedTemplateId === "payroll_report"
-            ? `Generated payroll report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"} across ${formatRangeLabel(trimmedStart, trimmedEnd)} using the payroll rate of ${formatPayrollMoney(payrollSettings.hourlyRate)} per hour.`
           : mergedRecords.length > 0
             ? `Generated attendance report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"} across ${formatRangeLabel(trimmedStart, trimmedEnd)} using shifts, attendance, leave applications, and raw clock data.`
             : `Generated a roster-led attendance report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"}. No attendance or raw clock data matched the selected range, so empty scheduled days show as AWOL, Day Off, or On Leave when leave was applied.`
@@ -1446,12 +1439,16 @@ export default function ReportsBuilder({
 
       section.employees.forEach((employee, employeeIndex) => {
         if (exportIsPayrollReport) {
-          if (hasDrawnPayrollEmployeePage || sectionIndex > 0 || employeeIndex > 0) {
+          if (hasDrawnPayrollEmployeePage) {
             doc.addPage();
             pageNumber += 1;
           }
-          drawSectionHeader(section, pageNumber);
-          cursorY = topY + 68;
+          if (employeeIndex === 0) {
+            drawSectionHeader(section, pageNumber);
+            cursorY = topY + 68;
+          } else {
+            cursorY = topY;
+          }
           hasDrawnPayrollEmployeePage = true;
         }
 
@@ -1474,7 +1471,7 @@ export default function ReportsBuilder({
         const signatureGap = 18;
         const payrollReservedHeight = exportIsPayrollReport ? signatureHeight + signatureGap : 0;
         const estimatedHeight = 62 + (employee.rows.length + 1) * 19 + payrollReservedHeight;
-        if (cursorY + estimatedHeight > pageHeight - bottomMargin) {
+        if (!exportIsPayrollReport && cursorY + estimatedHeight > pageHeight - bottomMargin) {
           doc.addPage();
           pageNumber += 1;
           drawSectionHeader(section, pageNumber);
@@ -1484,7 +1481,8 @@ export default function ReportsBuilder({
         const employeeCardHeight = 50;
         const employeeCardRight = pageWidth - marginX;
         const employeeMetaX = marginX + 12;
-        const metricsStartX = employeeCardRight - 205;
+        const metricsWidth = exportIsPayrollReport ? 244 : 205;
+        const metricsStartX = employeeCardRight - metricsWidth;
 
         doc.setFillColor(255, 255, 255);
         doc.setDrawColor(203, 213, 225);
@@ -1512,15 +1510,15 @@ export default function ReportsBuilder({
 
         const metricCols = exportIsPayrollReport
           ? [
-              { label: "IN/OUT", value: String(empInOut), x: employeeCardRight - 162, color: [21, 128, 61] as [number, number, number] },
-              { label: "AWOL", value: String(empAwol), x: employeeCardRight - 116, color: [185, 28, 28] as [number, number, number] },
-              { label: "WORKED", value: formatWorkedHours(empWorked), x: employeeCardRight - 60, color: [30, 41, 59] as [number, number, number] },
-              { label: "PAY", value: formatPayrollMoney(empPay), x: employeeCardRight - 8, color: [5, 150, 105] as [number, number, number] },
+              { label: "IN/OUT", value: String(empInOut), x: employeeCardRight - 186, maxWidth: 42, color: [21, 128, 61] as [number, number, number] },
+              { label: "AWOL", value: String(empAwol), x: employeeCardRight - 132, maxWidth: 42, color: [185, 28, 28] as [number, number, number] },
+              { label: "WORKED", value: formatWorkedHours(empWorked), x: employeeCardRight - 73, maxWidth: 54, color: [30, 41, 59] as [number, number, number] },
+              { label: "PAY", value: formatPayrollMoney(empPay), x: employeeCardRight - 8, maxWidth: 62, color: [5, 150, 105] as [number, number, number] },
             ]
           : [
-              { label: "IN/OUT", value: String(empInOut), x: employeeCardRight - 140, color: [21, 128, 61] as [number, number, number] },
-              { label: "AWOL", value: String(empAwol), x: employeeCardRight - 80, color: [185, 28, 28] as [number, number, number] },
-              { label: "WORKED", value: formatWorkedHours(empWorked), x: employeeCardRight - 8, color: [30, 41, 59] as [number, number, number] },
+              { label: "IN/OUT", value: String(empInOut), x: employeeCardRight - 140, maxWidth: 44, color: [21, 128, 61] as [number, number, number] },
+              { label: "AWOL", value: String(empAwol), x: employeeCardRight - 80, maxWidth: 44, color: [185, 28, 28] as [number, number, number] },
+              { label: "WORKED", value: formatWorkedHours(empWorked), x: employeeCardRight - 8, maxWidth: 58, color: [30, 41, 59] as [number, number, number] },
             ];
 
         metricCols.forEach((metric) => {
@@ -1528,12 +1526,19 @@ export default function ReportsBuilder({
           doc.setTextColor(148, 163, 184);
           doc.text(metric.label, metric.x, cursorY + 15, { align: "right" });
 
-          doc.setFontSize(10.2);
+          let valueFontSize = 10.2;
+          doc.setFontSize(valueFontSize);
+          while (valueFontSize > 7.2 && doc.getTextWidth(metric.value) > metric.maxWidth) {
+            valueFontSize -= 0.3;
+            doc.setFontSize(valueFontSize);
+          }
           doc.setTextColor(metric.color[0], metric.color[1], metric.color[2]);
           doc.text(metric.value, metric.x, cursorY + 32, { align: "right" });
         });
 
         cursorY += 56;
+
+        const statusColumnIndex = exportIsPayrollReport ? 8 : 7;
 
         autoTable(doc, {
           startY: cursorY,
@@ -1568,17 +1573,18 @@ export default function ReportsBuilder({
           alternateRowStyles: {
             fillColor: [255, 255, 255],
           },
-          head: [exportIsPayrollReport ? ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "PAY", "STATUS"] : ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "NOTES", "STATUS"]],
+          head: [exportIsPayrollReport ? ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "PAY", "STATUS", "NOTES"] : ["DATE", "DAY", "WK", "SHIFT", "WORKED HRS", "IN", "OUT", "STATUS", "NOTES"]],
           columnStyles: {
-            0: { cellWidth: 60 },
-            1: { cellWidth: 28 },
+            0: { cellWidth: exportIsPayrollReport ? 58 : 60 },
+            1: { cellWidth: exportIsPayrollReport ? 27 : 28 },
             2: { cellWidth: 24, halign: "center" },
-            3: { cellWidth: 70 },
-            4: { cellWidth: 44, halign: "center" },
-            5: { cellWidth: 40, halign: "center" },
-            6: { cellWidth: 40, halign: "center" },
-            7: exportIsPayrollReport ? { cellWidth: 56, halign: "right" } : { cellWidth: 150 },
-            8: { cellWidth: 38, halign: "right" },
+            3: { cellWidth: exportIsPayrollReport ? 68 : 76 },
+            4: { cellWidth: exportIsPayrollReport ? 42 : 44, halign: "center" },
+            5: { cellWidth: exportIsPayrollReport ? 36 : 40, halign: "center" },
+            6: { cellWidth: exportIsPayrollReport ? 36 : 40, halign: "center" },
+            7: exportIsPayrollReport ? { cellWidth: 55, halign: "right" } : { cellWidth: 40, halign: "right" },
+            8: exportIsPayrollReport ? { cellWidth: 38, halign: "right" } : { cellWidth: 191 },
+            9: { cellWidth: 159 },
           },
           body: employee.rows.map((row) =>
             exportIsPayrollReport
@@ -1592,6 +1598,7 @@ export default function ReportsBuilder({
                   row.lastClock || "-",
                   formatPayrollMoney(row.payAmount),
                   row.status,
+                  "",
                 ]
               : [
                   row.dateLabel,
@@ -1601,8 +1608,8 @@ export default function ReportsBuilder({
                   formatWorkedHours(row.workedHours),
                   row.firstClock || "-",
                   row.lastClock || "-",
-                  "",
                   row.status,
+                  "",
                 ]
           ),
           didParseCell: (data) => {
@@ -1617,7 +1624,7 @@ export default function ReportsBuilder({
               data.cell.styles.textColor = [15, 23, 42];
             }
 
-            if (data.section === "body" && data.column.index === 8) {
+            if (data.section === "body" && data.column.index === statusColumnIndex) {
               const status = String(data.cell.raw || "");
               data.cell.styles.fontStyle = "bold";
 
@@ -1647,7 +1654,7 @@ export default function ReportsBuilder({
           if (cursorY + signatureHeight > pageHeight - bottomMargin) {
             doc.addPage();
             pageNumber += 1;
-            drawSectionHeader(section, pageNumber);
+            cursorY = topY;
           }
 
           const signatureY = Math.max(cursorY + 8, pageHeight - bottomMargin - signatureHeight);
@@ -1659,6 +1666,22 @@ export default function ReportsBuilder({
           doc.setFontSize(10.5);
           doc.setTextColor(15, 23, 42);
           doc.text("Employee signature", marginX + 12, signatureY + 18);
+
+          const signatureSummary = [
+            `Worked hours: ${formatWorkedHours(empWorked)}`,
+            `Pay amount: ${formatPayrollMoney(empPay)}`,
+          ];
+          doc.setFontSize(8);
+          doc.setTextColor(15, 23, 42);
+          signatureSummary.forEach((line, index) => {
+            let summaryFontSize = 8;
+            doc.setFontSize(summaryFontSize);
+            while (summaryFontSize > 6.2 && doc.getTextWidth(line) > 190) {
+              summaryFontSize -= 0.2;
+              doc.setFontSize(summaryFontSize);
+            }
+            doc.text(line, pageWidth - marginX - 12, signatureY + 16 + index * 12, { align: "right" });
+          });
 
           doc.setDrawColor(148, 163, 184);
           doc.setLineWidth(0.9);
@@ -1839,6 +1862,7 @@ export default function ReportsBuilder({
                           ${generatedCriteria.templateKey === "payroll_report" ? '<th style="text-align:center">Pay</th>' : '<th style="text-align:center">#</th>'}
                           <th>Clocks</th>
                           <th style="text-align:right">Status</th>
+                          <th>Notes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1856,6 +1880,7 @@ export default function ReportsBuilder({
                               ${generatedCriteria.templateKey === "payroll_report" ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
                               <td>${escapeHtml(row.clockings.length > 0 ? row.clockings.join(" | ") : "-")}</td>
                               <td style="text-align:right"><span class="status ${getStatusCssClass(row.status)}">${escapeHtml(row.status)}</span></td>
+                              <td></td>
                             </tr>
                           `
                           )
@@ -2287,9 +2312,7 @@ export default function ReportsBuilder({
                 ? "Generating..."
                 : selectedTemplateId === "awol_report"
                   ? "Generate AWOL Report"
-                  : selectedTemplateId === "payroll_report"
-                    ? "Generate Payroll Report"
-                    : "Generate Attendance Report"}
+                  : "Generate Attendance Report"}
             </Button>
           </div>
 
@@ -2602,6 +2625,7 @@ export default function ReportsBuilder({
                                         {isPayrollReport && <th className="border-b border-slate-200 px-3 py-3 text-center">Pay</th>}
                                         <th className="border-b border-slate-200 px-3 py-3 text-left">Clocks</th>
                                         <th className="border-b border-slate-200 px-3 py-3 text-right">Status</th>
+                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Notes</th>
                                       </tr>
                                     </thead>
                                     <tbody className="bg-transparent text-sm text-slate-200">
@@ -2629,6 +2653,7 @@ export default function ReportsBuilder({
                                           <td className="border-b border-slate-200 px-3 py-3 text-right">
                                             <Badge className={getStatusTone(row.status)}>{row.status}</Badge>
                                           </td>
+                                          <td className="border-b border-slate-200 px-3 py-3"></td>
                                         </tr>
                                       ))}
                                     </tbody>
