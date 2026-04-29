@@ -79,7 +79,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
 
   const handleResetData = async () => {
     const confirmed = window.confirm(
-      "This will reset all data in the application, including employees, shifts, clocks, reports, logs, and calendar events. Create a restore file first if you may need this data again. Do you want to continue?"
+      "This will clear operational data from the app and Supabase, including employees, attendance, shifts, leave, coversheets, assignments, clocks, and logs. Calendar, devices, and users will be kept. Do you want to continue?"
     );
     if (!confirmed) return;
 
@@ -96,7 +96,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
         setIsResettingData(false);
         return;
       } else {
-        setStatus("All application data was reset. Reloading the app now...");
+        setStatus("Operational data was cleared from the app and Supabase. Calendar, devices, and users were kept. Reloading the app now...");
       }
       window.setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
@@ -162,17 +162,16 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
             Data Reset
           </CardTitle>
           <CardDescription className="text-amber-800">
-            This resets all data in the application. That includes employees, attendance, shifts, clocks,
-            reports, communication data, logs, and calendar data. Create a restore file first if you may need
-            to bring this application state back later.
+            This clears operational app data and the matching Supabase tables. Employees, attendance, shifts,
+            leave, coversheets, assignments, clocks, and logs are removed. Calendar, devices, and users are kept.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-xl border border-amber-200 bg-white p-4 text-sm text-slate-700">
             <div className="font-medium text-slate-900">Recommended process</div>
             <div className="mt-2">
-              Download a restore file before you reset anything. That file will gather the application
-              databases and local saved data so it can be restored later in this Admin section.
+              Run the reset, then upload the fresh payroll workbook and the other fresh operational files.
+              This reset is designed for a clean re-import cycle, not for backup and restore.
             </div>
           </div>
 

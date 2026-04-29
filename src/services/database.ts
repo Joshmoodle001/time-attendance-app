@@ -536,6 +536,7 @@ export interface EmployeeStatusHistoryEntry {
 
 const EMPLOYEE_STORAGE_KEY = 'employee-profiles-cache-v1'
 const EMPLOYEE_STATUS_HISTORY_STORAGE_KEY = 'employee-status-history-cache-v1'
+const EMPLOYEE_SOURCE_MODE_STORAGE_KEY = 'employee-source-mode-v1'
 const EMPLOYEE_INDEXED_DB_NAME = 'time-attendance-employee-db'
 const EMPLOYEE_INDEXED_DB_VERSION = 1
 const EMPLOYEE_INDEXED_DB_STORE = 'employees'
@@ -754,6 +755,24 @@ function saveLocalEmployeeStatusHistory(entries: EmployeeStatusHistoryEntry[]) {
   }
 }
 
+function loadEmployeeSourceMode() {
+  if (typeof window === 'undefined') return 'remote'
+  try {
+    return window.localStorage.getItem(EMPLOYEE_SOURCE_MODE_STORAGE_KEY) || 'remote'
+  } catch {
+    return 'remote'
+  }
+}
+
+function saveEmployeeSourceMode(mode: 'remote' | 'local') {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(EMPLOYEE_SOURCE_MODE_STORAGE_KEY, mode)
+  } catch {
+    // ignore
+  }
+}
+
 function mergeEmployeeStatusHistoryCollections(...collections: EmployeeStatusHistoryEntry[][]) {
   const map = new Map<string, EmployeeStatusHistoryEntry>()
 
@@ -772,6 +791,16 @@ function clearLocalEmployees() {
     window.localStorage.removeItem(EMPLOYEE_STORAGE_KEY)
   } catch (error) {
     console.error('Clear local employees error:', error)
+  }
+}
+
+function clearLocalEmployeeStatusHistory() {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.removeItem(EMPLOYEE_STATUS_HISTORY_STORAGE_KEY)
+  } catch (error) {
+    console.error('Clear local employee status history error:', error)
   }
 }
 
@@ -977,6 +1006,24 @@ function normalizeEmployeeUpdatePayload(updates: Partial<EmployeeInput>) {
   }
 
   return next
+}
+
+function buildUniqueEmployeeImportRows(employees: EmployeeInput[], now: string) {
+  const uniqueByCode = new Map<string, ReturnType<typeof normalizeEmployeePayload> & { created_at: string; updated_at: string }>()
+
+  employees.forEach((emp) => {
+    const normalized = normalizeEmployeePayload(emp)
+    const code = normalizeEmployeeCode(normalized.employee_code)
+    if (!code) return
+    uniqueByCode.set(code, {
+      ...normalized,
+      employee_code: code,
+      created_at: now,
+      updated_at: now,
+    })
+  })
+
+  return Array.from(uniqueByCode.values())
 }
 
 function buildEmployeeStatusHistoryEntry(
@@ -1223,6 +1270,13 @@ export async function getEmployees(filters?: {
 }): Promise<Employee[]> {
   const t0 = performance.now();
   try {
+    const localOnlyMode = loadEmployeeSourceMode() === 'local'
+    if (localOnlyMode) {
+      const localEmployees = await loadStoredEmployees()
+      console.log(`[database] getEmployees: ${(performance.now() - t0).toFixed(0)}ms (${localEmployees.length} from local authoritative cache)`);
+      return filterEmployees(localEmployees, filters)
+    }
+
     const PAGE_SIZE = 1000
     const allRows: Employee[] = []
     let page = 0
@@ -1425,13 +1479,7 @@ export async function deleteEmployee(id: string): Promise<{ success: boolean; er
 export async function importEmployees(employees: EmployeeInput[]): Promise<{ success: boolean; error?: string; count?: number; skipped?: number }> {
   try {
     const now = new Date().toISOString()
-    
-    // Process employees in a single pass without loading existing data first
-    const processedEmployees = employees.map(emp => ({
-      ...normalizeEmployeePayload(emp),
-      created_at: now,
-      updated_at: now,
-    }))
+    const processedEmployees = buildUniqueEmployeeImportRows(employees, now)
 
     // Batch save to local storage without merging first (faster)
     const existingEmployees = await loadStoredEmployees()
@@ -1484,6 +1532,7 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
     })
     await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
     await persistEmployeeStatusHistory(statusHistoryEntries)
+    saveEmployeeSourceMode('local')
 
     const { data, error } = await supabase
       .from('employees')
@@ -1511,11 +1560,7 @@ export async function importEmployeesRemoteOverwrite(
 ): Promise<{ success: boolean; error?: string; count?: number }> {
   try {
     const now = new Date().toISOString()
-    const processedEmployees = employees.map(emp => ({
-      ...normalizeEmployeePayload(emp),
-      created_at: now,
-      updated_at: now,
-    }))
+    const processedEmployees = buildUniqueEmployeeImportRows(employees, now)
 
     const existingEmployees = await loadStoredEmployees()
     const localMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
@@ -1567,6 +1612,7 @@ export async function importEmployeesRemoteOverwrite(
     })
     await saveStoredEmployees(sortEmployees(Array.from(localMap.values())))
     await persistEmployeeStatusHistory(statusHistoryEntries)
+    saveEmployeeSourceMode('local')
 
     const { data, error } = await supabase
       .from('employees')
@@ -1583,6 +1629,78 @@ export async function importEmployeesRemoteOverwrite(
   } catch (err) {
     const message = getEmployeeStorageErrorMessage(err)
     console.error('Import employees remote overwrite failed:', message)
+    return { success: false, error: message }
+  }
+}
+
+export async function replaceEmployeesRemoteOverwrite(
+  employees: EmployeeInput[]
+): Promise<{ success: boolean; error?: string; count?: number }> {
+  try {
+    const now = new Date().toISOString()
+    const processedEmployees = buildUniqueEmployeeImportRows(employees, now)
+    const existingEmployees = await loadStoredEmployees()
+    const existingMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    const nextEmployees: Employee[] = processedEmployees.map((employee) => {
+      const existing = existingMap.get(normalizeEmployeeCode(employee.employee_code))
+      return {
+        id: existing?.id || randomId(),
+        employee_code: normalizeEmployeeCode(employee.employee_code),
+        first_name: employee.first_name,
+        last_name: employee.last_name,
+        gender: employee.gender || '',
+        title: employee.title || '',
+        alias: employee.alias || '',
+        id_number: employee.id_number || '',
+        email: employee.email || '',
+        phone: employee.phone || '',
+        job_title: employee.job_title || '',
+        department: employee.department || '',
+        region: employee.region || '',
+        store: employee.store || '',
+        store_code: employee.store_code || '',
+        hire_date: parseExcelDate(employee.hire_date),
+        person_type: employee.person_type || '',
+        fingerprints_enrolled: employee.fingerprints_enrolled ?? null,
+        company: employee.company || '',
+        branch: employee.branch || '',
+        business_unit: employee.business_unit || '',
+        cost_center: employee.cost_center || '',
+        team: employee.team || '',
+        ta_integration_id_1: employee.ta_integration_id_1 || '',
+        ta_integration_id_2: employee.ta_integration_id_2 || '',
+        access_profile: employee.access_profile || '',
+        ta_enabled: employee.ta_enabled ?? null,
+        permanent: employee.permanent ?? null,
+        active: employee.active ?? employee.status === 'active',
+        termination_reason: employee.termination_reason || '',
+        termination_date: parseExcelDate(employee.termination_date),
+        status: normalizeEmployeeStatus(employee.status),
+        created_at: existing?.created_at || now,
+        updated_at: now,
+      }
+    })
+
+    await saveStoredEmployees(sortEmployees(nextEmployees))
+    clearLocalEmployeeStatusHistory()
+    await persistEmployeeStatusHistory([])
+    saveEmployeeSourceMode('local')
+
+    const { data, error } = await supabase
+      .from('employees')
+      .upsert(processedEmployees, { onConflict: 'employee_code' })
+      .select('id')
+
+    if (error) {
+      const message = getEmployeeStorageErrorMessage(error)
+      console.error('Replace employees remote overwrite failed:', message)
+      return { success: false, error: message, count: processedEmployees.length }
+    }
+
+    return { success: true, count: data?.length || processedEmployees.length }
+  } catch (err) {
+    const message = getEmployeeStorageErrorMessage(err)
+    console.error('Replace employees remote overwrite failed:', message)
     return { success: false, error: message }
   }
 }

@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useCallback, useDeferredValue, useMemo, useRef, useState, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { uploadAttendanceFile } from "@/services/storage";
-import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployeesRemoteOverwrite, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
+import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployeesRemoteOverwrite, replaceEmployeesRemoteOverwrite, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
 import type { Employee, EmployeeInput } from "@/services/database";
 import { getConfig, saveConfig, testConnection, getSyncLogs, syncFromIpulse, clearSyncLogs, startAutoSync, stopAutoSync, IPULSE_SETUP_SQL } from "@/services/ipulse";
 import type { IpulseConfig, SyncLog } from "@/services/ipulse";
@@ -2183,15 +2183,8 @@ export default function App({ initialSession = null }: AppProps) {
     let alive = true;
 
     const bootstrapTrialReset = async () => {
-      const result = await performOneTimeTrialReset();
+      await performOneTimeTrialReset();
       if (!alive) return;
-      if (result.ran) {
-        setSaveMessage(
-          result.error
-            ? `Operational data reset completed and ${result.importedEmployees || 0} employees were reloaded from the payroll source. Calendar and devices were kept. Some remote cleanup steps reported issues: ${result.error}`
-            : `Operational data reset completed and ${result.importedEmployees || 0} employees were reloaded from the payroll source. Calendar and devices were kept.`
-        );
-      }
       setTrialResetReady(true);
     };
 
@@ -2928,7 +2921,7 @@ export default function App({ initialSession = null }: AppProps) {
       setPayrollUploadProgress(60);
       setPayrollUploadStage(`Importing ${newEmployees.length} employees to database...`);
       
-      const result = await importEmployeesRemoteOverwrite(newEmployees);
+      const result = await replaceEmployeesRemoteOverwrite(newEmployees);
       
       setPayrollUploadProgress(90);
       setPayrollUploadStage("Finalizing import...");
