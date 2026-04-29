@@ -24,6 +24,7 @@ import {
   ensureSuperAdminSeeded,
   getDefaultSuperAdminCredentials,
   login,
+  recoverAuthStorageCapacity,
   refreshSession,
   registerRep,
   type AuthSession,
@@ -452,13 +453,25 @@ export default function AuthApp() {
     setBanner({ type: "info", text: "Creating your rep account..." });
 
     try {
-      const result = registerRep({
+      let result = registerRep({
         username: signupData.username,
         password: signupData.password,
         name: signupData.name,
         surname: signupData.surname,
         coversheetCode: signupData.coversheetCode,
       });
+
+      if (!result.success && result.error.includes("Could not save the new account on this device")) {
+        setBanner({ type: "info", text: "Freeing browser storage and retrying account creation..." });
+        await recoverAuthStorageCapacity();
+        result = registerRep({
+          username: signupData.username,
+          password: signupData.password,
+          name: signupData.name,
+          surname: signupData.surname,
+          coversheetCode: signupData.coversheetCode,
+        });
+      }
 
       if (!result.success) {
         setBanner({ type: "error", text: result.error });

@@ -44,6 +44,13 @@ const AUTH_STORAGE_RECOVERY_KEYS = [
   "pfm-device-records-v1",
   "pfm-device-import-date-v1",
 ];
+const AUTH_STORAGE_RECOVERY_DATABASES = [
+  "time-attendance-employee-db",
+  "clock-events-db",
+  "time-attendance-coversheet-db",
+  "time-attendance-employee-update-logs-db",
+  "time-attendance-emergency-overrides-db",
+];
 
 function normalizeUsername(value: string) {
   return String(value || "").trim().toLowerCase();
@@ -200,6 +207,31 @@ function trimStorageForAuthWrite() {
     }
   }
   return removed;
+}
+
+export async function recoverAuthStorageCapacity() {
+  const removedLocal = trimStorageForAuthWrite();
+
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
+    return removedLocal;
+  }
+
+  let removedIndexedDb = false;
+  for (const databaseName of AUTH_STORAGE_RECOVERY_DATABASES) {
+    try {
+      const deleted = await new Promise<boolean>((resolve) => {
+        const request = window.indexedDB.deleteDatabase(databaseName);
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => resolve(false);
+        request.onblocked = () => resolve(false);
+      });
+      if (deleted) removedIndexedDb = true;
+    } catch {
+      // ignore
+    }
+  }
+
+  return removedLocal || removedIndexedDb;
 }
 
 function saveState(state: AuthState) {
