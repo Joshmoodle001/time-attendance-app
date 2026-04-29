@@ -33,6 +33,7 @@ const AUTH_SESSION_FALLBACK_KEY = "pfm-auth-state-session-v1";
 export const DEFAULT_SUPER_ADMIN_USERNAME = "josh@pfm.co.za";
 export const DEFAULT_SUPER_ADMIN_SECRET = "PFM@dmin2026!";
 const AUTH_STORAGE_RECOVERY_KEYS = [
+  "employee-source-mode-v1",
   "employee-profiles-cache-v1",
   "attendance-records-cache-v1",
   "pfm-clock-cache-v1",

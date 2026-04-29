@@ -1365,8 +1365,13 @@ export async function getEmployees(filters?: {
     const localOnlyMode = loadEmployeeSourceMode() === 'local'
     if (localOnlyMode) {
       const localEmployees = await loadStoredEmployees()
-      console.log(`[database] getEmployees: ${(performance.now() - t0).toFixed(0)}ms (${localEmployees.length} from local authoritative cache)`);
-      return filterEmployees(localEmployees, filters)
+      if (localEmployees.length > 0) {
+        console.log(`[database] getEmployees: ${(performance.now() - t0).toFixed(0)}ms (${localEmployees.length} from local authoritative cache)`);
+        return filterEmployees(localEmployees, filters)
+      }
+
+      // If the authoritative local cache was cleared, fall back to remote data instead of keeping the app empty.
+      saveEmployeeSourceMode('remote')
     }
 
     const PAGE_SIZE = 1000
