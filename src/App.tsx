@@ -774,63 +774,81 @@ function parseStaffListEmployeeWorkbook(workbook: WorkBook, existingEmployees: E
       if (!code) return;
 
       const existing = existingMap.get(code);
-      const displayName = String(getFirstSheetEntry(entries, ["display_name"])).trim();
+      if (!existing) return;
+
       const firstName = String(
-        getFirstSheetEntry(entries, ["genentity_first_name", "first_name", "firstname"])
+        getFirstSheetEntry(entries, ["gen_entity_first_name", "genentity_first_name", "first_name", "firstname"])
+      ).trim();
+      const aliasValue = String(
+        getFirstSheetEntry(entries, ["gen_entity_known_as_name", "genentity_known_as_name", "known_as_name", "alias"])
       ).trim();
       const lastName = String(
-        getFirstSheetEntry(entries, ["genentity_last_name", "last_name", "lastname", "surname"])
+        getFirstSheetEntry(entries, ["gen_entity_last_name", "genentity_last_name", "last_name", "lastname", "surname"])
+      ).trim();
+      const startDate = parseEmployeeDate(
+        getFirstSheetEntry(entries, ["employee_date_engaged", "employee_date_engaged", "date_engaged", "start_date", "hire_date"])
+      );
+      const terminationReason = String(
+        getFirstSheetEntry(entries, ["employee_termination_reason", "termination_reason"])
+      ).trim();
+      const terminationDate = parseEmployeeDate(
+        getFirstSheetEntry(entries, ["employee_termination_date", "termination_date"])
+      );
+      const companyRuleValue = String(getFirstSheetEntry(entries, ["company_rule"])).trim();
+      const paypointValue = String(
+        getFirstSheetEntry(entries, ["hierarchy_paypoint_hierarchy_name", "paypoint"])
+      ).trim();
+      const storeHierarchyValue = String(
+        getFirstSheetEntry(entries, ["hierarchy_stores_hierarchy_name", "store"])
       ).trim();
 
-      if (!firstName || !lastName) return;
-
-      const companyValue = String(getFirstSheetEntry(entries, ["company"])).trim();
-      const knownAsName = String(getFirstSheetEntry(entries, ["genentity_known_as_name", "known_as_name", "alias"])).trim();
-      const departmentValue = String(getFirstSheetEntry(entries, ["hierarchy_department_hierarchy_name", "department"])).trim();
-      const paypointValue = String(getFirstSheetEntry(entries, ["hierarchy_paypoint_hierarchy_name", "paypoint"])).trim();
-      const storeSourceValue = String(getFirstSheetEntry(entries, ["hierarchy_stores_hierarchy_name", "store"])).trim();
-      const storeAssignment = parseStaffListStoreValue(storeSourceValue);
-      const companyRuleValue = String(getFirstSheetEntry(entries, ["company_rule", "cost_center"])).trim();
-      const payslipTypeValue = String(getFirstSheetEntry(entries, ["payslip_type", "person_type"])).trim();
-      const payRunDefinitionValue = String(getFirstSheetEntry(entries, ["pay_run_definition", "business_unit"])).trim();
-      const terminationReason = String(getFirstSheetEntry(entries, ["employee_termination_reason", "termination_reason"])).trim();
-      const terminationDate = parseEmployeeDate(getFirstSheetEntry(entries, ["employee_termination_date", "termination_date"]));
-      const shouldBeInactive = Boolean(terminationReason || terminationDate);
-      const regionValue = deriveStaffListRegion(departmentValue, paypointValue, existing);
-      const storeLabel = storeAssignment.storeDisplay || storeAssignment.store;
+      const nextFirstName = firstName || existing.first_name || "";
+      const nextAlias = aliasValue || existing.alias || "";
+      const nextLastName = lastName || existing.last_name || "";
+      const nextHireDate = startDate || existing.hire_date || "";
+      const nextExpiryDate = terminationDate || existing.expiry_date || "";
+      const shouldBeInactive = Boolean(terminationReason);
+      const nextTerminationReason = shouldBeInactive ? terminationReason : "";
+      const nextTerminationDate = shouldBeInactive ? terminationDate : "";
+      const nextStatus: "active" | "inactive" = shouldBeInactive ? "inactive" : "active";
 
       employeeMap.set(code, {
         employee_code: code,
-        first_name: firstName,
-        last_name: lastName,
-        gender: normalizeEmployeeGenderValue(getFirstSheetEntry(entries, ["genentity_gender", "gender"])) || "",
-        title: extractTitleFromDisplayName(displayName) || "",
-        alias: knownAsName,
-        id_number: String(getFirstSheetEntry(entries, ["genentity_id_number", "id_number", "national_id"])).trim(),
+        first_name: nextFirstName,
+        last_name: nextLastName,
+        gender: existing.gender || "",
+        title: existing.title || "",
+        alias: nextAlias,
+        id_number: existing.id_number || "",
         email: existing?.email || "",
         phone: existing?.phone || "",
         job_title: existing?.job_title || "",
-        department: departmentValue,
-        region: regionValue,
-        store: storeAssignment.store,
-        store_code: storeAssignment.storeCode,
-        hire_date: parseEmployeeDate(getFirstSheetEntry(entries, ["employee_date_engaged", "hire_date"])),
-        person_type: payslipTypeValue,
+        department: paypointValue || existing.department || "",
+        region: existing.region || "",
+        store: existing.store || "",
+        store_code: existing.store_code || "",
+        hire_date: nextHireDate,
+        expiry_date: nextExpiryDate,
+        person_type: companyRuleValue || existing.person_type || "",
         fingerprints_enrolled: existing?.fingerprints_enrolled ?? null,
-        company: companyValue,
-        branch: paypointValue,
-        business_unit: payRunDefinitionValue,
-        cost_center: companyRuleValue,
-        team: storeLabel,
+        company: existing.company || "",
+        branch: existing.branch || "",
+        business_unit: existing.business_unit || "",
+        cost_center: existing.cost_center || "",
+        team: storeHierarchyValue || existing.team || "",
+        job_code: existing.job_code || "",
+        custom_1: existing.custom_1 || "",
+        custom_2: existing.custom_2 || "",
+        nationality: existing.nationality || "",
         ta_integration_id_1: existing?.ta_integration_id_1 || "",
         ta_integration_id_2: existing?.ta_integration_id_2 || "",
         access_profile: existing?.access_profile || "",
         ta_enabled: existing?.ta_enabled ?? null,
         permanent: existing?.permanent ?? null,
-        active: shouldBeInactive ? false : true,
-        termination_reason: terminationReason,
-        termination_date: terminationDate,
-        status: shouldBeInactive ? "inactive" : "active",
+        active: !shouldBeInactive,
+        termination_reason: nextTerminationReason,
+        termination_date: nextTerminationDate,
+        status: nextStatus,
       });
     });
   });
