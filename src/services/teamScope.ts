@@ -17,6 +17,10 @@ export function normalizeScopeCompare(value: unknown) {
   return normalizeScopeText(value).toLowerCase();
 }
 
+function stripLeadingCode(value: string) {
+  return value.replace(/^[A-Za-z0-9]+\s*-\s*/, "").trim();
+}
+
 function stripTrailingCode(value: string) {
   return value.replace(/\s*\(([^)]+)\)\s*$/, "").trim();
 }
@@ -26,25 +30,28 @@ export function getTeamScopeInfo(team: unknown, fallbackStore?: unknown, fallbac
   if (normalizedTeam) {
     const match = normalizedTeam.match(/^([A-Za-z0-9]+)\s*-\s*(.+)$/);
     if (match) {
+      const canonicalLabel = normalizeScopeText(match[2]) || normalizedTeam;
       return {
-        key: normalizeScopeCompare(normalizedTeam),
-        label: normalizedTeam,
+        key: normalizeScopeCompare(canonicalLabel),
+        label: canonicalLabel,
         code: normalizeScopeText(match[1]),
-        name: stripTrailingCode(normalizeScopeText(match[2])) || normalizedTeam,
+        name: canonicalLabel,
       };
     }
 
+    const canonicalLabel = stripLeadingCode(normalizedTeam) || normalizedTeam;
     return {
-      key: normalizeScopeCompare(normalizedTeam),
-      label: normalizedTeam,
+      key: normalizeScopeCompare(canonicalLabel),
+      label: canonicalLabel,
       code: normalizeScopeText(fallbackStoreCode),
-      name: stripTrailingCode(normalizedTeam) || normalizedTeam,
+      name: canonicalLabel,
     };
   }
 
   const store = normalizeScopeText(fallbackStore);
   const storeCode = normalizeScopeText(fallbackStoreCode);
-  const label = storeCode && store ? `${storeCode} - ${store}` : store || storeCode || "Unassigned Team";
+  const baseLabel = store || storeCode || "Unassigned Team";
+  const label = stripLeadingCode(baseLabel) || baseLabel;
   return {
     key: normalizeScopeCompare(label),
     label,
