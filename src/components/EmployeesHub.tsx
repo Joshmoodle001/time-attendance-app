@@ -929,8 +929,6 @@ export default function EmployeesHub({
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 1</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 2</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Nationality</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Region</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Clock History</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold text-cyan-400">Actions</th>
                   </tr>
                 </thead>
@@ -982,21 +980,6 @@ export default function EmployeesHub({
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_1 || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_2 || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.nationality || "-"}</td>
-                          <td className="px-4 py-3 text-sm text-slate-300">{employee.region || "-"}</td>
-                          <td className="px-4 py-3 text-sm">
-                            {clockSummary ? (
-                              <div className="space-y-2">
-                                <div className="font-medium text-cyan-400">
-                                  {clockSummary.totalEvents} event{clockSummary.totalEvents === 1 ? "" : "s"}
-                                </div>
-                                <div className="text-xs text-slate-400">Last clock: {formatClockAuditTimestamp(clockSummary.lastClockedAt)}</div>
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                <div className="font-medium text-slate-500">No clock history yet</div>
-                              </div>
-                            )}
-                          </td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex justify-center gap-1 flex-wrap">
                               <button
