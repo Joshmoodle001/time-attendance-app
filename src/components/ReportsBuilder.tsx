@@ -34,6 +34,7 @@ import {
   type LeaveApplication,
 } from "@/services/leave";
 import { formatCurrency, loadPayrollSettings, type PayrollSettings } from "@/services/payroll";
+import { getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
 type AutoTableFn = (typeof import("jspdf-autotable"))["default"];
@@ -88,6 +89,7 @@ type SelectionMode = "store" | "employees";
 
 type StoreOption = {
   key: string;
+  teamLabel: string;
   store: string;
   storeCode: string;
   displayName: string;
@@ -148,6 +150,7 @@ type EmployeeReport = {
 
 type StoreSection = {
   key: string;
+  teamLabel: string;
   store: string;
   storeCode: string;
   region: string;
@@ -252,13 +255,11 @@ function isEmployeeIncludedInBuilder(
  }
 
 function buildStoreKey(store: unknown, storeCode: unknown) {
-   return `${normalizeCompare(storeCode)}::${normalizeCompare(store)}`;
+   return getTeamScopeInfo(store, store, storeCode).key;
  }
 
 function buildStoreDisplayName(store: unknown, storeCode: unknown) {
-   const normalizedStore = normalizeText(store) || "Unassigned store";
-   const normalizedStoreCode = normalizeText(storeCode);
-   return normalizedStoreCode ? `${normalizedStoreCode} - ${normalizedStore} (${normalizedStoreCode})` : normalizedStore;
+   return getTeamScopeInfo(store, store, storeCode).label;
  }
 
 function matchesEmployeeSearch(employee: Employee, query: string) {
@@ -780,19 +781,18 @@ export default function ReportsBuilder({
 
     employees.forEach((employee) => {
       if (!isEmployeeIncludedInBuilder(employee, includeInactiveProfiles, storeDeviceMap)) return;
+      const scope = getEmployeeScopeInfo(employee);
+      if (!scope.key) return;
 
-      const store = normalizeText(employee.store);
-      const storeCode = normalizeText(employee.store_code);
-      if (!store && !storeCode) return;
-
-      const key = buildStoreKey(store, storeCode);
+      const key = scope.key;
       const existing =
         values.get(key) ||
         {
           key,
-          store: store || "Unassigned store",
-          storeCode,
-          displayName: buildStoreDisplayName(store, storeCode),
+          teamLabel: scope.label,
+          store: scope.name || "Unassigned team",
+          storeCode: scope.code,
+          displayName: scope.label,
           employeeCount: 0,
           employeeCodes: [],
         };
@@ -846,9 +846,9 @@ export default function ReportsBuilder({
         .filter((employee) => isEmployeeIncludedInBuilder(employee, includeInactiveProfiles, storeDeviceMap))
         .sort(
           (a, b) =>
-            normalizeText(a.store).localeCompare(normalizeText(b.store)) ||
+            normalizeText(a.team || a.store).localeCompare(normalizeText(b.team || b.store)) ||
             normalizeText(a.last_name).localeCompare(normalizeText(b.last_name)) ||
-            normalizeText(a.first_name).localeCompare(normalizeText(a.first_name))
+            normalizeText(a.first_name).localeCompare(normalizeText(b.first_name))
         ),
     [employees, includeInactiveProfiles, storeDeviceMap]
   );
@@ -990,6 +990,7 @@ export default function ReportsBuilder({
         `${normalizeText(employee?.first_name)} ${normalizeText(employee?.last_name)}`.trim() ||
         attendanceSamples[0]?.name ||
         normalizedEmployeeCode;
+      const scope = getEmployeeScopeInfo(employee);
 
       const rows = generatedDateKeys.map((dateKey) => {
         const attendanceMatches = attendanceByEmployeeAndDate.get(getAttendanceKey(dateKey, normalizedEmployeeCode)) || [];
@@ -1067,12 +1068,13 @@ export default function ReportsBuilder({
          };
       });
 
-      const sectionKey = `${storeCode || "no-code"}__${store}`;
+      const sectionKey = scope.key || `${storeCode || "no-code"}__${store}`;
       if (!sections.has(sectionKey)) {
         sections.set(sectionKey, {
           key: sectionKey,
-          store,
-          storeCode,
+          teamLabel: scope.label || (storeCode ? `${storeCode} - ${store}` : store),
+          store: scope.name || store,
+          storeCode: scope.code || storeCode,
           region,
           employees: [],
         });
@@ -1108,7 +1110,7 @@ export default function ReportsBuilder({
         section.employees.forEach((employee) => {
           employee.rows.forEach((row) => {
             summary.totalRows += 1;
-            summary.workedHours += row.workedHours;
+            summary.workedHours += row.payableHours;
             summary.payableHours += row.payableHours;
             summary.payAmount += row.payAmount;
              if (row.status === "P/H") summary.inOut += 1;
@@ -1159,7 +1161,7 @@ export default function ReportsBuilder({
           return {
             employeeCode: employee.employeeCode,
             employeeName: employee.employeeName,
-            store: section.store,
+            store: section.teamLabel || section.store,
             storeCode: section.storeCode,
             region: section.region,
             department: employee.department,
@@ -1206,7 +1208,7 @@ export default function ReportsBuilder({
           );
 
     if (selectionMode === "store" && selectedStores.length === 0) {
-      setStatusMessage("Choose at least one store before generating the report.");
+      setStatusMessage("Choose at least one team before generating the report.");
       return;
     }
 
@@ -1219,8 +1221,8 @@ export default function ReportsBuilder({
       setStatusMessage(
         selectionMode === "store"
           ? includeInactiveProfiles
-            ? "No employee profiles are assigned to the selected store yet."
-            : "No active employee profiles are assigned to the selected store yet."
+            ? "No employee profiles are assigned to the selected team yet."
+            : "No active employee profiles are assigned to the selected team yet."
           : includeInactiveProfiles
             ? "Select at least one employee profile before generating the report."
             : "Select at least one active employee profile before generating the report."
@@ -1405,7 +1407,7 @@ export default function ReportsBuilder({
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(16);
       const storeDeviceLabel = getStoreDeviceLabel(section.storeCode, section.store);
-      const storeHeading = section.storeCode ? `${section.storeCode} - ${section.store}` : section.store;
+      const storeHeading = section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store);
       doc.text(storeHeading, marginX + 12, topY + 18);
 
       if (storeDeviceLabel) {
@@ -1470,7 +1472,7 @@ export default function ReportsBuilder({
 
         const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
         const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-        const empWorked = Number(employee.rows.reduce((sum, row) => sum + (exportIsPayrollReport ? row.payableHours : row.workedHours), 0).toFixed(2));
+        const empWorked = Number(employee.rows.reduce((sum, row) => sum + row.payableHours, 0).toFixed(2));
         const empPayable = Number(employee.rows.reduce((sum, row) => sum + row.payableHours, 0).toFixed(2));
         const empPay = Number(employee.rows.reduce((sum, row) => sum + row.payAmount, 0).toFixed(2));
 
@@ -1609,7 +1611,7 @@ export default function ReportsBuilder({
                   row.weekdayLabel,
                   row.weekLabel.replace(/^WEEK\s+/i, "W"),
                   row.scheduleLabel,
-                  formatWorkedHours(row.payableHours),
+              formatWorkedHours(row.payableHours),
                   row.firstClock || "-",
                   row.lastClock || "-",
                   formatPayrollMoney(row.payAmount),
@@ -1621,7 +1623,7 @@ export default function ReportsBuilder({
                   row.weekdayLabel,
                   row.weekLabel.replace(/^WEEK\s+/i, "W"),
                   row.scheduleLabel,
-                  formatWorkedHours(row.workedHours),
+              formatWorkedHours(row.payableHours),
                   row.firstClock || "-",
                   row.lastClock || "-",
                   row.status,
@@ -1777,7 +1779,7 @@ export default function ReportsBuilder({
                   <th>Rank</th>
                   <th>Employee Code</th>
                   <th>Employee</th>
-                  <th>Store</th>
+                  <th>Team</th>
                   <th>Streak</th>
                   <th>AWOL Dates</th>
                   <th>Last Day At Work</th>
@@ -1817,7 +1819,7 @@ export default function ReportsBuilder({
           <section class="store-section">
             <div class="store-header">
               <div class="eyebrow">${escapeHtml(reportTitle)}</div>
-              <h1>${escapeHtml(section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}</h1>
+                  <h1>${escapeHtml(section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store))}</h1>
               ${getStoreDeviceLabel(section.storeCode, section.store) ? `<div class="device-badge ${getStoreDeviceLabel(section.storeCode, section.store).includes('Physical') ? 'physical' : 'logical'}">${escapeHtml(getStoreDeviceLabel(section.storeCode, section.store))}</div>` : ''}
               <div class="meta">
                 <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
@@ -1830,7 +1832,7 @@ export default function ReportsBuilder({
                 (employee) => {
                   const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
                   const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-                  const empWorked = employee.rows.reduce((sum, row) => sum + (generatedCriteria.templateKey === "payroll_report" ? row.payableHours : row.workedHours), 0);
+        const empWorked = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                   const empPayable = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                   const empPay = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
                   return `
@@ -1864,7 +1866,7 @@ export default function ReportsBuilder({
                         </div>` : ""}
                       </div>
                     </div>
-                    ${generatedCriteria.templateKey === "payroll_report" ? `<div class="employee-rate">Payroll rate: ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} / hour | Payable hours: ${escapeHtml(formatWorkedHours(empPayable))}</div>` : ""}
+                  ${generatedCriteria.templateKey === "payroll_report" ? `<div class="employee-rate">Payroll rate: ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} / hour | Payable hours: ${escapeHtml(formatWorkedHours(empPayable))}</div>` : ""}
                     <table>
                       <thead>
                         <tr>
@@ -1890,7 +1892,7 @@ export default function ReportsBuilder({
                               <td>${escapeHtml(row.weekdayLabel)}</td>
                               <td>${escapeHtml(row.weekLabel)}</td>
                               <td>${escapeHtml(row.scheduleLabel)}</td>
-                              <td style="text-align:center">${escapeHtml(formatWorkedHours(generatedCriteria.templateKey === "payroll_report" ? row.payableHours : row.workedHours))}</td>
+                    <td style="text-align:center">${escapeHtml(formatWorkedHours(row.payableHours))}</td>
                               <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
                               <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
                               ${generatedCriteria.templateKey === "payroll_report" ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
@@ -2077,7 +2079,7 @@ export default function ReportsBuilder({
             Report Builder
           </CardTitle>
           <CardDescription className="text-slate-400">
-            Generate attendance or AWOL reports by selecting a date range and employees/stores.
+                  Generate attendance or AWOL reports by selecting a date range and employees/teams.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6 pt-6">
@@ -2155,7 +2157,7 @@ export default function ReportsBuilder({
                 Step 3: Select Report Target
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Button variant={selectionMode === "store" ? "default" : "outline"} size="sm" onClick={() => setSelectionMode("store")}>By Store</Button>
+                <Button variant={selectionMode === "store" ? "default" : "outline"} size="sm" onClick={() => setSelectionMode("store")}>By Team</Button>
                 <Button variant={selectionMode === "employees" ? "default" : "outline"} size="sm" onClick={() => setSelectionMode("employees")}>By Employee</Button>
                 <button
                   type="button"
@@ -2212,7 +2214,7 @@ export default function ReportsBuilder({
                       value={storeSearch}
                       onChange={(event) => setStoreSearch(event.target.value)}
                       className="border-white/10 bg-[#0d1117] pl-9 text-white placeholder:text-slate-500"
-                      placeholder="Search store name or code..."
+                        placeholder="Search team name or code..."
                     />
                   </div>
 
@@ -2234,7 +2236,7 @@ export default function ReportsBuilder({
 
                   {storeSearch && storeSearchResults.length === 0 && (
                     <div className="rounded-lg border border-dashed border-white/10 px-4 py-3 text-center text-sm text-slate-500">
-                      No store with reportable employee profiles matched that search.
+                              No team with reportable employee profiles matched that search.
                     </div>
                   )}
 
@@ -2276,7 +2278,7 @@ export default function ReportsBuilder({
                             <div className="text-xs text-slate-500">
                               {employee.employee_code}
                               {employee.id_number ? ` • ${employee.id_number}` : ""}
-                              {employee.store ? ` • ${buildStoreDisplayName(employee.store, employee.store_code)}` : ""}
+                              {employee.team ? ` • ${employee.team}` : employee.store ? ` • ${buildStoreDisplayName(employee.store, employee.store_code)}` : ""}
                               {getEmployeeProfileState(employee) ? ` • ${getEmployeeProfileState(employee)}` : ""}
                             </div>
                           </div>
@@ -2403,7 +2405,7 @@ export default function ReportsBuilder({
               {generatedCriteria
                 ? generatedCriteria.templateKey === "awol_report"
                   ? `${formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} | ${generatedCriteria.employeeCodes.length} selected merchandiser${generatedCriteria.employeeCodes.length === 1 ? "" : "s"} | ${generatedAwolRows.length} streak result${generatedAwolRows.length === 1 ? "" : "s"}`
-                  : `${formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} | ${generatedCriteria.employeeCodes.length} selected merchandiser${generatedCriteria.employeeCodes.length === 1 ? "" : "s"} | ${generatedSections.length} store section${generatedSections.length === 1 ? "" : "s"}`
+                    : `${formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} | ${generatedCriteria.employeeCodes.length} selected merchandiser${generatedCriteria.employeeCodes.length === 1 ? "" : "s"} | ${generatedSections.length} team section${generatedSections.length === 1 ? "" : "s"}`
                 : "Select a report template, choose a date range, and generate the report."}
             </CardDescription>
           </CardHeader>
@@ -2452,7 +2454,7 @@ export default function ReportsBuilder({
                             <Badge className="bg-red-100 text-red-700">{row.currentAwolStreak} days</Badge>
                           </div>
                           <div className="mt-3 text-xs text-slate-300">
-                            <div>Store: {row.storeCode ? `${row.storeCode} - ${row.store}` : row.store}</div>
+                            <div>Team: {row.storeCode ? `${row.storeCode} - ${row.store}` : row.store}</div>
                             <div className="mt-1">Last day at work: {row.lastDayAtWorkLabel}</div>
                             <div className="mt-1">AWOL dates: {row.awolDates.map((dateKey) => formatLongDate(dateKey)).join(" | ")}</div>
                           </div>
@@ -2466,7 +2468,7 @@ export default function ReportsBuilder({
                         <tr>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Rank</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Employee</th>
-                          <th className="border-b border-slate-200 px-3 py-3 text-left">Store</th>
+                          <th className="border-b border-slate-200 px-3 py-3 text-left">Team</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-center">AWOL Days In A Row</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">AWOL Dates</th>
                           <th className="border-b border-slate-200 px-3 py-3 text-left">Last Day At Work</th>
@@ -2544,7 +2546,7 @@ export default function ReportsBuilder({
 
                 {generatedSections.length === 0 ? (
                   <div className="section-tech-empty">
-                    No store sections matched the current template criteria.
+                No team sections matched the current template criteria.
                   </div>
                 ) : (
                   <div className="space-y-7">
@@ -2555,7 +2557,7 @@ export default function ReportsBuilder({
                             {previewIsPayrollReport ? "Payroll Report" : "Attendance Report"}
                           </div>
                           <div className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">
-                            {section.storeCode ? `${section.storeCode} - ${section.store}` : section.store}
+                            {section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}
                           </div>
                           {(() => {
                             const label = getStoreDeviceLabel(section.storeCode, section.store);
@@ -2568,7 +2570,7 @@ export default function ReportsBuilder({
                             );
                           })()}
                           <div className="mt-2 text-sm text-slate-200">
-                            Shift Date Range: {formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} • Grouped By: Store
+                        Shift Date Range: {formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} • Grouped By: Team
                           </div>
                           <div className="mt-1 text-sm text-slate-300">
                             Region: {section.region} • {section.employees.length} merchandiser{section.employees.length === 1 ? "" : "s"}
@@ -2579,7 +2581,7 @@ export default function ReportsBuilder({
                           {section.employees.map((employee) => {
                             const inOutCount = employee.rows.filter((row) => row.status === "In/Out").length;
                             const awolCount = employee.rows.filter((row) => row.status === "AWOL").length;
-                            const workedHours = employee.rows.reduce((sum, row) => sum + (previewIsPayrollReport ? row.payableHours : row.workedHours), 0);
+                      const workedHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                             const payableHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                             const payAmount = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
 
@@ -2637,7 +2639,7 @@ export default function ReportsBuilder({
                                       </div>
                                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Roster: {row.scheduleLabel}</div>
-                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(previewIsPayrollReport ? row.payableHours : row.workedHours)}</div>
+                                  <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(row.payableHours)}</div>
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">In: {row.firstClock || "-"}</div>
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
                                         {previewIsPayrollReport && (
@@ -2681,7 +2683,7 @@ export default function ReportsBuilder({
                                     <div className="mt-1 text-[11px] font-normal text-slate-500">From {row.rosterVersionFrom}</div>
                                   ) : null}
                                 </td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(previewIsPayrollReport ? row.payableHours : row.workedHours)}</td>
+                                  <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(row.payableHours)}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
                                           <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
                                           {previewIsPayrollReport && <td className="border-b border-slate-200 px-3 py-3 text-center">{formatPayrollMoney(row.payAmount)}</td>}

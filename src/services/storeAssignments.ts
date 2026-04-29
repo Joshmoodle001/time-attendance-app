@@ -2,6 +2,7 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { Employee } from "@/services/database";
 import { getEmployees } from "@/services/database";
 import { getUsers, type AuthRole } from "@/services/auth";
+import { buildTeamAssignmentMatcher, getEmployeeScopeInfo } from "@/services/teamScope";
 
 export type StoreAssignment = {
   username: string;
@@ -140,10 +141,8 @@ export async function getAssignedEmployees(username: string): Promise<Employee[]
   if (assignedStoreKeys.length === 0) return [];
 
   const allEmployees = await getEmployees();
-  return allEmployees.filter((emp) => {
-    const storeKey = `${emp.store_code} - ${emp.store}`;
-    return assignedStoreKeys.includes(storeKey) || assignedStoreKeys.includes(emp.store) || assignedStoreKeys.includes(emp.store_code);
-  });
+  const matcher = buildTeamAssignmentMatcher(assignedStoreKeys);
+  return allEmployees.filter((emp) => matcher(emp));
 }
 
 export async function getAllStores(): Promise<StoreInfo[]> {
@@ -151,12 +150,14 @@ export async function getAllStores(): Promise<StoreInfo[]> {
   const storeMap = new Map<string, StoreInfo>();
 
   for (const emp of allEmployees) {
-    const storeKey = `${emp.store_code} - ${emp.store}`;
+    const scope = getEmployeeScopeInfo(emp);
+    const storeKey = scope.key;
+    if (!storeKey) continue;
     if (!storeMap.has(storeKey)) {
       storeMap.set(storeKey, {
         storeKey,
-        storeName: emp.store || "Unknown",
-        storeCode: emp.store_code || "",
+        storeName: scope.name || scope.label,
+        storeCode: scope.code,
         region: emp.region || "",
         regionCode: "",
         employeeCount: 0,

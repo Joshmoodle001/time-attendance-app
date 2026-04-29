@@ -14,6 +14,7 @@ import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
 import { DEFAULT_SUPER_ADMIN_USERNAME, getUsers, updateUserProfile, logout, refreshSession, type AuthSession, type AuthUser } from "@/services/auth";
 import { getAllStores, getResolvedStoreAssignments, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
+import { buildTeamAssignmentMatcher, getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { WorkBook } from "xlsx";
@@ -201,42 +202,8 @@ function deriveEmployeeLocationsFromProfiles(profiles: Employee[]) {
   return { regions, stores };
 }
 
-function normalizeStorePart(value: unknown) {
-  return String(value || "").trim().toLowerCase();
-}
-
 function buildStoreAssignmentMatcher(assignedStoreKeys: string[]) {
-  const normalizedFull = new Set(
-    assignedStoreKeys
-      .map((key) => normalizeStorePart(key))
-      .filter(Boolean)
-  );
-  const normalizedCodes = new Set<string>();
-  const normalizedNames = new Set<string>();
-  assignedStoreKeys.forEach((key) => {
-    const text = String(key || "");
-    if (!text.trim()) return;
-    const parts = text.split(" - ");
-    if (parts.length >= 2) {
-      normalizedCodes.add(normalizeStorePart(parts[0]));
-      normalizedNames.add(normalizeStorePart(parts.slice(1).join(" - ")));
-      return;
-    }
-    normalizedCodes.add(normalizeStorePart(text));
-    normalizedNames.add(normalizeStorePart(text));
-  });
-
-  return (storeCode: unknown, storeName: unknown) => {
-    if (normalizedFull.size === 0) return false;
-    const code = normalizeStorePart(storeCode);
-    const name = normalizeStorePart(storeName);
-    const full = `${code} - ${name}`.trim();
-    return (
-      (full && normalizedFull.has(full)) ||
-      (code && (normalizedCodes.has(code) || normalizedFull.has(code))) ||
-      (name && (normalizedNames.has(name) || normalizedFull.has(name)))
-    );
-  };
+  return buildTeamAssignmentMatcher(assignedStoreKeys);
 }
 
 type AttendanceRecord = {
@@ -1099,14 +1066,12 @@ function isOverviewEmployeeReportable(employee: Employee | undefined | null) {
   return status !== "inactive" && status !== "terminated";
 }
 
-function buildOverviewStoreKey(store: unknown, storeCode: unknown) {
-  return `${String(storeCode || "").trim().toUpperCase()}::${String(store || "").trim().toUpperCase()}`;
+function buildOverviewStoreKey(team: unknown, store: unknown, storeCode: unknown) {
+  return getTeamScopeInfo(team, store, storeCode).key;
 }
 
-function buildOverviewStoreLabel(store: unknown, storeCode: unknown) {
-  const cleanStore = String(store || "").trim() || "Unassigned Store";
-  const cleanStoreCode = String(storeCode || "").trim();
-  return cleanStoreCode ? `${cleanStoreCode} - ${cleanStore} (${cleanStoreCode})` : cleanStore;
+function buildOverviewStoreLabel(team: unknown, store: unknown, storeCode: unknown) {
+  return getTeamScopeInfo(team, store, storeCode).label;
 }
 
 const OVERVIEW_DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
@@ -1973,12 +1938,16 @@ export default function App({ initialSession = null }: AppProps) {
 
       const roleStoreMatcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
       const roleScopedEmployeeProfiles = isFieldRole
-        ? employeeProfiles.filter((employee) => roleStoreMatcher(employee.store_code, employee.store))
+        ? employeeProfiles.filter((employee) => roleStoreMatcher(employee))
         : employeeProfiles;
 
       const scopedEmployeeProfiles = deviceRecords.length > 0
         ? roleScopedEmployeeProfiles.filter((employee) => hasPhysicalDeviceForStore(employee.store_code, employee.store))
         : roleScopedEmployeeProfiles;
+
+      const filteredEmployeeCodes = new Set(
+        scopedEmployeeProfiles.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
+      );
 
       const filteredRangeAttendance = deviceRecords.length > 0
         ? rangeAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
@@ -1989,15 +1958,11 @@ export default function App({ initialSession = null }: AppProps) {
         : dayAttendance;
 
       const scopedRangeAttendance = isFieldRole
-        ? filteredRangeAttendance.filter((record) => roleStoreMatcher(record.store_code, record.store))
+        ? filteredRangeAttendance.filter((record) => filteredEmployeeCodes.has(normalizeEmployeeCode(record.employee_code)))
         : filteredRangeAttendance;
       const scopedDayAttendance = isFieldRole
-        ? filteredDayAttendance.filter((record) => roleStoreMatcher(record.store_code, record.store))
+        ? filteredDayAttendance.filter((record) => filteredEmployeeCodes.has(normalizeEmployeeCode(record.employee_code)))
         : filteredDayAttendance;
-
-      const filteredEmployeeCodes = new Set(
-        scopedEmployeeProfiles.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
-      );
 
       const shouldFilterClockEvents = deviceRecords.length > 0 || isFieldRole;
       const filteredDayClockEvents = shouldFilterClockEvents
@@ -2221,7 +2186,11 @@ export default function App({ initialSession = null }: AppProps) {
       const result = await performOneTimeTrialReset();
       if (!alive) return;
       if (result.ran) {
-        setSaveMessage("App data was reset for a clean trial. Calendar events were kept.");
+        setSaveMessage(
+          result.error
+            ? `Operational data reset completed and ${result.importedEmployees || 0} employees were reloaded from the payroll source. Calendar and devices were kept. Some remote cleanup steps reported issues: ${result.error}`
+            : `Operational data reset completed and ${result.importedEmployees || 0} employees were reloaded from the payroll source. Calendar and devices were kept.`
+        );
       }
       setTrialResetReady(true);
     };
@@ -2909,6 +2878,8 @@ export default function App({ initialSession = null }: AppProps) {
 
           if (!code || !firstName || !lastName) return null;
 
+          const teamValue = String(entries.team || "");
+          const teamScope = getTeamScopeInfo(teamValue, entries.store || entries.branch || "", entries.store_code || entries.storecode || "");
           const storeAssignment = parseStoreAssignment(entries);
           const region = String(entries.region || storeAssignment.derivedRegion || parseRegionFromDepartment(String(entries.department || "")) || "");
           const normalizedStatus = normalizeEmployeeStatusValue(entries.status);
@@ -2925,8 +2896,8 @@ export default function App({ initialSession = null }: AppProps) {
             job_title: String(entries.job_title || entries.jobtitle || entries.position || entries.job_title || ""),
             department: String(entries.department || entries.dept || ""),
             region,
-            store: storeAssignment.store,
-            store_code: String(entries.store_code || entries.storecode || storeAssignment.storeCode || ""),
+            store: teamScope.name || storeAssignment.store,
+            store_code: teamScope.code || String(entries.store_code || entries.storecode || storeAssignment.storeCode || ""),
             hire_date: parseEmployeeDate(entries.hire_date || entries.hiredate || entries.start_date),
             person_type: String(entries.person_type || ""),
             fingerprints_enrolled: parseEmployeeNumber(entries.fingerprints_enrolled),
@@ -2934,7 +2905,7 @@ export default function App({ initialSession = null }: AppProps) {
             branch: String(entries.branch || ""),
             business_unit: String(entries.business_unit || ""),
             cost_center: String(entries.cost_center || ""),
-            team: String(entries.team || ""),
+            team: teamValue,
             ta_integration_id_1: String(entries.t_and_a_intergration_id_number_1 || entries.t_and_a_integration_id_number_1 || entries.ta_integration_id_1 || ""),
             ta_integration_id_2: String(entries.t_and_a_intergration_id_number_2 || entries.t_and_a_integration_id_number_2 || entries.ta_integration_id_2 || ""),
             access_profile: String(entries.access || entries.access_profile || ""),
@@ -3291,18 +3262,17 @@ export default function App({ initialSession = null }: AppProps) {
 
     overviewEmployeeProfiles.forEach((employee) => {
       if (!isOverviewEmployeeReportable(employee)) return;
-      const store = String(employee.store || "").trim();
-      const storeCode = String(employee.store_code || "").trim();
-      if (!store && !storeCode) return;
+      const scope = getEmployeeScopeInfo(employee);
+      if (!scope.key) return;
 
-      const key = buildOverviewStoreKey(store, storeCode);
+      const key = buildOverviewStoreKey(employee.team, employee.store, employee.store_code);
       const existing =
         values.get(key) ||
         {
           key,
-          label: buildOverviewStoreLabel(store, storeCode),
-          store,
-          storeCode,
+          label: buildOverviewStoreLabel(employee.team, employee.store, employee.store_code),
+          store: scope.name,
+          storeCode: scope.code,
           employeeCount: 0,
           employeeCodes: [],
           attendanceCount: 0,
@@ -3656,12 +3626,18 @@ export default function App({ initialSession = null }: AppProps) {
   const scopedReportRecords = useMemo(() => {
     if (!isFieldRole) return filteredRecords;
     const matcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
-    return filteredRecords.filter((record) => matcher(record.storeCode, record.store));
-  }, [filteredRecords, isFieldRole, profileEffectiveStoreKeys]);
+    const allowedEmployeeCodes = new Set(
+      employees
+        .filter((employee) => matcher(employee))
+        .map((employee) => normalizeEmployeeCode(employee.employee_code))
+        .filter(Boolean)
+    );
+    return filteredRecords.filter((record) => allowedEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode)));
+  }, [employees, filteredRecords, isFieldRole, profileEffectiveStoreKeys]);
   const scopedReportEmployees = useMemo(() => {
     if (!isFieldRole) return employees;
     const matcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
-    return employees.filter((employee) => matcher(employee.store_code, employee.store));
+    return employees.filter((employee) => matcher(employee));
   }, [employees, isFieldRole, profileEffectiveStoreKeys]);
 
   const reportDateRangeLabel = useMemo(() => {
@@ -4183,7 +4159,7 @@ export default function App({ initialSession = null }: AppProps) {
                     }
                     setOverviewStoreSearch(e.target.value);
                   }}
-                  placeholder="Search store name or code..."
+                      placeholder="Search team name or code..."
                   className="h-10 border-slate-600 bg-slate-800 pl-9 pr-10 text-white placeholder:text-slate-500"
                 />
                 {(selectedOverviewStoreKey !== "all" || overviewStoreSearch) && (
@@ -4568,7 +4544,7 @@ export default function App({ initialSession = null }: AppProps) {
               <div className="p-4 space-y-2">
                 {filteredStoreBreakdown.length === 0 ? (
                   <div className="text-center py-8 text-slate-400">
-                    No stores match the filter.
+                            No teams match the filter.
                   </div>
                 ) : (
                   filteredStoreBreakdown.map((item, index) => {
@@ -5820,13 +5796,13 @@ export default function App({ initialSession = null }: AppProps) {
       );
     }
 
-    const title = profileAssignmentMode === "stores" ? "Assigned Stores" : profileAssignmentMode === "reps" ? "Assigned Reps" : "Assigned Regionals";
+    const title = profileAssignmentMode === "stores" ? "Assigned Teams" : profileAssignmentMode === "reps" ? "Assigned Reps" : "Assigned Regionals";
     const helper =
       profileAssignmentMode === "stores"
-        ? "Select the stores that belong to this rep profile. Attendance overview, reports, and coversheets will be filtered to these stores."
+        ? "Select the teams that belong to this rep profile. Attendance overview, reports, and coversheets will be filtered to these teams."
         : profileAssignmentMode === "reps"
-          ? "Select the reps that belong to this regional profile. Their saved stores roll up into this profile's overview and reports."
-          : "Select the regionals that belong to this divisional profile. Their reps and stores roll up into this profile's overview and reports.";
+          ? "Select the reps that belong to this regional profile. Their saved teams roll up into this profile's overview and reports."
+          : "Select the regionals that belong to this divisional profile. Their reps and teams roll up into this profile's overview and reports.";
 
     return (
       <div className="space-y-6">
@@ -5851,7 +5827,7 @@ export default function App({ initialSession = null }: AppProps) {
                 <div className="mt-2 text-xl font-bold">{profileAssignedStoreKeys.length}</div>
               </div>
               <div className="rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
-                <div className="text-xs uppercase tracking-[0.2em] text-violet-200">Resolved Stores</div>
+                <div className="text-xs uppercase tracking-[0.2em] text-violet-200">Resolved Teams</div>
                 <div className="mt-2 text-xl font-bold">{profileEffectiveStoreKeys.length}</div>
               </div>
             </div>
@@ -5879,7 +5855,7 @@ export default function App({ initialSession = null }: AppProps) {
                   value={profileStoreSearch}
                   onChange={(event) => setProfileStoreSearch(event.target.value)}
                   className="border-slate-600 bg-slate-800 text-white"
-                  placeholder={profileAssignmentMode === "stores" ? "Search stores by name, code, or region..." : "Search users by name or email..."}
+                          placeholder={profileAssignmentMode === "stores" ? "Search teams by name, code, or region..." : "Search users by name or email..."}
                 />
               </div>
 
@@ -6179,7 +6155,7 @@ export default function App({ initialSession = null }: AppProps) {
                           onChange={(e) => setProfileStoreSearch(e.target.value)}
                           disabled={!editingProfile || profileSaving}
                           className="bg-slate-700/50 border-slate-600 text-white text-xs h-8 disabled:opacity-60"
-                          placeholder="Search stores to assign"
+                    placeholder="Search teams to assign"
                         />
 
                         {profileAssignedStoresDetailed.length > 0 && (
