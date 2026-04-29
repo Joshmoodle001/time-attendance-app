@@ -472,6 +472,11 @@ export interface Employee {
   business_unit?: string
   cost_center?: string
   team?: string
+  expiry_date?: string
+  job_code?: string
+  custom_1?: string
+  custom_2?: string
+  nationality?: string
   ta_integration_id_1?: string
   ta_integration_id_2?: string
   access_profile?: string
@@ -508,6 +513,11 @@ export interface EmployeeInput {
   business_unit?: string
   cost_center?: string
   team?: string
+  expiry_date?: string
+  job_code?: string
+  custom_1?: string
+  custom_2?: string
+  nationality?: string
   ta_integration_id_1?: string
   ta_integration_id_2?: string
   access_profile?: string
@@ -959,6 +969,11 @@ function normalizeEmployeePayload(employee: EmployeeInput) {
     business_unit: employee.business_unit || '',
     cost_center: employee.cost_center || '',
     team: employee.team || '',
+    expiry_date: toSupabaseDate(employee.expiry_date),
+    job_code: employee.job_code || '',
+    custom_1: employee.custom_1 || '',
+    custom_2: employee.custom_2 || '',
+    nationality: employee.nationality || '',
     ta_integration_id_1: employee.ta_integration_id_1 || '',
     ta_integration_id_2: employee.ta_integration_id_2 || '',
     access_profile: employee.access_profile || '',
@@ -979,6 +994,10 @@ function normalizeEmployeeUpdatePayload(updates: Partial<EmployeeInput>) {
       return
     }
     if (key === "hire_date" || key === "termination_date") {
+      next[key] = toSupabaseDate(value)
+      return
+    }
+    if (key === "expiry_date") {
       next[key] = toSupabaseDate(value)
       return
     }
@@ -1129,6 +1148,11 @@ CREATE TABLE IF NOT EXISTS employees (
   business_unit TEXT DEFAULT '',
   cost_center TEXT DEFAULT '',
   team TEXT DEFAULT '',
+  expiry_date DATE,
+  job_code TEXT DEFAULT '',
+  custom_1 TEXT DEFAULT '',
+  custom_2 TEXT DEFAULT '',
+  nationality TEXT DEFAULT '',
   ta_integration_id_1 TEXT DEFAULT '',
   ta_integration_id_2 TEXT DEFAULT '',
   access_profile TEXT DEFAULT '',
@@ -1161,6 +1185,11 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS branch TEXT DEFAULT '';
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS business_unit TEXT DEFAULT '';
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS cost_center TEXT DEFAULT '';
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS team TEXT DEFAULT '';
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS expiry_date DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS job_code TEXT DEFAULT '';
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS custom_1 TEXT DEFAULT '';
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS custom_2 TEXT DEFAULT '';
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS nationality TEXT DEFAULT '';
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS ta_integration_id_1 TEXT DEFAULT '';
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS ta_integration_id_2 TEXT DEFAULT '';
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS access_profile TEXT DEFAULT '';
@@ -1513,6 +1542,11 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
         business_unit: employee.business_unit || '',
         cost_center: employee.cost_center || '',
         team: employee.team || '',
+        expiry_date: parseExcelDate(employee.expiry_date),
+        job_code: employee.job_code || '',
+        custom_1: employee.custom_1 || '',
+        custom_2: employee.custom_2 || '',
+        nationality: employee.nationality || '',
         ta_integration_id_1: employee.ta_integration_id_1 || '',
         ta_integration_id_2: employee.ta_integration_id_2 || '',
         access_profile: employee.access_profile || '',
@@ -1593,6 +1627,11 @@ export async function importEmployeesRemoteOverwrite(
         business_unit: employee.business_unit || '',
         cost_center: employee.cost_center || '',
         team: employee.team || '',
+        expiry_date: parseExcelDate(employee.expiry_date),
+        job_code: employee.job_code || '',
+        custom_1: employee.custom_1 || '',
+        custom_2: employee.custom_2 || '',
+        nationality: employee.nationality || '',
         ta_integration_id_1: employee.ta_integration_id_1 || '',
         ta_integration_id_2: employee.ta_integration_id_2 || '',
         access_profile: employee.access_profile || '',
@@ -1635,14 +1674,51 @@ export async function importEmployeesRemoteOverwrite(
 
 export async function replaceEmployeesRemoteOverwrite(
   employees: EmployeeInput[]
-): Promise<{ success: boolean; error?: string; count?: number }> {
+): Promise<{ success: boolean; error?: string; count?: number; inserted?: number; updated?: number; unchanged?: number }> {
   try {
     const now = new Date().toISOString()
     const processedEmployees = buildUniqueEmployeeImportRows(employees, now)
     const existingEmployees = await loadStoredEmployees()
     const existingMap = new Map(existingEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    let inserted = 0
+    let updated = 0
+    let unchanged = 0
     const nextEmployees: Employee[] = processedEmployees.map((employee) => {
       const existing = existingMap.get(normalizeEmployeeCode(employee.employee_code))
+      if (!existing) {
+        inserted += 1
+      } else {
+        const samePayload =
+          existing.first_name === employee.first_name &&
+          existing.last_name === employee.last_name &&
+          (existing.title || '') === (employee.title || '') &&
+          (existing.alias || '') === (employee.alias || '') &&
+          (existing.id_number || '') === (employee.id_number || '') &&
+          (existing.job_title || '') === (employee.job_title || '') &&
+          (existing.department || '') === (employee.department || '') &&
+          (existing.region || '') === (employee.region || '') &&
+          (existing.store || '') === (employee.store || '') &&
+          (existing.store_code || '') === (employee.store_code || '') &&
+          (existing.hire_date || '') === parseExcelDate(employee.hire_date) &&
+          (existing.expiry_date || '') === parseExcelDate(employee.expiry_date) &&
+          (existing.person_type || '') === (employee.person_type || '') &&
+          (existing.fingerprints_enrolled ?? null) === (employee.fingerprints_enrolled ?? null) &&
+          (existing.company || '') === (employee.company || '') &&
+          (existing.branch || '') === (employee.branch || '') &&
+          (existing.business_unit || '') === (employee.business_unit || '') &&
+          (existing.cost_center || '') === (employee.cost_center || '') &&
+          (existing.team || '') === (employee.team || '') &&
+          (existing.job_code || '') === (employee.job_code || '') &&
+          (existing.custom_1 || '') === (employee.custom_1 || '') &&
+          (existing.custom_2 || '') === (employee.custom_2 || '') &&
+          (existing.nationality || '') === (employee.nationality || '') &&
+          (existing.ta_enabled ?? null) === (employee.ta_enabled ?? null) &&
+          (existing.permanent ?? null) === (employee.permanent ?? null) &&
+          (existing.status || 'active') === normalizeEmployeeStatus(employee.status)
+
+        if (samePayload) unchanged += 1
+        else updated += 1
+      }
       return {
         id: existing?.id || randomId(),
         employee_code: normalizeEmployeeCode(employee.employee_code),
@@ -1667,6 +1743,11 @@ export async function replaceEmployeesRemoteOverwrite(
         business_unit: employee.business_unit || '',
         cost_center: employee.cost_center || '',
         team: employee.team || '',
+        expiry_date: parseExcelDate(employee.expiry_date),
+        job_code: employee.job_code || '',
+        custom_1: employee.custom_1 || '',
+        custom_2: employee.custom_2 || '',
+        nationality: employee.nationality || '',
         ta_integration_id_1: employee.ta_integration_id_1 || '',
         ta_integration_id_2: employee.ta_integration_id_2 || '',
         access_profile: employee.access_profile || '',
@@ -1694,10 +1775,43 @@ export async function replaceEmployeesRemoteOverwrite(
     if (error) {
       const message = getEmployeeStorageErrorMessage(error)
       console.error('Replace employees remote overwrite failed:', message)
-      return { success: false, error: message, count: processedEmployees.length }
+      return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
     }
 
-    return { success: true, count: data?.length || processedEmployees.length }
+    const importedCodes = processedEmployees.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
+    const importedCodeSet = new Set(importedCodes)
+
+    const { data: remoteEmployees, error: remoteFetchError } = await supabase
+      .from('employees')
+      .select('employee_code')
+
+    if (remoteFetchError) {
+      const message = getEmployeeStorageErrorMessage(remoteFetchError)
+      console.error('Replace employees remote overwrite prune lookup failed:', message)
+      return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
+    }
+
+    const staleCodes = (remoteEmployees || [])
+      .map((employee) => normalizeEmployeeCode(employee.employee_code))
+      .filter((code) => code && !importedCodeSet.has(code))
+
+    for (let index = 0; index < staleCodes.length; index += 200) {
+      const codesChunk = staleCodes.slice(index, index + 200)
+      if (codesChunk.length === 0) continue
+
+      const { error: deleteError } = await supabase
+        .from('employees')
+        .delete()
+        .in('employee_code', codesChunk)
+
+      if (deleteError) {
+        const message = getEmployeeStorageErrorMessage(deleteError)
+        console.error('Replace employees remote overwrite prune failed:', message)
+        return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
+      }
+    }
+
+    return { success: true, count: data?.length || processedEmployees.length, inserted, updated, unchanged }
   } catch (err) {
     const message = getEmployeeStorageErrorMessage(err)
     console.error('Replace employees remote overwrite failed:', message)

@@ -25,6 +25,7 @@ function formatBackupTime(value: string) {
 }
 
 export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsPanelProps) {
+  const dataToolsDisabled = true;
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [isResettingData, setIsResettingData] = useState(false);
   const [isRestoringData, setIsRestoringData] = useState(false);
@@ -78,8 +79,12 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
   };
 
   const handleResetData = async () => {
+    if (dataToolsDisabled) {
+      setStatus("Backup, reset, and restore are temporarily disabled. Use Import payroll workbook to refresh employee data.");
+      return;
+    }
     const confirmed = window.confirm(
-      "This will clear operational data from the app and Supabase, including employees, attendance, shifts, leave, coversheets, assignments, clocks, and logs. Calendar, devices, and users will be kept. Do you want to continue?"
+      "This will reset all data in the application, including employees, shifts, clocks, reports, logs, and calendar events. Create a restore file first if you may need this data again. Do you want to continue?"
     );
     if (!confirmed) return;
 
@@ -96,7 +101,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
         setIsResettingData(false);
         return;
       } else {
-        setStatus("Operational data was cleared from the app and Supabase. Calendar, devices, and users were kept. Reloading the app now...");
+        setStatus("All application data was reset. Reloading the app now...");
       }
       window.setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
@@ -130,6 +135,10 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
   };
 
   const handleRestoreData = async () => {
+    if (dataToolsDisabled) {
+      setStatus("Backup, reset, and restore are temporarily disabled. Use Import payroll workbook to refresh employee data.");
+      return;
+    }
     if (!selectedRestoreFile || !restoreFileSummary) {
       setStatus("Choose a valid restore file first.");
       return;
@@ -162,21 +171,21 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
             Data Reset
           </CardTitle>
           <CardDescription className="text-amber-800">
-            This clears operational app data and the matching Supabase tables. Employees, attendance, shifts,
-            leave, coversheets, assignments, clocks, and logs are removed. Calendar, devices, and users are kept.
+            Backup, reset, and restore are temporarily disabled while payroll workbook import is the
+            authoritative employee sync path.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-xl border border-amber-200 bg-white p-4 text-sm text-slate-700">
-            <div className="font-medium text-slate-900">Recommended process</div>
+            <div className="font-medium text-slate-900">Current process</div>
             <div className="mt-2">
-              Run the reset, then upload the fresh payroll workbook and the other fresh operational files.
-              This reset is designed for a clean re-import cycle, not for backup and restore.
+              Use `Import payroll workbook` in Employees to compare, insert, update, and prune employee data
+              against the uploaded payroll source file. The old bulk reset flow is not available in this build.
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={downloadBundle} disabled={isDownloadingBackup || isResettingData || isRestoringData}>
+            <Button onClick={downloadBundle} disabled>
               {isDownloadingBackup ? (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -192,7 +201,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
             <Button
               variant="destructive"
               onClick={handleResetData}
-              disabled={isDownloadingBackup || isResettingData || isRestoringData}
+              disabled
             >
               {isResettingData ? (
                 <>
@@ -241,7 +250,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
             Restore
           </CardTitle>
           <CardDescription>
-            Upload a restore file that was downloaded from this application, then restore the full saved state.
+            Restore files are temporarily disabled in this build.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -251,7 +260,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
               type="file"
               accept=".json,application/json"
               onChange={handleRestoreFileSelected}
-              disabled={isRestoringData || isResettingData}
+              disabled
             />
           </div>
 
@@ -277,7 +286,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={handleRestoreData}
-              disabled={!restoreFileSummary || isRestoringData || isResettingData || isDownloadingBackup}
+              disabled
             >
               {isRestoringData ? (
                 <>

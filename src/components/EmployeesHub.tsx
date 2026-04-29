@@ -177,6 +177,11 @@ export default function EmployeesHub({
     business_unit: "",
     cost_center: "",
     team: "",
+    expiry_date: "",
+    job_code: "",
+    custom_1: "",
+    custom_2: "",
+    nationality: "",
     ta_integration_id_1: "",
     ta_integration_id_2: "",
     access_profile: "",
@@ -309,14 +314,27 @@ export default function EmployeesHub({
       const matchesSearch = fieldsMatchSearch(
         [
         employee.employee_code,
+        employee.title,
         employee.first_name,
+        employee.alias,
         employee.last_name,
           `${employee.first_name} ${employee.last_name}`,
           `${employee.last_name} ${employee.first_name}`,
         employee.id_number,
+        employee.person_type,
+        employee.company,
+        employee.branch,
+        employee.business_unit,
+        employee.cost_center,
         employee.store,
           employee.store_code,
         employee.department,
+        employee.job_code,
+        employee.job_title,
+        employee.team,
+        employee.custom_1,
+        employee.custom_2,
+        employee.nationality,
         ],
         deferredEmployeeSearch
       );
@@ -359,6 +377,11 @@ export default function EmployeesHub({
       business_unit: "",
       cost_center: "",
       team: "",
+      expiry_date: "",
+      job_code: "",
+      custom_1: "",
+      custom_2: "",
+      nationality: "",
       ta_integration_id_1: "",
       ta_integration_id_2: "",
       access_profile: "",
@@ -414,6 +437,11 @@ export default function EmployeesHub({
       business_unit: employee.business_unit || "",
       cost_center: employee.cost_center || "",
       team: employee.team || "",
+      expiry_date: employee.expiry_date || "",
+      job_code: employee.job_code || "",
+      custom_1: employee.custom_1 || "",
+      custom_2: employee.custom_2 || "",
+      nationality: employee.nationality || "",
       ta_integration_id_1: employee.ta_integration_id_1 || "",
       ta_integration_id_2: employee.ta_integration_id_2 || "",
       access_profile: employee.access_profile || "",
@@ -878,16 +906,36 @@ export default function EmployeesHub({
               })}
             </div>
             <div ref={employeeTableRef} className="mobile-table-wrap hidden overflow-auto md:block" style={{ height: 'min(70vh, 600px)' }}>
-              <table className="w-full min-w-[1220px]" style={{ tableLayout: 'fixed' }}>
+              <table className="w-full min-w-[2600px]" style={{ tableLayout: 'fixed' }}>
                 <thead className="bg-slate-800/80 sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Employee</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Code</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">ID Number</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Role</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Branch / Store</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Title</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">First Name</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Alias</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Last Name</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Start Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Expiry Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Person Type</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Status</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Fingerprints</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Company</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Branch</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Employee #</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">National ID</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">T&amp;A</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Permanent</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Business Unit</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Cost Center</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Department</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Job Code</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Job Title</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Team</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 1</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 2</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Nationality</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Region</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Store</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Clock History</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-cyan-400">Status</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold text-cyan-400">Actions</th>
                   </tr>
                 </thead>
@@ -903,23 +951,46 @@ export default function EmployeesHub({
                         key={employee.id}
                         className={`border-t border-slate-700/50 ${isSelectedClockProfile ? "bg-cyan-900/20" : "hover:bg-slate-800/50"}`}
                       >
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-white">
-                              {employee.first_name} {employee.last_name}
-                            </div>
-                            <div className="text-xs text-slate-400">
-                              {[employee.alias, employee.email].filter(Boolean).join(" - ") || "No alias or email"}
-                            </div>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.title || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-white">{employee.first_name || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.alias || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-white">{employee.last_name || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.hire_date || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.expiry_date || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.person_type || "-"}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <Badge
+                              className={
+                                employee.status === "active"
+                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                  : employee.status === "inactive"
+                                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                  : "bg-slate-500/20 text-slate-400 border border-slate-500/30"
+                              }
+                            >
+                              {employee.status}
+                            </Badge>
                           </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.fingerprints_enrolled ?? "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.company || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.branch || "-"}</td>
                           <td className="px-4 py-3 text-sm font-mono text-cyan-300">{employee.employee_code}</td>
                           <td className="px-4 py-3 text-sm font-mono text-slate-300">{employee.id_number || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.ta_enabled === null || employee.ta_enabled === undefined ? "-" : employee.ta_enabled ? "Yes" : "No"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.permanent === null || employee.permanent === undefined ? "-" : employee.permanent ? "Yes" : "No"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.business_unit || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.cost_center || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.department || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.job_code || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.job_title || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.team || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_1 || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_2 || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.nationality || "-"}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{employee.region || "-"}</td>
                           <td className="px-4 py-3 text-sm">
-                            <div className="text-white">{employee.job_title || "-"}</div>
-                            <div className="text-xs text-slate-400">{employee.department || employee.person_type || "-"}</div>
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className="text-white">{employee.store || employee.branch || "-"}</div>
-                            <div className="text-xs text-slate-400">{employee.branch || employee.region || employee.company || "-"}</div>
+                            <div className="text-white">{employee.store || "-"}</div>
+                            <div className="text-xs text-slate-400">{employee.store_code || "-"}</div>
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {clockSummary ? (
@@ -934,19 +1005,6 @@ export default function EmployeesHub({
                                 <div className="font-medium text-slate-500">No clock history yet</div>
                               </div>
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge
-                              className={
-                                employee.status === "active"
-                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                  : employee.status === "inactive"
-                                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                                  : "bg-slate-500/20 text-slate-400 border border-slate-500/30"
-                              }
-                            >
-                              {employee.status}
-                            </Badge>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex justify-center gap-1 flex-wrap">
@@ -1065,6 +1123,14 @@ export default function EmployeesHub({
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
+                  <label className="block text-sm font-medium mb-1">Title</label>
+                  <Input
+                    value={employeeFormData.title}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, title: e.target.value })}
+                    placeholder="e.g., Mr"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Employee Code *</label>
                   <Input
                     value={employeeFormData.employee_code}
@@ -1099,11 +1165,43 @@ export default function EmployeesHub({
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-1">Alias</label>
+                  <Input
+                    value={employeeFormData.alias}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, alias: e.target.value })}
+                    placeholder="e.g., Abram"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Last Name *</label>
                   <Input
                     value={employeeFormData.last_name}
                     onChange={(e) => setEmployeeFormData({ ...employeeFormData, last_name: e.target.value })}
                     placeholder="e.g., Smith"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Start Date</label>
+                  <Input
+                    value={employeeFormData.hire_date}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, hire_date: e.target.value })}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Expiry Date</label>
+                  <Input
+                    value={employeeFormData.expiry_date}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, expiry_date: e.target.value })}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Person Type</label>
+                  <Input
+                    value={employeeFormData.person_type}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, person_type: e.target.value })}
+                    placeholder="e.g., Employee"
                   />
                 </div>
                 <div>
@@ -1115,11 +1213,56 @@ export default function EmployeesHub({
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-1">Fingerprints Enrolled</label>
+                  <Input
+                    value={employeeFormData.fingerprints_enrolled ?? ""}
+                    onChange={(e) =>
+                      setEmployeeFormData({
+                        ...employeeFormData,
+                        fingerprints_enrolled: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    placeholder="e.g., 2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Company</label>
+                  <Input
+                    value={employeeFormData.company}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, company: e.target.value })}
+                    placeholder="e.g., PFMS"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Branch</label>
+                  <Input
+                    value={employeeFormData.branch}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, branch: e.target.value })}
+                    placeholder="e.g., Checkers"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Store</label>
                   <Input
                     value={employeeFormData.store}
                     onChange={(e) => setEmployeeFormData({ ...employeeFormData, store: e.target.value })}
                     placeholder="e.g., Checkers Amanzimtoti"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Business Unit</label>
+                  <Input
+                    value={employeeFormData.business_unit}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, business_unit: e.target.value })}
+                    placeholder="e.g., Merchandiser"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Cost Center</label>
+                  <Input
+                    value={employeeFormData.cost_center}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, cost_center: e.target.value })}
+                    placeholder="e.g., PFMS (162.4)"
                   />
                 </div>
                 <div>
@@ -1131,12 +1274,83 @@ export default function EmployeesHub({
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-1">Job Code</label>
+                  <Input
+                    value={employeeFormData.job_code}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, job_code: e.target.value })}
+                    placeholder="e.g., s1"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Job Title</label>
                   <Input
                     value={employeeFormData.job_title}
                     onChange={(e) => setEmployeeFormData({ ...employeeFormData, job_title: e.target.value })}
                     placeholder="e.g., Merchandiser"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Team</label>
+                  <Input
+                    value={employeeFormData.team}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, team: e.target.value })}
+                    placeholder="e.g., 2482 - STRIKE TEAM"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Custom 1</label>
+                  <Input
+                    value={employeeFormData.custom_1}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, custom_1: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Custom 2</label>
+                  <Input
+                    value={employeeFormData.custom_2}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, custom_2: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nationality</label>
+                  <Input
+                    value={employeeFormData.nationality}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, nationality: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">T&amp;A Enabled</label>
+                  <select
+                    value={employeeFormData.ta_enabled === null ? "" : employeeFormData.ta_enabled ? "true" : "false"}
+                    onChange={(e) =>
+                      setEmployeeFormData({
+                        ...employeeFormData,
+                        ta_enabled: e.target.value === "" ? null : e.target.value === "true",
+                      })
+                    }
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">Not set</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Permanent</label>
+                  <select
+                    value={employeeFormData.permanent === null ? "" : employeeFormData.permanent ? "true" : "false"}
+                    onChange={(e) =>
+                      setEmployeeFormData({
+                        ...employeeFormData,
+                        permanent: e.target.value === "" ? null : e.target.value === "true",
+                      })
+                    }
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">Not set</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
                 </div>
               </div>
 
