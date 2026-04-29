@@ -852,14 +852,10 @@ export default function EmployeesHub({
                       </Badge>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div className="mt-3 grid grid-cols-1 gap-3 text-sm">
                       <div className="rounded-xl bg-slate-800/60 px-3 py-2">
                         <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Role</div>
                         <div className="mt-1 text-slate-200">{employee.job_title || employee.department || "-"}</div>
-                      </div>
-                      <div className="rounded-xl bg-slate-800/60 px-3 py-2">
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Store</div>
-                        <div className="mt-1 text-slate-200">{employee.store || employee.branch || "-"}</div>
                       </div>
                     </div>
 
@@ -934,7 +930,6 @@ export default function EmployeesHub({
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 2</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Nationality</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Region</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Store</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Clock History</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold text-cyan-400">Actions</th>
                   </tr>
@@ -988,10 +983,6 @@ export default function EmployeesHub({
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_2 || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.nationality || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.region || "-"}</td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className="text-white">{employee.store || "-"}</div>
-                            <div className="text-xs text-slate-400">{employee.store_code || "-"}</div>
-                          </td>
                           <td className="px-4 py-3 text-sm">
                             {clockSummary ? (
                               <div className="space-y-2">
