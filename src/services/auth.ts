@@ -175,7 +175,7 @@ function readState(): AuthState {
 
     const parsed = JSON.parse(raw) as Partial<AuthState>;
     const next: AuthState = {
-      users: parsed?.users && typeof parsed.users === "object" ? parsed.users as Record<string, AuthUser> : {},
+      users: parsed?.users && typeof parsed.users === "object" && !Array.isArray(parsed.users) ? parsed.users as Record<string, AuthUser> : {},
       session: parsed?.session ?? null,
       logs: parsed?.logs ?? [],
     };
