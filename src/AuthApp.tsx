@@ -19,6 +19,7 @@ import App from "./App";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { loadStoredCoversheetData, type CoversheetStorageData } from "@/services/coversheetStorage";
 import { getAllStores, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import {
   ensureSuperAdminSeeded,
@@ -54,12 +55,6 @@ function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
 }
 
-const SIGNUP_COVERSHEET_STORAGE_KEY = "coversheet-data-v1";
-const SIGNUP_COVERSHEET_DB_NAME = "time-attendance-coversheet-db";
-const SIGNUP_COVERSHEET_DB_VERSION = 1;
-const SIGNUP_COVERSHEET_DB_STORE = "coversheet_data";
-const SIGNUP_COVERSHEET_DB_RECORD_ID = "latest";
-
 type SignupCoversheetEmployee = {
   repLabel?: unknown;
 };
@@ -70,14 +65,7 @@ type SignupCoversheetStore = {
   employees?: SignupCoversheetEmployee[];
 };
 
-type SignupCoversheetData = {
-  stores?: SignupCoversheetStore[];
-};
-
-type SignupCoversheetIndexedRecord = {
-  id: string;
-  payload: SignupCoversheetData;
-};
+type SignupCoversheetData = CoversheetStorageData;
 
 function isValidSignupCoversheetData(value: unknown): value is SignupCoversheetData {
   if (!value || typeof value !== "object") return false;
@@ -90,68 +78,6 @@ function extractRepCode(repLabel: string) {
   if (!clean) return "";
   const firstSegment = clean.split("-")[0]?.trim() || "";
   return firstSegment.toUpperCase();
-}
-
-function openSignupCoversheetIndexedDb(): Promise<IDBDatabase | null> {
-  if (typeof window === "undefined" || !("indexedDB" in window)) {
-    return Promise.resolve(null);
-  }
-
-  return new Promise((resolve) => {
-    const request = window.indexedDB.open(SIGNUP_COVERSHEET_DB_NAME, SIGNUP_COVERSHEET_DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains(SIGNUP_COVERSHEET_DB_STORE)) {
-        database.createObjectStore(SIGNUP_COVERSHEET_DB_STORE, { keyPath: "id" });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
-  });
-}
-
-async function readSignupCoversheetFromIndexedDb(): Promise<SignupCoversheetData | null> {
-  const database = await openSignupCoversheetIndexedDb();
-  if (!database) return null;
-
-  return new Promise((resolve) => {
-    if (!database.objectStoreNames.contains(SIGNUP_COVERSHEET_DB_STORE)) {
-      resolve(null);
-      return;
-    }
-    const transaction = database.transaction(SIGNUP_COVERSHEET_DB_STORE, "readonly");
-    const store = transaction.objectStore(SIGNUP_COVERSHEET_DB_STORE);
-    const request = store.get(SIGNUP_COVERSHEET_DB_RECORD_ID);
-
-    request.onsuccess = () => {
-      const record = request.result as SignupCoversheetIndexedRecord | undefined;
-      if (record && isValidSignupCoversheetData(record.payload)) {
-        resolve(record.payload);
-        return;
-      }
-      resolve(null);
-    };
-    request.onerror = () => resolve(null);
-  });
-}
-
-function readSignupCoversheetFromLocalStorage(): SignupCoversheetData | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(SIGNUP_COVERSHEET_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    return isValidSignupCoversheetData(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-async function loadSignupCoversheetData(): Promise<SignupCoversheetData | null> {
-  const indexed = await readSignupCoversheetFromIndexedDb();
-  if (indexed) return indexed;
-  return readSignupCoversheetFromLocalStorage();
 }
 
 function StatusBanner({ banner }: { banner: Banner | null }) {
@@ -352,7 +278,7 @@ export default function AuthApp() {
     let alive = true;
     void (async () => {
       try {
-        const [stores, coversheetData] = await Promise.all([getAllStores(), loadSignupCoversheetData()]);
+        const [stores, coversheetData] = await Promise.all([getAllStores(), loadStoredCoversheetData()]);
         if (!alive) return;
         setSignupStoreUniverse(stores);
 
