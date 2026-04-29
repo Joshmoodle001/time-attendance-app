@@ -634,10 +634,14 @@ function findStaffListHeaderRow(rows: unknown[][]) {
   return rows.findIndex((row) => {
     const normalized = row.map((cell) => normalizeImportKey(String(cell || "")));
     return normalized.includes("employee_code") &&
-      normalized.includes("company") &&
       (
-        normalized.includes("genentity_first_name") ||
-        normalized.includes("display_name")
+        normalized.includes("gen_entity_first_name") ||
+        normalized.includes("genentity_first_name")
+      ) &&
+      (
+        normalized.includes("display_name") ||
+        normalized.includes("company_rule") ||
+        normalized.includes("hierarchy_paypoint_hierarchy_name")
       );
   });
 }
