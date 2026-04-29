@@ -42,16 +42,34 @@ const AUTH_STORAGE_RECOVERY_KEYS = [
   "leave-uploads-cache-v1",
   "employee-update-logs-v1",
   "coversheet-data-v1",
+  "employee-status-history-cache-v1",
+  "employee-unsupported-remote-columns-v1",
+  "last-attendance-date-v1",
+  "device-records-v1",
+  "device-import-date-v1",
+  "biometric-clock-events-cache-v1",
+  "leave-upload-batches-cache-v1",
+  "shift-roster-history-cache-v1",
+  "shift-roster-change-events-cache-v1",
+  "shift-sync-settings-v2",
+  "shift-sync-sections-v1",
+  "pfm-store-assignments-v1",
+  "payroll-settings-v1",
+  "calendar-builder-events-v1",
   "pfm-device-records-v1",
   "pfm-device-import-date-v1",
 ];
 const AUTH_STORAGE_RECOVERY_DATABASES = [
   "time-attendance-employee-db",
   "clock-events-db",
+  "time-attendance-clock-db",
   "time-attendance-coversheet-db",
+  "time-attendance-device-cache-v1",
   "time-attendance-employee-update-logs-db",
   "time-attendance-emergency-overrides-db",
+  "time-attendance-emergency-employee-overrides-db",
 ];
+const AUTH_STORAGE_PRESERVE_KEYS = new Set([STORAGE_KEY, AUTH_SESSION_FALLBACK_KEY]);
 
 function normalizeUsername(value: string) {
   return String(value || "").trim().toLowerCase();
@@ -210,15 +228,46 @@ function trimStorageForAuthWrite() {
   return removed;
 }
 
+function purgeNonAuthLocalStorage() {
+  if (!canUseStorage()) return false;
+  let removed = false;
+  for (const key of Object.keys(window.localStorage)) {
+    if (AUTH_STORAGE_PRESERVE_KEYS.has(key)) continue;
+    try {
+      window.localStorage.removeItem(key);
+      removed = true;
+    } catch {
+      // ignore
+    }
+  }
+  return removed;
+}
+
 export async function recoverAuthStorageCapacity() {
-  const removedLocal = trimStorageForAuthWrite();
+  let removedLocal = trimStorageForAuthWrite();
+  if (!removedLocal) {
+    removedLocal = purgeNonAuthLocalStorage();
+  }
 
   if (typeof window === "undefined" || !("indexedDB" in window)) {
     return removedLocal;
   }
 
   let removedIndexedDb = false;
-  for (const databaseName of AUTH_STORAGE_RECOVERY_DATABASES) {
+  const databaseNames = new Set<string>(AUTH_STORAGE_RECOVERY_DATABASES);
+  const listDatabases = (window.indexedDB as IDBFactory & { databases?: () => Promise<Array<{ name?: string }>> }).databases;
+  if (typeof listDatabases === "function") {
+    try {
+      const existingDatabases = await listDatabases.call(window.indexedDB);
+      existingDatabases.forEach((entry) => {
+        if (entry?.name) databaseNames.add(entry.name);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  for (const databaseName of databaseNames) {
     try {
       const deleted = await new Promise<boolean>((resolve) => {
         const request = window.indexedDB.deleteDatabase(databaseName);
@@ -248,7 +297,10 @@ function saveState(state: AuthState) {
     return true;
   } catch (error) {
     if (isQuotaExceededError(error)) {
-      const recovered = trimStorageForAuthWrite();
+      let recovered = trimStorageForAuthWrite();
+      if (!recovered) {
+        recovered = purgeNonAuthLocalStorage();
+      }
       if (recovered) {
         try {
           window.localStorage.setItem(STORAGE_KEY, serialized);
