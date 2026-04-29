@@ -1,10 +1,43 @@
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+function decodeProjectRefFromJwt(token) {
+  try {
+    const payload = String(token || "").split(".")[1];
+    if (!payload) return "";
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(Buffer.from(normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "="), "base64").toString("utf8"));
+    return String(decoded?.ref || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function buildSupabaseUrlFromToken(token) {
+  const ref = decodeProjectRefFromJwt(token);
+  return ref ? `https://${ref}.supabase.co` : "";
+}
+
+function resolveSupabaseUrl(configuredUrl, fallbackUrl) {
+  if (!configuredUrl) return fallbackUrl;
+  try {
+    const configuredHost = new URL(configuredUrl).hostname.toLowerCase();
+    const fallbackHost = fallbackUrl ? new URL(fallbackUrl).hostname.toLowerCase() : "";
+    if (fallbackHost && configuredHost !== fallbackHost) {
+      return fallbackUrl;
+    }
+  } catch {
+    return fallbackUrl || configuredUrl;
+  }
+  return configuredUrl;
+}
+
+const CONFIGURED_SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY ||
   "";
+const DERIVED_SUPABASE_URL = buildSupabaseUrlFromToken(SUPABASE_SERVICE_KEY);
+const SUPABASE_URL = resolveSupabaseUrl(CONFIGURED_SUPABASE_URL, DERIVED_SUPABASE_URL);
 
 const TABLE = "shift_sync_settings";
 const USER_PREFIX = "auth-user:";
