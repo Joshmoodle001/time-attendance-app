@@ -1842,10 +1842,21 @@ export async function replaceEmployeesRemoteOverwrite(
     await persistEmployeeStatusHistory([])
     saveEmployeeSourceMode('local')
 
+    const { error: remoteDeleteError } = await supabase
+      .from('employees')
+      .delete()
+      .not('employee_code', 'is', null)
+
+    if (remoteDeleteError) {
+      const message = getEmployeeStorageErrorMessage(remoteDeleteError)
+      console.error('Replace employees remote overwrite clear failed:', message)
+      return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
+    }
+
     const { data, error } = await runEmployeeRemoteMutationWithSchemaFallback(processedEmployees, async (sanitizedPayload) =>
       supabase
         .from('employees')
-        .upsert(sanitizedPayload, { onConflict: 'employee_code' })
+        .insert(sanitizedPayload)
         .select('id')
     )
 
@@ -1853,39 +1864,6 @@ export async function replaceEmployeesRemoteOverwrite(
       const message = getEmployeeStorageErrorMessage(error)
       console.error('Replace employees remote overwrite failed:', message)
       return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
-    }
-
-    const importedCodes = processedEmployees.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
-    const importedCodeSet = new Set(importedCodes)
-
-    const { data: remoteEmployees, error: remoteFetchError } = await supabase
-      .from('employees')
-      .select('employee_code')
-
-    if (remoteFetchError) {
-      const message = getEmployeeStorageErrorMessage(remoteFetchError)
-      console.error('Replace employees remote overwrite prune lookup failed:', message)
-      return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
-    }
-
-    const staleCodes = (remoteEmployees || [])
-      .map((employee) => normalizeEmployeeCode(employee.employee_code))
-      .filter((code) => code && !importedCodeSet.has(code))
-
-    for (let index = 0; index < staleCodes.length; index += 200) {
-      const codesChunk = staleCodes.slice(index, index + 200)
-      if (codesChunk.length === 0) continue
-
-      const { error: deleteError } = await supabase
-        .from('employees')
-        .delete()
-        .in('employee_code', codesChunk)
-
-      if (deleteError) {
-        const message = getEmployeeStorageErrorMessage(deleteError)
-        console.error('Replace employees remote overwrite prune failed:', message)
-        return { success: false, error: message, count: processedEmployees.length, inserted, updated, unchanged }
-      }
     }
 
     return { success: true, count: data?.length || processedEmployees.length, inserted, updated, unchanged }

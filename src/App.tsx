@@ -2980,14 +2980,14 @@ export default function App({ initialSession = null }: AppProps) {
       }
 
       setPayrollUploadProgress(60);
-      setPayrollUploadStage(`Importing ${newEmployees.length} employees to database...`);
+      setPayrollUploadStage(`Replacing the employee database with ${newEmployees.length} employees...`);
       
       const result = await replaceEmployeesRemoteOverwrite(newEmployees);
       
       setPayrollUploadProgress(90);
       setPayrollUploadStage("Finalizing import...");
       if (result.success) {
-        const msg = `Processed ${result.count} employee profiles from ${file.name}. Inserted: ${result.inserted || 0}, Updated: ${result.updated || 0}, Unchanged: ${result.unchanged || 0}.`;
+        const msg = `Replaced the employee database from ${file.name}. Loaded ${result.count} employee profiles. New: ${result.inserted || 0}, Replaced: ${result.updated || 0}, Unchanged compared to previous cache: ${result.unchanged || 0}.`;
         setSaveMessage(msg);
         await loadEmployees();
       } else {
