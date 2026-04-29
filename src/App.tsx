@@ -13,7 +13,7 @@ import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsFo
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
 import { DEFAULT_SUPER_ADMIN_USERNAME, getAuthSession, getUsers, updateUserProfile, logout, refreshSession, refreshSessionRemote, type AuthSession, type AuthUser } from "@/services/auth";
-import { getAllStores, getResolvedStoreAssignments, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
+import { getAllStores, getAssignableStoresForRole, getResolvedStoreAssignments, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import { buildTeamAssignmentMatcher, getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
@@ -1525,6 +1525,7 @@ export default function App({ initialSession = null }: AppProps) {
   const [profileAssignedStoreKeys, setProfileAssignedStoreKeys] = useState<string[]>([]);
   const [profileEffectiveStoreKeys, setProfileEffectiveStoreKeys] = useState<string[]>([]);
   const [profileStoreUniverse, setProfileStoreUniverse] = useState<StoreInfo[]>([]);
+  const [profileTeamUniverse, setProfileTeamUniverse] = useState<StoreInfo[]>([]);
   const [profileAssignableUsers, setProfileAssignableUsers] = useState<AuthUser[]>([]);
   const [profileStoreSearch, setProfileStoreSearch] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
@@ -1612,6 +1613,7 @@ export default function App({ initialSession = null }: AppProps) {
       .filter(Boolean);
   }, [profileAssignedStoreKeys, profileStoreUniverse]);
   const profileAssignmentMode = session?.role === "regional" ? "reps" : session?.role === "divisional" ? "regionals" : "stores";
+  const isRepAssignmentMode = profileAssignmentMode === "stores" && session?.role === "rep";
   const profileAssignedUserSet = useMemo(
     () => new Set(profileAssignedStoreKeys.map((key) => String(key || "").trim().toLowerCase()).filter(Boolean)),
     [profileAssignedStoreKeys]
@@ -1633,6 +1635,18 @@ export default function App({ initialSession = null }: AppProps) {
         .filter(Boolean) as AuthUser[],
     [profileAssignableUsers, profileAssignedStoreKeys]
   );
+  const profileResolvedStoresDetailed = useMemo(() => {
+    return profileEffectiveStoreKeys
+      .map((key) => profileTeamUniverse.find((store) => store.storeKey === key) || ({
+        storeKey: key,
+        storeName: key,
+        storeCode: "",
+        region: "",
+        regionCode: "",
+        employeeCount: 0,
+      } as StoreInfo))
+      .filter(Boolean);
+  }, [profileEffectiveStoreKeys, profileTeamUniverse]);
   const [saveMessage, setSaveMessage] = useState("");
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
@@ -2190,15 +2204,17 @@ export default function App({ initialSession = null }: AppProps) {
       setProfileSurname(resolvedSession.surname || "");
       setProfileCoversheetCode(resolvedSession.coversheetCode || "");
       if (resolvedSession.role === "rep" || resolvedSession.role === "regional" || resolvedSession.role === "divisional") {
-        const [assignedStores, effectiveStores, allStores, users] = await Promise.all([
+        const [assignedStores, effectiveStores, assignableStores, teamStores, users] = await Promise.all([
           getStoreAssignments(resolvedSession.username),
           getResolvedStoreAssignments(resolvedSession.username, resolvedSession.role),
+          getAssignableStoresForRole(resolvedSession.role),
           getAllStores(),
           getUsers(),
         ]);
         setProfileAssignedStoreKeys(assignedStores);
         setProfileEffectiveStoreKeys(effectiveStores);
-        setProfileStoreUniverse(allStores);
+        setProfileStoreUniverse(assignableStores);
+        setProfileTeamUniverse(teamStores);
         setProfileAssignableUsers(users.filter((user) => user.active));
       }
     })();
@@ -2213,16 +2229,18 @@ export default function App({ initialSession = null }: AppProps) {
     if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
       let alive = true;
       void (async () => {
-        const [assignedStores, effectiveStores, allStores, users] = await Promise.all([
+        const [assignedStores, effectiveStores, assignableStores, teamStores, users] = await Promise.all([
           getStoreAssignments(session.username),
           getResolvedStoreAssignments(session.username, session.role),
+          getAssignableStoresForRole(session.role),
           getAllStores(),
           getUsers(),
         ]);
         if (!alive) return;
         setProfileAssignedStoreKeys(assignedStores);
         setProfileEffectiveStoreKeys(effectiveStores);
-        setProfileStoreUniverse(allStores);
+        setProfileStoreUniverse(assignableStores);
+        setProfileTeamUniverse(teamStores);
         setProfileAssignableUsers(users.filter((user) => user.active));
       })();
       return () => {
@@ -2233,6 +2251,7 @@ export default function App({ initialSession = null }: AppProps) {
     setProfileAssignedStoreKeys([]);
     setProfileEffectiveStoreKeys([]);
     setProfileStoreUniverse([]);
+    setProfileTeamUniverse([]);
     setProfileAssignableUsers([]);
   }, [editingProfile, session?.coversheetCode, session?.name, session?.role, session?.surname, session?.username]);
 
@@ -5861,10 +5880,12 @@ export default function App({ initialSession = null }: AppProps) {
       );
     }
 
-    const title = profileAssignmentMode === "stores" ? "Assigned Teams" : profileAssignmentMode === "reps" ? "Assigned Reps" : "Assigned Regionals";
+    const title = profileAssignmentMode === "stores" ? (isRepAssignmentMode ? "Coversheet Stores" : "Assigned Teams") : profileAssignmentMode === "reps" ? "Assigned Reps" : "Assigned Regionals";
     const helper =
       profileAssignmentMode === "stores"
-        ? "Select the teams that belong to this rep profile. Attendance overview, reports, and coversheets will be filtered to these teams."
+        ? isRepAssignmentMode
+          ? "Select the coversheet stores that belong to this rep profile. The app will resolve those stores to the actual employee teams and only those matched employees will flow into overview, reports, coversheets, and roster-based attendance."
+          : "Select the teams that belong to this rep profile. Attendance overview, reports, and coversheets will be filtered to these teams."
         : profileAssignmentMode === "reps"
           ? "Select the reps that belong to this regional profile. Their saved teams roll up into this profile's overview and reports."
           : "Select the regionals that belong to this divisional profile. Their reps and teams roll up into this profile's overview and reports.";
@@ -5888,7 +5909,7 @@ export default function App({ initialSession = null }: AppProps) {
                 <div className="mt-2 text-xl font-bold capitalize">{session.role.replace("_", " ")}</div>
               </div>
               <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">Direct Assignments</div>
+                <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">{isRepAssignmentMode ? "Coversheet Stores" : "Direct Assignments"}</div>
                 <div className="mt-2 text-xl font-bold">{profileAssignedStoreKeys.length}</div>
               </div>
               <div className="rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
@@ -5907,7 +5928,11 @@ export default function App({ initialSession = null }: AppProps) {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-white">{title}</h3>
-                  <p className="text-sm text-slate-400">Search, add multiple assignments, then save.</p>
+                  <p className="text-sm text-slate-400">
+                    {isRepAssignmentMode
+                      ? "Search coversheet stores, add them, save, then review the matched actual teams below."
+                      : "Search, add multiple assignments, then save."}
+                  </p>
                 </div>
                 <Button onClick={handleSaveProfileAssignments} disabled={profileSaving} className="bg-cyan-600 hover:bg-cyan-500">
                   <Save className="mr-2 h-4 w-4" />
@@ -5920,7 +5945,13 @@ export default function App({ initialSession = null }: AppProps) {
                   value={profileStoreSearch}
                   onChange={(event) => setProfileStoreSearch(event.target.value)}
                   className="border-slate-600 bg-slate-800 text-white"
-                          placeholder={profileAssignmentMode === "stores" ? "Search teams by name, code, or region..." : "Search users by name or email..."}
+                  placeholder={
+                    profileAssignmentMode === "stores"
+                      ? isRepAssignmentMode
+                        ? "Search coversheet stores by name or code..."
+                        : "Search teams by name, code, or region..."
+                      : "Search users by name or email..."
+                  }
                 />
               </div>
 
@@ -5976,6 +6007,44 @@ export default function App({ initialSession = null }: AppProps) {
                       </button>
                     ))}
               </div>
+
+              {isRepAssignmentMode && (
+                <div className="mt-5 rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                  <div className="mb-3">
+                    <h4 className="text-lg font-semibold text-white">Actual Teams</h4>
+                    <p className="text-sm text-slate-400">
+                      These are the matched employee teams behind the selected coversheet stores. Overview, reports, and roster-linked attendance use this resolved team scope.
+                    </p>
+                  </div>
+
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {profileResolvedStoresDetailed.length > 0 ? (
+                      profileResolvedStoresDetailed.map((store) => (
+                        <div
+                          key={store.storeKey}
+                          className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-sm text-violet-100"
+                        >
+                          {store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}
+                          <span className="ml-2 text-violet-300">({store.employeeCount})</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-500">No matched teams resolved yet.</span>
+                    )}
+                  </div>
+
+                  {profileResolvedStoresDetailed.length > 0 && (
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                      {profileResolvedStoresDetailed.map((store) => (
+                        <div key={store.storeKey} className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 text-left text-white">
+                          <div className="font-semibold">{store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}</div>
+                          <div className="mt-1 text-xs text-slate-400">{store.region || "No region"} | {store.employeeCount} matched employees</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

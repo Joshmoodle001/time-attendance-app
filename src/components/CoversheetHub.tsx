@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getEmployees, normalizeEmployeeCode, type Employee } from "@/services/database";
 import { loadStoredCoversheetData as loadStoredCoversheetPayload, saveStoredCoversheetData as saveStoredCoversheetPayload } from "@/services/coversheetStorage";
+import { buildTeamAssignmentMatcher } from "@/services/teamScope";
 import { ChevronDown, ChevronRight, Mail, MessageCircle, Phone, PhoneCall, Search, Send, Store, Upload, UserRound } from "lucide-react";
 
 type CoversheetStatus = "terminated" | "maternity" | "hold";
@@ -566,8 +567,18 @@ export default function CoversheetHub({ mode, allowedStoreKeys }: CoversheetHubP
     if (mode !== "view") return stores;
     if (!allowedStoreKeys) return stores;
     const matcher = buildStoreMatcher(allowedStoreKeys);
-    return stores.filter((store) => matcher(store.storeCode, store.storeName));
-  }, [allowedStoreKeys, mode, resolvedStores]);
+    const teamMatcher = buildTeamAssignmentMatcher(allowedStoreKeys);
+    const profilesByCode = new Map(
+      employeeProfiles.map((profile) => [normalizeEmployeeCode(profile.employee_code), profile])
+    );
+    return stores.filter((store) => {
+      if (matcher(store.storeCode, store.storeName)) return true;
+      return store.employees.some((employee) => {
+        const profile = profilesByCode.get(normalizeEmployeeCode(employee.employeeCode));
+        return profile ? teamMatcher(profile) : false;
+      });
+    });
+  }, [allowedStoreKeys, employeeProfiles, mode, resolvedStores]);
 
   const totals = useMemo(() => {
     const stores = mode === "view" ? scopedStores : resolvedStores;
