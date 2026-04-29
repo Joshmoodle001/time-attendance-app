@@ -23,9 +23,10 @@ import { getAllStores, saveStoreAssignments, type StoreInfo } from "@/services/s
 import {
   ensureSuperAdminSeeded,
   getDefaultSuperAdminCredentials,
+  getAuthSession,
   login,
-  recoverAuthStorageCapacity,
   refreshSession,
+  refreshSessionRemote,
   registerRep,
   type AuthSession,
 } from "@/services/auth";
@@ -332,14 +333,18 @@ export default function AuthApp() {
   const [isSigningUp, setIsSigningUp] = useState(false);
 
   useEffect(() => {
-    ensureSuperAdminSeeded();
+    void ensureSuperAdminSeeded();
   }, []);
 
   useEffect(() => {
-    const existingSession = refreshSession();
+    const existingSession = getAuthSession() || refreshSession();
     setSession(existingSession);
     setShowWelcome(false);
-    setIsBooting(false);
+    void (async () => {
+      const remoteSession = await refreshSessionRemote();
+      setSession(remoteSession || existingSession);
+      setIsBooting(false);
+    })();
   }, []);
 
   useEffect(() => {
@@ -425,9 +430,9 @@ export default function AuthApp() {
       .slice(0, 8);
   }, [signupRepDirectory, signupRepSearch]);
 
-  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = login(username, password);
+    const result = await login(username, password);
 
     if (!result.success) {
       setBanner({ type: "error", text: result.error });
@@ -453,7 +458,7 @@ export default function AuthApp() {
     setBanner({ type: "info", text: "Creating your rep account..." });
 
     try {
-      let result = registerRep({
+      const result = await registerRep({
         username: signupData.username,
         password: signupData.password,
         name: signupData.name,
@@ -461,24 +466,12 @@ export default function AuthApp() {
         coversheetCode: signupData.coversheetCode,
       });
 
-      if (!result.success && result.error.includes("Could not save the new account on this device")) {
-        setBanner({ type: "info", text: "Freeing browser storage and retrying account creation..." });
-        await recoverAuthStorageCapacity();
-        result = registerRep({
-          username: signupData.username,
-          password: signupData.password,
-          name: signupData.name,
-          surname: signupData.surname,
-          coversheetCode: signupData.coversheetCode,
-        });
-      }
-
       if (!result.success) {
         setBanner({ type: "error", text: result.error });
         return;
       }
 
-      const loginResult = login(signupData.username, signupData.password);
+      const loginResult = await login(signupData.username, signupData.password);
       if (!loginResult.success) {
         setBanner({ type: "error", text: loginResult.error || "Account was created, but automatic sign-in failed." });
         return;

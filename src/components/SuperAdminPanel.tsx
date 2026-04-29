@@ -50,13 +50,13 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
   const [copiedPassword, setCopiedPassword] = useState<string | null>(null);
 
-  const loadData = () => {
-    setUsers(getUsers());
+  const loadData = async () => {
+    setUsers(await getUsers());
     setLogs(getLogs());
   };
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, []);
 
   const filteredUsers = users.filter(user =>
@@ -68,10 +68,10 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
 
   const handleCreateUser = async (data: { username: string; password: string; role: AuthRole; name: string; surname: string }) => {
     setIsLoading(true);
-    const result = createUser(session, data);
+    const result = await createUser(session, data);
     setIsLoading(false);
     if (result.success) {
-      loadData();
+      await loadData();
       setShowCreateModal(false);
     }
     return result;
@@ -79,27 +79,27 @@ export default function SuperAdminPanel({ session }: { session: AuthSession }) {
 
   const handleUpdateUser = async (username: string, updates: { name?: string; surname?: string; role?: AuthRole; active?: boolean }) => {
     setIsLoading(true);
-    const result = updateUser(session, username, updates);
+    const result = await updateUser(session, username, updates);
     setIsLoading(false);
     if (result.success) {
-      loadData();
+      await loadData();
       setShowEditModal(null);
     }
     return result;
   };
 
   const handleResetPassword = async (username: string, newPassword: string) => {
-    const result = resetUserPassword(session, username, newPassword);
+    const result = await resetUserPassword(session, username, newPassword);
     if (result.success) {
-      loadData();
+      await loadData();
     }
     return result;
   };
 
-  const handleDeleteUser = (username: string) => {
-    const result = deleteUser(session, username);
+  const handleDeleteUser = async (username: string) => {
+    const result = await deleteUser(session, username);
     if (result.success) {
-      loadData();
+      await loadData();
       setShowDeleteConfirm(null);
     }
     return result;

@@ -22,62 +22,13 @@ export type AuthSession = {
   loggedInAt: string;
 };
 
-type AuthState = {
-  users: Record<string, AuthUser>;
-  session: AuthSession | null;
-  logs: Array<{ timestamp: string; action: string; user?: string; details: string }>;
-};
+const SESSION_STORAGE_KEY = "pfm-auth-session-v3";
+const LOG_STORAGE_KEY = "pfm-auth-logs-v1";
+const LEGACY_AUTH_STATE_STORAGE_KEY = "pfm-auth-state-v2";
+const LEGACY_MIGRATION_FLAG_KEY = "pfm-auth-legacy-migrated-v1";
 
-const STORAGE_KEY = "pfm-auth-state-v2";
-const AUTH_SESSION_FALLBACK_KEY = "pfm-auth-state-session-v1";
 export const DEFAULT_SUPER_ADMIN_USERNAME = "josh@pfm.co.za";
-export const DEFAULT_SUPER_ADMIN_SECRET = "PFM@dmin2026!";
-const AUTH_STORAGE_RECOVERY_KEYS = [
-  "employee-source-mode-v1",
-  "employee-profiles-cache-v1",
-  "attendance-records-cache-v1",
-  "pfm-clock-cache-v1",
-  "shift-roster-cache-v1",
-  "leave-applications-cache-v1",
-  "leave-uploads-cache-v1",
-  "employee-update-logs-v1",
-  "coversheet-data-v1",
-  "employee-status-history-cache-v1",
-  "employee-unsupported-remote-columns-v1",
-  "last-attendance-date-v1",
-  "device-records-v1",
-  "device-import-date-v1",
-  "biometric-clock-events-cache-v1",
-  "leave-upload-batches-cache-v1",
-  "shift-roster-history-cache-v1",
-  "shift-roster-change-events-cache-v1",
-  "shift-sync-settings-v2",
-  "shift-sync-sections-v1",
-  "pfm-store-assignments-v1",
-  "payroll-settings-v1",
-  "calendar-builder-events-v1",
-  "pfm-device-records-v1",
-  "pfm-device-import-date-v1",
-];
-const AUTH_STORAGE_RECOVERY_DATABASES = [
-  "time-attendance-employee-db",
-  "clock-events-db",
-  "time-attendance-clock-db",
-  "time-attendance-coversheet-db",
-  "time-attendance-device-cache-v1",
-  "time-attendance-employee-update-logs-db",
-  "time-attendance-emergency-overrides-db",
-  "time-attendance-emergency-employee-overrides-db",
-];
-const AUTH_STORAGE_PRESERVE_KEYS = new Set([STORAGE_KEY, AUTH_SESSION_FALLBACK_KEY]);
-
-function normalizeUsername(value: string) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function randomId() {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-}
+export const DEFAULT_SUPER_ADMIN_SECRET = "1234";
 
 const ROLE_LABELS: Record<AuthRole, string> = {
   super_admin: "Super Admin",
@@ -95,19 +46,144 @@ const ROLE_HIERARCHY: Record<AuthRole, number> = {
   rep: 1,
 };
 
-export function canManageRole(requestingRole: AuthRole, targetRole: AuthRole): boolean {
-  return ROLE_HIERARCHY[requestingRole] > ROLE_HIERARCHY[targetRole];
+type AuthApiResponse<T> = {
+  success: boolean;
+  error?: string;
+  user?: AuthUser;
+  users?: AuthUser[];
+  session?: AuthSession | null;
+  message?: string;
+};
+
+type LegacyAuthState = {
+  users?: Record<string, AuthUser>;
+};
+
+function normalizeUsername(value: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function canUseStorage() {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
 function isRootSuperAdminUsername(username: string | undefined | null) {
   return normalizeUsername(String(username || "")) === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
 }
 
-function canManageRequestedRole(requestingSession: AuthSession, targetRole: AuthRole): boolean {
-  if (isRootSuperAdminUsername(requestingSession.username) && requestingSession.role === "super_admin") {
-    return true;
+function normalizeSession(session: AuthSession | null) {
+  if (!session) return null;
+  if (isRootSuperAdminUsername(session.username)) {
+    return { ...session, role: "super_admin" as const };
   }
-  return canManageRole(requestingSession.role, targetRole);
+  return session;
+}
+
+function readLocalLogs() {
+  if (!canUseStorage()) return [] as Array<{ timestamp: string; action: string; user?: string; details: string }>;
+  try {
+    const raw = window.localStorage.getItem(LOG_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLogs(logs: Array<{ timestamp: string; action: string; user?: string; details: string }>) {
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs.slice(0, 500)));
+  } catch {
+    // ignore
+  }
+}
+
+function addLog(action: string, user?: string, details = "") {
+  const logs = readLocalLogs();
+  logs.unshift({
+    timestamp: new Date().toISOString(),
+    action,
+    user,
+    details,
+  });
+  saveLocalLogs(logs);
+}
+
+function saveSession(session: AuthSession | null) {
+  if (!canUseStorage()) return;
+  try {
+    if (session) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(normalizeSession(session)));
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function readLegacyUsers(): AuthUser[] {
+  if (!canUseStorage()) return [];
+  try {
+    const raw = window.localStorage.getItem(LEGACY_AUTH_STATE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LegacyAuthState;
+    const users = parsed?.users && typeof parsed.users === "object" ? Object.values(parsed.users) : [];
+    return Array.isArray(users) ? users.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAuthApi<T>(body?: Record<string, unknown>, query?: URLSearchParams) {
+  const url = `/api/auth-users${query && Array.from(query.keys()).length > 0 ? `?${query.toString()}` : ""}`;
+  const response = await fetch(url, {
+    method: body ? "POST" : "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string; success?: boolean };
+  if (!response.ok) {
+    throw new Error(payload?.error || `Auth request failed with status ${response.status}`);
+  }
+  return payload;
+}
+
+async function migrateLegacyUsersIfNeeded() {
+  if (!canUseStorage()) return;
+  try {
+    if (window.localStorage.getItem(LEGACY_MIGRATION_FLAG_KEY) === "done") return;
+  } catch {
+    return;
+  }
+
+  const legacyUsers = readLegacyUsers();
+  if (legacyUsers.length === 0) {
+    try {
+      window.localStorage.setItem(LEGACY_MIGRATION_FLAG_KEY, "done");
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  try {
+    await fetchAuthApi<AuthApiResponse<never>>({
+      action: "syncLegacy",
+      users: legacyUsers,
+    });
+    window.localStorage.setItem(LEGACY_MIGRATION_FLAG_KEY, "done");
+  } catch {
+    // leave the flag unset so a later successful bootstrap can retry
+  }
+}
+
+export function canManageRole(requestingRole: AuthRole, targetRole: AuthRole): boolean {
+  return ROLE_HIERARCHY[requestingRole] > ROLE_HIERARCHY[targetRole];
 }
 
 export function getRoleLabel(role: AuthRole): string {
@@ -118,318 +194,6 @@ export function getAllRoles(): AuthRole[] {
   return ["super_admin", "admin", "divisional", "regional", "rep"];
 }
 
-function createDefaultSuperAdmin(): AuthUser {
-  const now = new Date().toISOString();
-  return {
-    username: DEFAULT_SUPER_ADMIN_USERNAME,
-    secret: "1234",
-    role: "super_admin",
-    name: "Josh",
-    surname: "Moodle",
-    coversheetCode: "",
-    createdAt: now,
-    updatedAt: now,
-    active: true,
-  };
-}
-
-function getFallbackState(): AuthState {
-  const defaultAdmin = createDefaultSuperAdmin();
-  return {
-    users: {
-      [normalizeUsername(defaultAdmin.username)]: defaultAdmin,
-    },
-    session: null,
-    logs: [],
-  };
-}
-
-function createExampleUsers(): AuthUser[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      username: "rep1@pfm.co.za",
-      secret: "Rep123",
-      role: "rep" as AuthRole,
-      name: "_rep1",
-      surname: "User",
-      coversheetCode: "",
-      createdAt: now,
-      updatedAt: now,
-      active: true,
-    },
-    {
-      username: "rep2@pfm.co.za",
-      secret: "Rep123",
-      role: "rep" as AuthRole,
-      name: "rep2",
-      surname: "User",
-      coversheetCode: "",
-      createdAt: now,
-      updatedAt: now,
-      active: true,
-    },
-    {
-      username: "rep3@pfm.co.za",
-      secret: "Rep123",
-      role: "rep" as AuthRole,
-      name: "rep3",
-      surname: "User",
-      coversheetCode: "",
-      createdAt: now,
-      updatedAt: now,
-      active: true,
-    },
-  ];
-}
-
-function canUseStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
-
-function writeSessionFallback(state: AuthState) {
-  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return;
-  try {
-    window.sessionStorage.setItem(AUTH_SESSION_FALLBACK_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
-}
-
-function clearSessionFallback() {
-  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return;
-  try {
-    window.sessionStorage.removeItem(AUTH_SESSION_FALLBACK_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-function isQuotaExceededError(error: unknown) {
-  return (
-    error instanceof DOMException &&
-    (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
-  );
-}
-
-function trimStorageForAuthWrite() {
-  if (!canUseStorage()) return false;
-  let removed = false;
-  for (const key of AUTH_STORAGE_RECOVERY_KEYS) {
-    try {
-      if (window.localStorage.getItem(key) !== null) {
-        window.localStorage.removeItem(key);
-        removed = true;
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return removed;
-}
-
-function purgeNonAuthLocalStorage() {
-  if (!canUseStorage()) return false;
-  let removed = false;
-  for (const key of Object.keys(window.localStorage)) {
-    if (AUTH_STORAGE_PRESERVE_KEYS.has(key)) continue;
-    try {
-      window.localStorage.removeItem(key);
-      removed = true;
-    } catch {
-      // ignore
-    }
-  }
-  return removed;
-}
-
-export async function recoverAuthStorageCapacity() {
-  let removedLocal = trimStorageForAuthWrite();
-  if (!removedLocal) {
-    removedLocal = purgeNonAuthLocalStorage();
-  }
-
-  if (typeof window === "undefined" || !("indexedDB" in window)) {
-    return removedLocal;
-  }
-
-  let removedIndexedDb = false;
-  const databaseNames = new Set<string>(AUTH_STORAGE_RECOVERY_DATABASES);
-  const listDatabases = (window.indexedDB as IDBFactory & { databases?: () => Promise<Array<{ name?: string }>> }).databases;
-  if (typeof listDatabases === "function") {
-    try {
-      const existingDatabases = await listDatabases.call(window.indexedDB);
-      existingDatabases.forEach((entry) => {
-        if (entry?.name) databaseNames.add(entry.name);
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  for (const databaseName of databaseNames) {
-    try {
-      const deleted = await new Promise<boolean>((resolve) => {
-        const request = window.indexedDB.deleteDatabase(databaseName);
-        request.onsuccess = () => resolve(true);
-        request.onerror = () => resolve(false);
-        request.onblocked = () => resolve(false);
-      });
-      if (deleted) removedIndexedDb = true;
-    } catch {
-      // ignore
-    }
-  }
-
-  return removedLocal || removedIndexedDb;
-}
-
-function saveState(state: AuthState) {
-  const serialized = JSON.stringify(state);
-  if (!canUseStorage()) {
-    writeSessionFallback(state);
-    return true;
-  }
-
-  try {
-    window.localStorage.setItem(STORAGE_KEY, serialized);
-    clearSessionFallback();
-    return true;
-  } catch (error) {
-    if (isQuotaExceededError(error)) {
-      let recovered = trimStorageForAuthWrite();
-      if (!recovered) {
-        recovered = purgeNonAuthLocalStorage();
-      }
-      if (recovered) {
-        try {
-          window.localStorage.setItem(STORAGE_KEY, serialized);
-          clearSessionFallback();
-          return true;
-        } catch (retryError) {
-          console.error("Failed to save auth state after storage recovery:", retryError);
-        }
-      }
-    } else {
-      console.error("Failed to save auth state:", error);
-    }
-  }
-
-  writeSessionFallback(state);
-  return false;
-}
-
-function readSessionFallback(): AuthState | null {
-  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(AUTH_SESSION_FALLBACK_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<AuthState>;
-    return {
-      users: parsed?.users && typeof parsed.users === "object" && !Array.isArray(parsed.users) ? parsed.users as Record<string, AuthUser> : {},
-      session: parsed?.session ?? null,
-      logs: Array.isArray(parsed?.logs) ? parsed.logs : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function readState(): AuthState {
-  if (!canUseStorage()) return readSessionFallback() || getFallbackState();
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const fallback = readSessionFallback();
-      if (fallback) {
-        saveState(fallback);
-        return fallback;
-      }
-      const next = getFallbackState();
-      // Force password to 1234 for josh@pfm.co.za
-      const defaultKey = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
-      if (next.users[defaultKey]) {
-        next.users[defaultKey].secret = "1234";
-      }
-      saveState(next);
-      return next;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<AuthState>;
-    const next: AuthState = {
-      users: parsed?.users && typeof parsed.users === "object" && !Array.isArray(parsed.users) ? parsed.users as Record<string, AuthUser> : {},
-      session: parsed?.session ?? null,
-      logs: parsed?.logs ?? [],
-    };
-
-    const defaultKey = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
-    if (!next.users[defaultKey]) {
-      next.users[defaultKey] = createDefaultSuperAdmin();
-      next.users[defaultKey].secret = "1234";
-      saveState(next);
-    } else if (next.users[defaultKey].secret !== "1234") {
-      next.users[defaultKey].secret = "1234";
-      next.users[defaultKey].updatedAt = new Date().toISOString();
-      saveState(next);
-    }
-    // FORCE super_admin role on josh@pfm.co.za - always!
-    if (next.users[defaultKey] && next.users[defaultKey].role !== "super_admin") {
-      next.users[defaultKey].role = "super_admin";
-      next.users[defaultKey].active = true;
-      next.users[defaultKey].updatedAt = new Date().toISOString();
-      saveState(next);
-    }
-
-    // Ensure all users have the active field
-    Object.keys(next.users).forEach(key => {
-      if (next.users[key].active === undefined) {
-        next.users[key].active = true;
-      }
-      if (typeof next.users[key].coversheetCode !== "string") {
-        next.users[key].coversheetCode = "";
-      }
-    });
-
-    return next;
-  } catch {
-    const next = getFallbackState();
-    saveState(next);
-    return next;
-  }
-}
-
-function addLog(action: string, user?: string, details: string = "") {
-  const state = readState();
-  state.logs.unshift({
-    timestamp: new Date().toISOString(),
-    action,
-    user,
-    details,
-  });
-  // Keep only last 500 logs
-  if (state.logs.length > 500) {
-    state.logs = state.logs.slice(0, 500);
-  }
-  saveState(state);
-}
-
-export function ensureSuperAdminSeeded() {
-  // Force fix super admin every time - ensures josh@pfm.co.za is always super_admin
-  fixSuperAdmin();
-  
-  // Create example users if first time
-  const state = readState();
-  if (Object.keys(state.users).length === 1) {
-    const examples = createExampleUsers();
-    examples.forEach(user => {
-      state.users[normalizeUsername(user.username)] = user;
-    });
-    saveState(state);
-  }
-  return state.users[normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME)];
-}
-
 export function getDefaultSuperAdminCredentials() {
   return {
     username: DEFAULT_SUPER_ADMIN_USERNAME,
@@ -437,394 +201,248 @@ export function getDefaultSuperAdminCredentials() {
   };
 }
 
-export function setSuperAdminPassword(newPassword: string) {
-  const state = readState();
-  const key = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
-  if (state.users[key]) {
-    state.users[key].secret = newPassword;
-    state.users[key].updatedAt = new Date().toISOString();
-    saveState(state);
-    addLog("PASSWORD_CHANGED", DEFAULT_SUPER_ADMIN_USERNAME, "Super admin password updated");
-    return { success: true as const, message: "Password updated successfully." };
-  }
-  return { success: false as const, error: "Super admin user not found." };
+export async function ensureSuperAdminSeeded() {
+  const response = await fetchAuthApi<AuthApiResponse<never>>({ action: "ensureSeed" });
+  await migrateLegacyUsersIfNeeded();
+  return response;
 }
 
-// Global helper to fix super admin
-export function fixSuperAdmin() {
-  const state = readState();
-  const key = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
-  state.users[key] = {
-    username: DEFAULT_SUPER_ADMIN_USERNAME,
-    secret: "1234",
-    role: "super_admin",
-    name: "Josh",
-    surname: "Moodle",
-    coversheetCode: "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    active: true,
-  };
-  saveState(state);
-  return { success: true, user: state.users[key] };
+export async function fixSuperAdmin() {
+  return ensureSuperAdminSeeded();
 }
-
-(window as unknown as { fixSuperAdmin: typeof fixSuperAdmin }).fixSuperAdmin = fixSuperAdmin;
 
 export function getAuthSession() {
-  const state = readState();
-  return state.session;
+  if (!canUseStorage()) return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeSession(JSON.parse(raw) as AuthSession);
+  } catch {
+    return null;
+  }
 }
 
-export function isSuperAdmin(session: AuthSession | null): boolean {
-  if (!session) return false;
-  return session.role === "super_admin" || normalizeUsername(session.username) === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
+export function refreshSession() {
+  return getAuthSession();
 }
 
-export function login(username: string, password: string) {
-  const state = readState();
-  const normalizedKey = normalizeUsername(username);
-  const user = state.users[normalizedKey];
+export async function refreshSessionRemote() {
+  const session = getAuthSession();
+  if (!session) return null;
 
-  if (!user) {
-    addLog("LOGIN_FAILED", username, "User not found");
-    return { success: false as const, error: "No account matches that username." };
+  try {
+    const payload = await fetchAuthApi<AuthApiResponse<never>>({
+      action: "refreshSession",
+      username: session.username,
+    });
+    const nextSession = normalizeSession(payload.session || null);
+    saveSession(nextSession);
+    return nextSession;
+  } catch {
+    return normalizeSession(session);
+  }
+}
+
+export async function login(username: string, password: string) {
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "login",
+    username,
+    password,
+  });
+
+  if (!payload.success || !payload.session) {
+    addLog("LOGIN_FAILED", username, payload.error || "Login failed");
+    return { success: false as const, error: payload.error || "Login failed." };
   }
 
-  // Force super_admin for josh@pfm.co.za during login
-  if (normalizedKey === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME)) {
-    user.role = "super_admin";
-    user.active = true;
-    user.secret = "1234";
-    saveState(state);
-    console.log("🔧 Forced super_admin for josh@pfm.co.za");
-  }
-
-  if (!user.active) {
-    addLog("LOGIN_FAILED", username, "Account disabled");
-    return { success: false as const, error: "This account has been disabled." };
-  }
-
-  if (user.secret !== password) {
-    addLog("LOGIN_FAILED", username, "Incorrect password");
-    return { success: false as const, error: "Incorrect password." };
-  }
-
-  const session: AuthSession = {
-    username: user.username,
-    role: user.role,
-    name: user.name || "",
-    surname: user.surname || "",
-    coversheetCode: user.coversheetCode || "",
-    loggedInAt: new Date().toISOString(),
-  };
-
-  console.log("✅ Login success:", session);
-
-  // Update last login
-  user.lastLogin = new Date().toISOString();
-  state.session = session;
-  saveState(state);
-
-  addLog("LOGIN_SUCCESS", username, `Logged in as ${user.role}`);
-  return { success: true as const, session };
+  const session = normalizeSession(payload.session);
+  saveSession(session);
+  addLog("LOGIN_SUCCESS", username, `Logged in as ${session?.role || "unknown"}`);
+  return { success: true as const, session: session as AuthSession };
 }
 
 export function logout() {
-  const state = readState();
-  if (state.session) {
-    addLog("LOGOUT", state.session.username);
+  const session = getAuthSession();
+  if (session) {
+    addLog("LOGOUT", session.username);
   }
-  state.session = null;
-  saveState(state);
+  saveSession(null);
 }
 
-// Refresh current session with latest user data
-export function refreshSession(): AuthSession | null {
-  const state = readState();
-  if (!state.session) return null;
-  
-  const user = state.users[normalizeUsername(state.session.username)];
-  if (!user) {
-    state.session = null;
-    saveState(state);
-    return null;
-  }
-  
-  // Force super_admin for josh@pfm.co.za on refresh too
-  if (normalizeUsername(state.session.username) === normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME)) {
-    user.role = "super_admin";
-    user.active = true;
-    saveState(state);
-  }
-  
-  // Update session with latest data
-  state.session = {
-    username: user.username,
-    role: user.role,
-    name: user.name || "",
-    surname: user.surname || "",
-    coversheetCode: user.coversheetCode || "",
-    loggedInAt: state.session.loggedInAt,
-  };
-  saveState(state);
-  return state.session;
+export async function getUsers(): Promise<AuthUser[]> {
+  const payload = await fetchAuthApi<AuthApiResponse<never>>();
+  return (payload.users || []).map((user) =>
+    isRootSuperAdminUsername(user.username) ? { ...user, role: "super_admin" } : user
+  );
 }
 
-(window as unknown as { refreshSession: typeof refreshSession }).refreshSession = refreshSession;
-
-export function getUsers(): AuthUser[] {
-  const state = readState();
-  return Object.values(state.users);
+export async function getUser(username: string): Promise<AuthUser | null> {
+  const params = new URLSearchParams({ username });
+  const payload = await fetchAuthApi<AuthApiResponse<never>>(undefined, params);
+  return payload.user || null;
 }
 
-export function getUser(username: string): AuthUser | null {
-  const state = readState();
-  return state.users[normalizeUsername(username)] || null;
-}
-
-export function createUser(
+export async function createUser(
   requestingSession: AuthSession,
   userData: { username: string; password: string; role: AuthRole; name: string; surname: string }
 ) {
-  if (requestingSession.role !== "super_admin") {
-    return { success: false as const, error: "Only super admins can create users." };
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "createUser",
+    requester: requestingSession,
+    userData,
+  });
+
+  if (payload.success) {
+    addLog("USER_CREATED", requestingSession.username, `Created user: ${userData.username} (${userData.role})`);
+    return { success: true as const, user: payload.user };
   }
 
-  if (!canManageRequestedRole(requestingSession, userData.role)) {
-    return { success: false as const, error: "You cannot create users with this role level." };
-  }
-
-  const state = readState();
-  const key = normalizeUsername(userData.username);
-
-  if (state.users[key]) {
-    return { success: false as const, error: "A user with this username already exists." };
-  }
-
-  const now = new Date().toISOString();
-  const newUser: AuthUser = {
-    username: userData.username.toLowerCase(),
-    secret: userData.password,
-    role: userData.role,
-    name: userData.name,
-    surname: userData.surname,
-    createdAt: now,
-    updatedAt: now,
-    active: true,
-  };
-
-  state.users[key] = newUser;
-  saveState(state);
-
-  addLog("USER_CREATED", requestingSession.username, `Created user: ${userData.username} (${userData.role})`);
-  return { success: true as const, user: newUser };
+  return { success: false as const, error: payload.error || "Could not create user." };
 }
 
-export function updateUser(
+export async function updateUser(
   requestingSession: AuthSession,
   targetUsername: string,
   updates: { name?: string; surname?: string; role?: AuthRole; active?: boolean }
 ) {
-  if (requestingSession.role !== "super_admin") {
-    return { success: false as const, error: "Only super admins can update users." };
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "updateUser",
+    requester: requestingSession,
+    targetUsername,
+    updates,
+  });
+
+  if (payload.success) {
+    const currentSession = getAuthSession();
+    if (currentSession && normalizeUsername(currentSession.username) === normalizeUsername(targetUsername) && payload.user) {
+      saveSession({
+        username: payload.user.username,
+        role: payload.user.role,
+        name: payload.user.name,
+        surname: payload.user.surname,
+        coversheetCode: payload.user.coversheetCode || "",
+        loggedInAt: currentSession.loggedInAt,
+      });
+    }
+    addLog("USER_UPDATED", requestingSession.username, `Updated user: ${targetUsername}`);
+    return { success: true as const, user: payload.user };
   }
 
-  const state = readState();
-  const key = normalizeUsername(targetUsername);
-  const user = state.users[key];
-
-  if (!user) {
-    return { success: false as const, error: "User not found." };
-  }
-
-  if (user.role === "super_admin" && normalizeUsername(requestingSession.username) !== normalizeUsername(targetUsername) && !isRootSuperAdminUsername(requestingSession.username)) {
-    return { success: false as const, error: "Cannot modify another super admin." };
-  }
-
-  if (updates.role && !canManageRequestedRole(requestingSession, updates.role)) {
-    return { success: false as const, error: "Cannot assign this role level." };
-  }
-
-  if (updates.name) user.name = updates.name;
-  if (updates.surname) user.surname = updates.surname;
-  if (updates.role) user.role = updates.role;
-  if (updates.active !== undefined) user.active = updates.active;
-  user.updatedAt = new Date().toISOString();
-
-  saveState(state);
-  addLog("USER_UPDATED", requestingSession.username, `Updated user: ${targetUsername}`);
-
-  return { success: true as const, user };
+  return { success: false as const, error: payload.error || "Could not update user." };
 }
 
-export function resetUserPassword(requestingSession: AuthSession, targetUsername: string, newPassword: string) {
-  if (requestingSession.role !== "super_admin") {
-    return { success: false as const, error: "Only super admins can reset passwords." };
+export async function resetUserPassword(requestingSession: AuthSession, targetUsername: string, newPassword: string) {
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "resetPassword",
+    requester: requestingSession,
+    targetUsername,
+    newPassword,
+  });
+
+  if (payload.success) {
+    addLog("PASSWORD_RESET", requestingSession.username, `Reset password for: ${targetUsername}`);
+    return { success: true as const, message: payload.message || "Password has been reset." };
   }
 
-  const state = readState();
-  const key = normalizeUsername(targetUsername);
-  const user = state.users[key];
-
-  if (!user) {
-    return { success: false as const, error: "User not found." };
-  }
-
-  if (user.role === "super_admin" && normalizeUsername(requestingSession.username) !== normalizeUsername(targetUsername) && !isRootSuperAdminUsername(requestingSession.username)) {
-    return { success: false as const, error: "Cannot reset another super admin's password." };
-  }
-
-  user.secret = newPassword;
-  user.updatedAt = new Date().toISOString();
-  saveState(state);
-
-  addLog("PASSWORD_RESET", requestingSession.username, `Reset password for: ${targetUsername}`);
-  return { success: true as const, message: "Password has been reset." };
+  return { success: false as const, error: payload.error || "Could not reset password." };
 }
 
-export function deleteUser(requestingSession: AuthSession, targetUsername: string) {
-  if (requestingSession.role !== "super_admin") {
-    return { success: false as const, error: "Only super admins can delete users." };
+export async function deleteUser(requestingSession: AuthSession, targetUsername: string) {
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "deleteUser",
+    requester: requestingSession,
+    targetUsername,
+  });
+
+  if (payload.success) {
+    addLog("USER_DELETED", requestingSession.username, `Deleted user: ${targetUsername}`);
+    return { success: true as const, message: payload.message || "User deleted successfully." };
   }
 
-  const state = readState();
-  const key = normalizeUsername(targetUsername);
-  const user = state.users[key];
-
-  if (!user) {
-    return { success: false as const, error: "User not found." };
-  }
-
-  if (isRootSuperAdminUsername(targetUsername)) {
-    return { success: false as const, error: "Cannot delete the root super admin account." };
-  }
-
-  if (user.role === "super_admin" && !isRootSuperAdminUsername(requestingSession.username)) {
-    return { success: false as const, error: "Cannot delete super admin accounts." };
-  }
-
-  if (requestingSession.username === targetUsername) {
-    return { success: false as const, error: "Cannot delete your own account." };
-  }
-
-  delete state.users[key];
-  saveState(state);
-
-  addLog("USER_DELETED", requestingSession.username, `Deleted user: ${targetUsername}`);
-  return { success: true as const, message: "User deleted successfully." };
+  return { success: false as const, error: payload.error || "Could not delete user." };
 }
 
-export function updateOwnPassword(session: AuthSession, currentPassword: string, newPassword: string) {
-  const state = readState();
-  const user = state.users[normalizeUsername(session.username)];
+export async function updateOwnPassword(session: AuthSession, currentPassword: string, newPassword: string) {
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "updateOwnPassword",
+    requester: session,
+    currentPassword,
+    newPassword,
+  });
 
-  if (!user) {
-    return { success: false as const, error: "User not found." };
+  if (payload.success) {
+    addLog("PASSWORD_CHANGED", session.username);
+    return { success: true as const, message: payload.message || "Password changed successfully." };
   }
 
-  if (user.secret !== currentPassword) {
-    return { success: false as const, error: "Current password is incorrect." };
-  }
-
-  user.secret = newPassword;
-  user.updatedAt = new Date().toISOString();
-  saveState(state);
-
-  addLog("PASSWORD_CHANGED", session.username);
-  return { success: true as const, message: "Password changed successfully." };
+  return { success: false as const, error: payload.error || "Could not change password." };
 }
 
-export function getLogs(): Array<{ timestamp: string; action: string; user?: string; details: string }> {
-  const state = readState();
-  return state.logs;
+export async function registerRep(userData: { username: string; password: string; name: string; surname: string; coversheetCode?: string }) {
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "registerRep",
+    userData,
+  });
+
+  if (payload.success) {
+    addLog("USER_REGISTERED", userData.username, "Self-registered as rep");
+    return { success: true as const, user: payload.user };
+  }
+
+  return { success: false as const, error: payload.error || "Could not create the rep account." };
 }
 
-export function clearLogs() {
-  const state = readState();
-  state.logs = [];
-  saveState(state);
-  return { success: true };
-}
-
-export function registerRep(userData: { username: string; password: string; name: string; surname: string; coversheetCode?: string }) {
-  const key = normalizeUsername(userData.username);
-
-  if (!userData.username || !userData.password || !userData.name || !userData.surname) {
-    return { success: false as const, error: "All fields are required." };
-  }
-
-  if (userData.password.length < 4) {
-    return { success: false as const, error: "Password must be at least 4 characters." };
-  }
-
-  const state = readState();
-
-  if (state.users[key]) {
-    return { success: false as const, error: "An account with this email already exists." };
-  }
-
-  const now = new Date().toISOString();
-  const newUser: AuthUser = {
-    username: userData.username.toLowerCase(),
-    secret: userData.password,
-    role: "rep",
-    name: userData.name,
-    surname: userData.surname,
-    coversheetCode: String(userData.coversheetCode || "").trim(),
-    createdAt: now,
-    updatedAt: now,
-    active: true,
-  };
-
-  state.users[key] = newUser;
-  const saved = saveState(state);
-
-  if (!saved) {
-    return {
-      success: false as const,
-      error: "Could not save the new account on this device. Clear browser storage with Data Reset, then try again.",
-    };
-  }
-
-  addLog("USER_REGISTERED", userData.username, "Self-registered as rep");
-  return { success: true as const, user: newUser };
-}
-
-export function updateUserProfile(
+export async function updateUserProfile(
   username: string,
   name: string,
   surname: string,
   options?: { coversheetCode?: string | null }
 ) {
-  const state = readState();
-  const key = normalizeUsername(username);
-  const user = state.users[key];
+  const payload = await fetchAuthApi<AuthApiResponse<never>>({
+    action: "updateProfile",
+    username,
+    name,
+    surname,
+    coversheetCode: String(options?.coversheetCode || "").trim(),
+  });
 
-  if (!user) {
-    return { success: false as const, error: "User not found." };
+  if (!payload.success || !payload.user) {
+    return { success: false as const, error: payload.error || "User not found." };
   }
 
-  user.name = name.trim();
-  user.surname = surname.trim();
-  if (options && "coversheetCode" in options) {
-    user.coversheetCode = String(options.coversheetCode || "").trim();
-  }
-  user.updatedAt = new Date().toISOString();
+  const currentSession = getAuthSession();
+  const nextSession =
+    currentSession && normalizeUsername(currentSession.username) === normalizeUsername(payload.user.username)
+      ? {
+          username: payload.user.username,
+          role: payload.user.role,
+          name: payload.user.name,
+          surname: payload.user.surname,
+          coversheetCode: payload.user.coversheetCode || "",
+          loggedInAt: currentSession.loggedInAt,
+        }
+      : currentSession;
 
-  if (state.session && normalizeUsername(state.session.username) === key) {
-    state.session.name = name.trim();
-    state.session.surname = surname.trim();
-    state.session.coversheetCode = user.coversheetCode || "";
-  }
+  if (nextSession) saveSession(nextSession);
 
-  saveState(state);
   addLog("PROFILE_UPDATED", username);
-  return { success: true as const, session: state.session, message: "Profile updated successfully." };
+  return { success: true as const, session: nextSession || null, message: "Profile updated successfully." };
+}
+
+export function getLogs(): Array<{ timestamp: string; action: string; user?: string; details: string }> {
+  return readLocalLogs();
+}
+
+export function clearLogs() {
+  saveLocalLogs([]);
+  return { success: true };
 }
 
 const APP_STORAGE_KEYS = [
-  "pfm-auth-state-v2",
+  SESSION_STORAGE_KEY,
+  LOG_STORAGE_KEY,
+  LEGACY_AUTH_STATE_STORAGE_KEY,
+  LEGACY_MIGRATION_FLAG_KEY,
   "employee-profiles-cache-v1",
   "attendance-records-cache-v1",
   "pfm-clock-cache-v1",
@@ -832,53 +450,66 @@ const APP_STORAGE_KEYS = [
   "ipulse-sync-logs-v1",
   "shift-roster-cache-v1",
   "shift-sync-settings-v1",
+  "shift-sync-settings-v2",
   "leave-applications-cache-v1",
   "leave-uploads-cache-v1",
   "employee-update-logs-v1",
   "pfm-trial-reset-v1",
   "calendar-events-v1",
+  "calendar-builder-events-v1",
+  "coversheet-data-v1",
+  "employee-source-mode-v1",
+  "employee-status-history-cache-v1",
+  "employee-unsupported-remote-columns-v1",
+  "device-records-v1",
+  "device-import-date-v1",
+  "last-attendance-date-v1",
+  "biometric-clock-events-cache-v1",
+  "pfm-store-assignments-v1",
+  "payroll-settings-v1",
 ];
 
 export async function clearAllAppData() {
   if (typeof window === "undefined" || !window.localStorage) {
     return { success: false, message: "Cannot access localStorage" };
   }
-  
-  // Clear localStorage
+
   let cleared = 0;
   for (const key of APP_STORAGE_KEYS) {
-    if (window.localStorage.getItem(key)) {
+    if (window.localStorage.getItem(key) !== null) {
       window.localStorage.removeItem(key);
       cleared++;
     }
   }
-  
-  // Clear IndexedDB databases
-  const idbDatabases = ["time-attendance-employee-db", "clock-events-db"];
+
+  const idbDatabases = [
+    "time-attendance-employee-db",
+    "clock-events-db",
+    "time-attendance-clock-db",
+    "time-attendance-coversheet-db",
+    "time-attendance-device-cache-v1",
+    "time-attendance-employee-update-log-db",
+    "time-attendance-emergency-employee-overrides-db",
+  ];
+
   for (const dbName of idbDatabases) {
     try {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         const req = window.indexedDB.deleteDatabase(dbName);
-        req.onsuccess = () => { cleared++; resolve(); };
-        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          cleared++;
+          resolve();
+        };
+        req.onerror = () => resolve();
         req.onblocked = () => resolve();
       });
-    } catch (e) {
-      // Ignore errors for databases that don't exist
+    } catch {
+      // ignore
     }
   }
-  
-  // Clear all remaining localStorage (except calendar)
-  const keysToPreserve = ["calendar-events-v1", "pfm-auth-state-v2"];
-  const allKeys = Object.keys(window.localStorage);
-  for (const key of allKeys) {
-    if (!keysToPreserve.includes(key)) {
-      window.localStorage.removeItem(key);
-      cleared++;
-    }
-  }
-  
-  return { success: true, message: `Cleared ${cleared} storage items. Calendar preserved.` };
+
+  return { success: true, message: `Cleared ${cleared} storage items.` };
 }
 
 (window as unknown as { clearAllAppData: typeof clearAllAppData }).clearAllAppData = clearAllAppData;
+(window as unknown as { fixSuperAdmin: typeof fixSuperAdmin }).fixSuperAdmin = fixSuperAdmin;

@@ -85,7 +85,7 @@ export async function getResolvedStoreAssignments(username: string, role: AuthRo
   const ownAssignments = await getStoreAssignments(username);
   if (role === "rep") return ownAssignments;
 
-  const users = getUsers();
+  const users = await getUsers();
   const userByName = new Map(users.map((user) => [normalizeUsername(user.username), user]));
   const storeKeys = new Set<string>();
 

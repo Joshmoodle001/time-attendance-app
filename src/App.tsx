@@ -12,7 +12,7 @@ import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/s
 import { buildHistoricalRosterStatusLookup, buildHistoricalRosterStatusLookupsForRange, getShiftRosterHistory, getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
-import { DEFAULT_SUPER_ADMIN_USERNAME, getUsers, updateUserProfile, logout, refreshSession, type AuthSession, type AuthUser } from "@/services/auth";
+import { DEFAULT_SUPER_ADMIN_USERNAME, getAuthSession, getUsers, updateUserProfile, logout, refreshSession, refreshSessionRemote, type AuthSession, type AuthUser } from "@/services/auth";
 import { getAllStores, getResolvedStoreAssignments, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
 import { buildTeamAssignmentMatcher, getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
@@ -1481,7 +1481,7 @@ export default function App({ initialSession = null }: AppProps) {
   const [selectedStore, setSelectedStore] = useState("all");
   const [activeNav, setActiveNav] = useState<(typeof ALL_SIDEBAR_ITEMS[number]["key"])>("overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(() => normalizeDashboardSession(initialSession || refreshSession()));
+  const [session, setSession] = useState<AuthSession | null>(() => normalizeDashboardSession(initialSession || getAuthSession() || refreshSession()));
   const superAdminSession = useMemo<AuthSession>(
     () => ({
       username: DEFAULT_SUPER_ADMIN_USERNAME,
@@ -2175,27 +2175,33 @@ export default function App({ initialSession = null }: AppProps) {
 
   useEffect(() => {
     // Use refreshSession to get latest session with forced super_admin
-    const currentSession = normalizeDashboardSession(refreshSession()) || normalizeDashboardSession(initialSession) || session;
+    const currentSession = normalizeDashboardSession(getAuthSession() || refreshSession()) || normalizeDashboardSession(initialSession) || session;
     setSession(currentSession);
     console.log("📛 Session loaded:", currentSession);
-    if (currentSession) {
-      setProfileName(currentSession.name || "");
-      setProfileSurname(currentSession.surname || "");
-      setProfileCoversheetCode(currentSession.coversheetCode || "");
-      if (currentSession.role === "rep" || currentSession.role === "regional" || currentSession.role === "divisional") {
-        void (async () => {
-          const [assignedStores, effectiveStores, allStores] = await Promise.all([
-            getStoreAssignments(currentSession.username),
-            getResolvedStoreAssignments(currentSession.username, currentSession.role),
-            getAllStores(),
-          ]);
-          setProfileAssignedStoreKeys(assignedStores);
-          setProfileEffectiveStoreKeys(effectiveStores);
-          setProfileStoreUniverse(allStores);
-          setProfileAssignableUsers(getUsers().filter((user) => user.active));
-        })();
+    void (async () => {
+      const remoteSession = normalizeDashboardSession(await refreshSessionRemote());
+      const resolvedSession = remoteSession || currentSession;
+      if (remoteSession) {
+        setSession(remoteSession);
       }
-    }
+      if (!resolvedSession) return;
+
+      setProfileName(resolvedSession.name || "");
+      setProfileSurname(resolvedSession.surname || "");
+      setProfileCoversheetCode(resolvedSession.coversheetCode || "");
+      if (resolvedSession.role === "rep" || resolvedSession.role === "regional" || resolvedSession.role === "divisional") {
+        const [assignedStores, effectiveStores, allStores, users] = await Promise.all([
+          getStoreAssignments(resolvedSession.username),
+          getResolvedStoreAssignments(resolvedSession.username, resolvedSession.role),
+          getAllStores(),
+          getUsers(),
+        ]);
+        setProfileAssignedStoreKeys(assignedStores);
+        setProfileEffectiveStoreKeys(effectiveStores);
+        setProfileStoreUniverse(allStores);
+        setProfileAssignableUsers(users.filter((user) => user.active));
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -2207,16 +2213,17 @@ export default function App({ initialSession = null }: AppProps) {
     if (session.role === "rep" || session.role === "regional" || session.role === "divisional") {
       let alive = true;
       void (async () => {
-        const [assignedStores, effectiveStores, allStores] = await Promise.all([
+        const [assignedStores, effectiveStores, allStores, users] = await Promise.all([
           getStoreAssignments(session.username),
           getResolvedStoreAssignments(session.username, session.role),
           getAllStores(),
+          getUsers(),
         ]);
         if (!alive) return;
         setProfileAssignedStoreKeys(assignedStores);
         setProfileEffectiveStoreKeys(effectiveStores);
         setProfileStoreUniverse(allStores);
-        setProfileAssignableUsers(getUsers().filter((user) => user.active));
+        setProfileAssignableUsers(users.filter((user) => user.active));
       })();
       return () => {
         alive = false;
@@ -6022,7 +6029,7 @@ export default function App({ initialSession = null }: AppProps) {
     if (!session) return;
     setProfileSaving(true);
     try {
-      const result = updateUserProfile(session.username, profileName, profileSurname, {
+      const result = await updateUserProfile(session.username, profileName, profileSurname, {
         coversheetCode: profileCoversheetCode,
       });
       if (!result.success || !result.session) {
