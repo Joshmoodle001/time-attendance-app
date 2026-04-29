@@ -547,6 +547,7 @@ export interface EmployeeStatusHistoryEntry {
 const EMPLOYEE_STORAGE_KEY = 'employee-profiles-cache-v1'
 const EMPLOYEE_STATUS_HISTORY_STORAGE_KEY = 'employee-status-history-cache-v1'
 const EMPLOYEE_SOURCE_MODE_STORAGE_KEY = 'employee-source-mode-v1'
+const EMPLOYEE_UNSUPPORTED_REMOTE_COLUMNS_STORAGE_KEY = 'employee-unsupported-remote-columns-v1'
 const EMPLOYEE_INDEXED_DB_NAME = 'time-attendance-employee-db'
 const EMPLOYEE_INDEXED_DB_VERSION = 1
 const EMPLOYEE_INDEXED_DB_STORE = 'employees'
@@ -1027,6 +1028,68 @@ function normalizeEmployeeUpdatePayload(updates: Partial<EmployeeInput>) {
   return next
 }
 
+function loadUnsupportedRemoteEmployeeColumns() {
+  if (typeof window === 'undefined') return new Set<string>()
+
+  try {
+    const raw = window.localStorage.getItem(EMPLOYEE_UNSUPPORTED_REMOTE_COLUMNS_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.map((value) => String(value || '').trim()).filter(Boolean) : [])
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function saveUnsupportedRemoteEmployeeColumns(columns: Set<string>) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(
+      EMPLOYEE_UNSUPPORTED_REMOTE_COLUMNS_STORAGE_KEY,
+      JSON.stringify(Array.from(columns).sort())
+    )
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function parseMissingRemoteEmployeeColumn(error: unknown) {
+  const message = getEmployeeStorageErrorMessage(error)
+  const match = message.match(/Could not find the '([^']+)' column of 'employees'/i)
+  return match?.[1] ? String(match[1]).trim() : ''
+}
+
+function omitUnsupportedEmployeeColumns<T extends Record<string, unknown>>(payload: T, unsupportedColumns: Set<string>) {
+  const next = { ...payload }
+  unsupportedColumns.forEach((column) => {
+    delete next[column as keyof T]
+  })
+  return next
+}
+
+async function runEmployeeRemoteMutationWithSchemaFallback<T extends { error?: unknown }>(
+  payload: Record<string, unknown> | Record<string, unknown>[],
+  runner: (sanitizedPayload: typeof payload) => Promise<T>
+): Promise<T> {
+  const unsupportedColumns = loadUnsupportedRemoteEmployeeColumns()
+
+  while (true) {
+    const sanitizedPayload = Array.isArray(payload)
+      ? payload.map((item) => omitUnsupportedEmployeeColumns(item, unsupportedColumns))
+      : omitUnsupportedEmployeeColumns(payload, unsupportedColumns)
+
+    const result = await runner(sanitizedPayload)
+    const missingColumn = parseMissingRemoteEmployeeColumn(result?.error)
+
+    if (!missingColumn || unsupportedColumns.has(missingColumn)) {
+      return result
+    }
+
+    unsupportedColumns.add(missingColumn)
+    saveUnsupportedRemoteEmployeeColumns(unsupportedColumns)
+  }
+}
+
 function buildUniqueEmployeeImportRows(employees: EmployeeInput[], now: string) {
   const uniqueByCode = new Map<string, ReturnType<typeof normalizeEmployeePayload> & { created_at: string; updated_at: string }>()
 
@@ -1413,15 +1476,19 @@ export async function createEmployee(employee: EmployeeInput): Promise<{ success
       await persistEmployeeStatusHistory([statusHistoryEntry])
     }
 
-    const { data, error } = await supabase
-      .from('employees')
-      .insert({
-        ...normalizeEmployeePayload(employee),
-        created_at: now,
-        updated_at: now,
-      })
-      .select('id')
-      .single()
+    const createPayload = {
+      ...normalizeEmployeePayload(employee),
+      created_at: now,
+      updated_at: now,
+    }
+
+    const { data, error } = await runEmployeeRemoteMutationWithSchemaFallback(createPayload, async (sanitizedPayload) =>
+      supabase
+        .from('employees')
+        .insert(sanitizedPayload)
+        .select('id')
+        .single()
+    )
 
     if (error) {
       const message = getEmployeeStorageErrorMessage(error)
@@ -1460,13 +1527,17 @@ export async function updateEmployee(id: string, updates: Partial<EmployeeInput>
       await persistEmployeeStatusHistory([statusHistoryEntry])
     }
 
-    const { error } = await supabase
-      .from('employees')
-      .update({
-        ...normalizeEmployeeUpdatePayload(updates),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
+    const updatePayload = {
+      ...normalizeEmployeeUpdatePayload(updates),
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error } = await runEmployeeRemoteMutationWithSchemaFallback(updatePayload, async (sanitizedPayload) =>
+      supabase
+        .from('employees')
+        .update(sanitizedPayload)
+        .eq('id', id)
+    )
 
     if (error) {
       const message = getEmployeeStorageErrorMessage(error)
@@ -1568,10 +1639,12 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
     await persistEmployeeStatusHistory(statusHistoryEntries)
     saveEmployeeSourceMode('local')
 
-    const { data, error } = await supabase
-      .from('employees')
-      .upsert(processedEmployees, { onConflict: 'employee_code' })
-      .select('id')
+    const { data, error } = await runEmployeeRemoteMutationWithSchemaFallback(processedEmployees, async (sanitizedPayload) =>
+      supabase
+        .from('employees')
+        .upsert(sanitizedPayload, { onConflict: 'employee_code' })
+        .select('id')
+    )
 
     if (error) {
       const message = getEmployeeStorageErrorMessage(error)
@@ -1653,10 +1726,12 @@ export async function importEmployeesRemoteOverwrite(
     await persistEmployeeStatusHistory(statusHistoryEntries)
     saveEmployeeSourceMode('local')
 
-    const { data, error } = await supabase
-      .from('employees')
-      .upsert(processedEmployees, { onConflict: 'employee_code' })
-      .select('id')
+    const { data, error } = await runEmployeeRemoteMutationWithSchemaFallback(processedEmployees, async (sanitizedPayload) =>
+      supabase
+        .from('employees')
+        .upsert(sanitizedPayload, { onConflict: 'employee_code' })
+        .select('id')
+    )
 
     if (error) {
       const message = getEmployeeStorageErrorMessage(error)
@@ -1767,10 +1842,12 @@ export async function replaceEmployeesRemoteOverwrite(
     await persistEmployeeStatusHistory([])
     saveEmployeeSourceMode('local')
 
-    const { data, error } = await supabase
-      .from('employees')
-      .upsert(processedEmployees, { onConflict: 'employee_code' })
-      .select('id')
+    const { data, error } = await runEmployeeRemoteMutationWithSchemaFallback(processedEmployees, async (sanitizedPayload) =>
+      supabase
+        .from('employees')
+        .upsert(sanitizedPayload, { onConflict: 'employee_code' })
+        .select('id')
+    )
 
     if (error) {
       const message = getEmployeeStorageErrorMessage(error)
