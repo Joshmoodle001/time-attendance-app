@@ -29,8 +29,21 @@ type AuthState = {
 };
 
 const STORAGE_KEY = "pfm-auth-state-v2";
+const AUTH_SESSION_FALLBACK_KEY = "pfm-auth-state-session-v1";
 export const DEFAULT_SUPER_ADMIN_USERNAME = "josh@pfm.co.za";
 export const DEFAULT_SUPER_ADMIN_SECRET = "PFM@dmin2026!";
+const AUTH_STORAGE_RECOVERY_KEYS = [
+  "employee-profiles-cache-v1",
+  "attendance-records-cache-v1",
+  "pfm-clock-cache-v1",
+  "shift-roster-cache-v1",
+  "leave-applications-cache-v1",
+  "leave-uploads-cache-v1",
+  "employee-update-logs-v1",
+  "coversheet-data-v1",
+  "pfm-device-records-v1",
+  "pfm-device-import-date-v1",
+];
 
 function normalizeUsername(value: string) {
   return String(value || "").trim().toLowerCase();
@@ -148,21 +161,106 @@ function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function saveState(state: AuthState) {
-  if (!canUseStorage()) return;
+function writeSessionFallback(state: AuthState) {
+  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error("Failed to save auth state:", e);
+    window.sessionStorage.setItem(AUTH_SESSION_FALLBACK_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function clearSessionFallback() {
+  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(AUTH_SESSION_FALLBACK_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function isQuotaExceededError(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
+  );
+}
+
+function trimStorageForAuthWrite() {
+  if (!canUseStorage()) return false;
+  let removed = false;
+  for (const key of AUTH_STORAGE_RECOVERY_KEYS) {
+    try {
+      if (window.localStorage.getItem(key) !== null) {
+        window.localStorage.removeItem(key);
+        removed = true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return removed;
+}
+
+function saveState(state: AuthState) {
+  const serialized = JSON.stringify(state);
+  if (!canUseStorage()) {
+    writeSessionFallback(state);
+    return true;
+  }
+
+  try {
+    window.localStorage.setItem(STORAGE_KEY, serialized);
+    clearSessionFallback();
+    return true;
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      const recovered = trimStorageForAuthWrite();
+      if (recovered) {
+        try {
+          window.localStorage.setItem(STORAGE_KEY, serialized);
+          clearSessionFallback();
+          return true;
+        } catch (retryError) {
+          console.error("Failed to save auth state after storage recovery:", retryError);
+        }
+      }
+    } else {
+      console.error("Failed to save auth state:", error);
+    }
+  }
+
+  writeSessionFallback(state);
+  return false;
+}
+
+function readSessionFallback(): AuthState | null {
+  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(AUTH_SESSION_FALLBACK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AuthState>;
+    return {
+      users: parsed?.users && typeof parsed.users === "object" && !Array.isArray(parsed.users) ? parsed.users as Record<string, AuthUser> : {},
+      session: parsed?.session ?? null,
+      logs: Array.isArray(parsed?.logs) ? parsed.logs : [],
+    };
+  } catch {
+    return null;
   }
 }
 
 function readState(): AuthState {
-  if (!canUseStorage()) return getFallbackState();
+  if (!canUseStorage()) return readSessionFallback() || getFallbackState();
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
+      const fallback = readSessionFallback();
+      if (fallback) {
+        saveState(fallback);
+        return fallback;
+      }
       const next = getFallbackState();
       // Force password to 1234 for josh@pfm.co.za
       const defaultKey = normalizeUsername(DEFAULT_SUPER_ADMIN_USERNAME);
@@ -595,7 +693,14 @@ export function registerRep(userData: { username: string; password: string; name
   };
 
   state.users[key] = newUser;
-  saveState(state);
+  const saved = saveState(state);
+
+  if (!saved) {
+    return {
+      success: false as const,
+      error: "Could not save the new account on this device. Clear browser storage with Data Reset, then try again.",
+    };
+  }
 
   addLog("USER_REGISTERED", userData.username, "Self-registered as rep");
   return { success: true as const, user: newUser };
