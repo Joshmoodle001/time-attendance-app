@@ -328,6 +328,7 @@ export default function AuthApp() {
   const [signupRepDirectory, setSignupRepDirectory] = useState<RepDirectoryEntry[]>([]);
   const [signupRepSearch, setSignupRepSearch] = useState("");
   const [signupRepAssignedStores, setSignupRepAssignedStores] = useState<string[]>([]);
+  const [isSigningUp, setIsSigningUp] = useState(false);
 
   useEffect(() => {
     ensureSuperAdminSeeded();
@@ -440,33 +441,53 @@ export default function AuthApp() {
 
   const handleSignup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSigningUp) return;
 
     if (signupData.password !== signupData.confirmPassword) {
       setBanner({ type: "error", text: "Passwords do not match." });
       return;
     }
 
-    const result = registerRep({
-      username: signupData.username,
-      password: signupData.password,
-      name: signupData.name,
-      surname: signupData.surname,
-      coversheetCode: signupData.coversheetCode,
-    });
+    setIsSigningUp(true);
+    setBanner({ type: "info", text: "Creating your rep account..." });
 
-    if (!result.success) {
-      setBanner({ type: "error", text: result.error });
-      return;
-    }
+    try {
+      const result = registerRep({
+        username: signupData.username,
+        password: signupData.password,
+        name: signupData.name,
+        surname: signupData.surname,
+        coversheetCode: signupData.coversheetCode,
+      });
 
-    const loginResult = login(signupData.username, signupData.password);
-    if (loginResult.success) {
-      if (signupSelectedStores.length > 0) {
-        await saveStoreAssignments(signupData.username, signupSelectedStores);
+      if (!result.success) {
+        setBanner({ type: "error", text: result.error });
+        return;
       }
+
+      const loginResult = login(signupData.username, signupData.password);
+      if (!loginResult.success) {
+        setBanner({ type: "error", text: loginResult.error || "Account was created, but automatic sign-in failed." });
+        return;
+      }
+
       setSession(loginResult.session);
       setShowWelcome(true);
       setBanner({ type: "success", text: `Account created! Welcome, ${loginResult.session.username}!` });
+
+      if (signupSelectedStores.length > 0) {
+        void saveStoreAssignments(signupData.username, signupSelectedStores).catch(() => {
+          setBanner({
+            type: "info",
+            text: "Account created. Store assignments could not sync immediately, but you can save them again in My Profiles.",
+          });
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create the account.";
+      setBanner({ type: "error", text: message });
+    } finally {
+      setIsSigningUp(false);
     }
   };
 
@@ -935,8 +956,8 @@ export default function AuthApp() {
                     Signing up creates a <strong>Rep</strong> account with access to Overview, Reports, Shifts, Calendar, and Coversheet. Selected stores are saved now so your dashboard opens with the correct scope.
                   </div>
 
-                  <Button type="submit" size="lg" className="cyber-button button-glow h-12 w-full">
-                    Create account
+                  <Button type="submit" size="lg" disabled={isSigningUp} className="cyber-button button-glow h-12 w-full">
+                    {isSigningUp ? "Creating account..." : "Create account"}
                     <UserPlus className="ml-2 h-4 w-4" />
                   </Button>
 
