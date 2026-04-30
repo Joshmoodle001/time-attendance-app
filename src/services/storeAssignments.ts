@@ -20,6 +20,15 @@ export type StoreInfo = {
   employeeCount: number;
 };
 
+export type CoversheetAssignmentResolution = {
+  assignmentKey: string;
+  storeCode: string;
+  storeName: string;
+  displayLabel: string;
+  employeeCount: number;
+  matchedTeams: StoreInfo[];
+};
+
 const STORAGE_KEY = "pfm-store-assignments-v1";
 const COVERSHEET_ASSIGNMENT_PREFIX = "coversheet:";
 
@@ -54,7 +63,7 @@ function collectCodeCandidates(...values: unknown[]) {
   return codes;
 }
 
-function buildCoversheetAssignmentKey(storeCode: unknown, storeName: unknown) {
+export function buildCoversheetAssignmentKey(storeCode: unknown, storeName: unknown) {
   const code = normalizeScopeText(storeCode);
   const name = normalizeScopeText(storeName);
   const info = getTeamScopeInfo(`${code ? `${code} - ` : ""}${name}`, name, code);
@@ -195,6 +204,57 @@ async function resolveAssignedKeysToTeamKeys(assignedKeys: string[]) {
   });
 
   return Array.from(resolvedTeamKeys);
+}
+
+export async function resolveCoversheetAssignments(
+  assignmentKeys: string[]
+): Promise<CoversheetAssignmentResolution[]> {
+  const requestedKeys = Array.from(
+    new Set(assignmentKeys.filter((key) => isCoversheetAssignmentKey(key)).map((key) => String(key || "").trim()))
+  );
+  if (requestedKeys.length === 0) return [];
+
+  const employees = await getEmployees();
+  const teamUniverse = buildTeamUniverse(employees);
+  const teamByKey = new Map(teamUniverse.map((team) => [team.storeKey, team]));
+  const coversheetEntries = await buildCoversheetResolutionEntries(employees);
+  const coversheetData = await loadStoredCoversheetData();
+  const coversheetStoreByKey = new Map(
+    (coversheetData?.stores || []).map((store) => [
+      buildCoversheetAssignmentKey(store.storeCode, store.storeName),
+      store,
+    ])
+  );
+
+  return requestedKeys.map((assignmentKey) => {
+    const matchedEntry =
+      coversheetEntries.find(
+        (entry) =>
+          entry.assignmentKey === assignmentKey ||
+          entry.legacyKeys.has(assignmentKey) ||
+          normalizeScopeCompare(entry.assignmentKey) === normalizeScopeCompare(assignmentKey) ||
+          storeMatchesAssignment("", assignmentKey, entry.assignmentKey) ||
+          storeMatchesAssignment("", normalizeCoversheetAssignmentKey(assignmentKey), entry.assignmentKey)
+      ) || null;
+
+    const sourceStore = coversheetStoreByKey.get(matchedEntry?.assignmentKey || assignmentKey);
+    const storeCode = normalizeScopeText(sourceStore?.storeCode);
+    const storeName = normalizeScopeText(sourceStore?.storeName) || getCoversheetAssignmentLabel(assignmentKey);
+    const displayLabel = [storeCode, storeName].filter(Boolean).join(" - ") || storeName || "Unknown Store";
+    const matchedTeams = Array.from(matchedEntry?.teamKeys || [])
+      .map((teamKey) => teamByKey.get(teamKey))
+      .filter((team): team is StoreInfo => Boolean(team))
+      .sort((a, b) => `${a.storeCode} ${a.storeName}`.localeCompare(`${b.storeCode} ${b.storeName}`));
+
+    return {
+      assignmentKey,
+      storeCode,
+      storeName,
+      displayLabel,
+      employeeCount: Array.isArray(sourceStore?.employees) ? sourceStore.employees.length : 0,
+      matchedTeams,
+    } satisfies CoversheetAssignmentResolution;
+  });
 }
 
 export async function getAssignableStoresForRole(role: AuthRole): Promise<StoreInfo[]> {

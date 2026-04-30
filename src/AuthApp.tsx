@@ -20,7 +20,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { loadStoredCoversheetData, type CoversheetStorageData } from "@/services/coversheetStorage";
-import { getAllStores, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
+import {
+  buildCoversheetAssignmentKey,
+  getAllStores,
+  resolveCoversheetAssignments,
+  saveStoreAssignments,
+  type CoversheetAssignmentResolution,
+  type StoreInfo,
+} from "@/services/storeAssignments";
 import {
   ensureSuperAdminSeeded,
   getDefaultSuperAdminCredentials,
@@ -50,6 +57,8 @@ type RepDirectoryEntry = {
   storeKeys: string[];
   storeLabels: string[];
 };
+
+type SignupManualOverrideMap = Record<string, string>;
 
 function normalizeText(value: unknown) {
   return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
@@ -256,6 +265,9 @@ export default function AuthApp() {
   const [signupRepDirectory, setSignupRepDirectory] = useState<RepDirectoryEntry[]>([]);
   const [signupRepSearch, setSignupRepSearch] = useState("");
   const [signupRepAssignedStores, setSignupRepAssignedStores] = useState<string[]>([]);
+  const [signupRepStoreMatches, setSignupRepStoreMatches] = useState<CoversheetAssignmentResolution[]>([]);
+  const [signupManualOverrides, setSignupManualOverrides] = useState<SignupManualOverrideMap>({});
+  const [signupManualSearch, setSignupManualSearch] = useState<Record<string, string>>({});
   const [isSigningUp, setIsSigningUp] = useState(false);
 
   useEffect(() => {
@@ -290,8 +302,8 @@ export default function AuthApp() {
         (coversheetData?.stores || []).forEach((store) => {
           const storeCode = normalizeText(store.storeCode);
           const storeName = normalizeText(store.storeName);
-          const storeKey = [storeCode, storeName].filter(Boolean).join(" - ");
-          const storeLabel = storeKey || "Unknown Store";
+          const storeKey = buildCoversheetAssignmentKey(storeCode, storeName);
+          const storeLabel = [storeCode, storeName].filter(Boolean).join(" - ") || storeName || "Unknown Store";
 
           (store.employees || []).forEach((employee) => {
             const repLabel = normalizeText(employee.repLabel);
@@ -341,12 +353,21 @@ export default function AuthApp() {
 
   const signupStoreMatches = useMemo(() => {
     const query = normalizeText(signupStoreSearch).toLowerCase();
-    const available = signupStoreUniverse.filter((store) => !signupSelectedStores.includes(store.storeKey));
+    const takenActualStoreKeys = new Set<string>();
+    signupSelectedStores.forEach((key) => {
+      if (!String(key || "").toLowerCase().startsWith("coversheet:")) {
+        takenActualStoreKeys.add(key);
+      }
+    });
+    Object.values(signupManualOverrides).forEach((key) => {
+      if (key) takenActualStoreKeys.add(key);
+    });
+    const available = signupStoreUniverse.filter((store) => !takenActualStoreKeys.has(store.storeKey));
     if (!query) return available.slice(0, 12);
     return available
       .filter((store) => `${store.storeName} ${store.storeCode} ${store.region}`.toLowerCase().includes(query))
       .slice(0, 12);
-  }, [signupSelectedStores, signupStoreSearch, signupStoreUniverse]);
+  }, [signupManualOverrides, signupSelectedStores, signupStoreSearch, signupStoreUniverse]);
 
   const signupRepMatches = useMemo(() => {
     const query = normalizeText(signupRepSearch).toLowerCase();
@@ -355,6 +376,35 @@ export default function AuthApp() {
       .filter((entry) => `${entry.repCode} ${entry.repLabel} ${entry.storeLabels.join(" ")}`.toLowerCase().includes(query))
       .slice(0, 8);
   }, [signupRepDirectory, signupRepSearch]);
+
+  const signupStoreByKey = useMemo(
+    () => new Map(signupStoreUniverse.map((store) => [store.storeKey, store])),
+    [signupStoreUniverse]
+  );
+
+  const signupActualTeams = useMemo(() => {
+    const teamMap = new Map<string, StoreInfo>();
+
+    signupRepStoreMatches.forEach((match) => {
+      match.matchedTeams.forEach((team) => {
+        teamMap.set(team.storeKey, team);
+      });
+    });
+
+    Object.values(signupManualOverrides).forEach((teamKey) => {
+      const team = signupStoreByKey.get(teamKey);
+      if (team) teamMap.set(team.storeKey, team);
+    });
+
+    signupSelectedStores.forEach((teamKey) => {
+      const team = signupStoreByKey.get(teamKey);
+      if (team) teamMap.set(team.storeKey, team);
+    });
+
+    return Array.from(teamMap.values()).sort((a, b) =>
+      `${a.storeCode} ${a.storeName}`.localeCompare(`${b.storeCode} ${b.storeName}`)
+    );
+  }, [signupManualOverrides, signupRepStoreMatches, signupSelectedStores, signupStoreByKey]);
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -433,26 +483,80 @@ export default function AuthApp() {
   };
 
   const clearSignupRepSelection = () => {
+    const currentRepManualStores = Object.entries(signupManualOverrides)
+      .filter(([assignmentKey]) => signupRepAssignedStores.includes(assignmentKey))
+      .map(([, storeKey]) => storeKey);
     setSignupData((current) => ({ ...current, coversheetCode: "" }));
     setSignupRepSearch("");
-    setSignupSelectedStores((current) => current.filter((key) => !signupRepAssignedStores.includes(key)));
+    setSignupSelectedStores((current) =>
+      current.filter((key) => !signupRepAssignedStores.includes(key) && !currentRepManualStores.includes(key))
+    );
     setSignupRepAssignedStores([]);
+    setSignupRepStoreMatches([]);
+    setSignupManualOverrides({});
+    setSignupManualSearch({});
   };
 
-  const handleSignupSelectRep = (entry: RepDirectoryEntry) => {
+  const handleSignupSelectRep = async (entry: RepDirectoryEntry) => {
     const nextRepStores = entry.storeKeys.filter(Boolean);
+    const previousRepManualStores = Object.entries(signupManualOverrides)
+      .filter(([assignmentKey]) => signupRepAssignedStores.includes(assignmentKey))
+      .map(([, storeKey]) => storeKey);
     setSignupData((current) => ({
       ...current,
       coversheetCode: entry.repCode || current.coversheetCode,
     }));
     setSignupSelectedStores((current) => {
-      const withoutPreviousRepStores = current.filter((key) => !signupRepAssignedStores.includes(key));
+      const withoutPreviousRepStores = current.filter(
+        (key) => !signupRepAssignedStores.includes(key) && !previousRepManualStores.includes(key)
+      );
       const next = new Set(withoutPreviousRepStores);
       nextRepStores.forEach((storeKey) => next.add(storeKey));
       return Array.from(next);
     });
     setSignupRepAssignedStores(nextRepStores);
     setSignupRepSearch(entry.repLabel);
+    setSignupManualOverrides({});
+    setSignupManualSearch({});
+
+    const resolutions = await resolveCoversheetAssignments(nextRepStores);
+    setSignupRepStoreMatches(resolutions);
+
+    const unmatchedCount = resolutions.filter((resolution) => resolution.matchedTeams.length === 0).length;
+    setBanner({
+      type: unmatchedCount > 0 ? "info" : "success",
+      text:
+        unmatchedCount > 0
+          ? `${entry.repLabel} loaded. ${unmatchedCount} coversheet store${unmatchedCount === 1 ? "" : "s"} still need a manual actual-team match.`
+          : `${entry.repLabel} loaded and all coversheet stores matched to actual teams.`,
+    });
+  };
+
+  const handleSignupManualSearchChange = (assignmentKey: string, value: string) => {
+    setSignupManualSearch((current) => ({ ...current, [assignmentKey]: value }));
+  };
+
+  const handleSignupAssignManualStore = (assignmentKey: string, storeKey: string) => {
+    const previousStoreKey = signupManualOverrides[assignmentKey];
+    setSignupManualOverrides((current) => ({ ...current, [assignmentKey]: storeKey }));
+    setSignupManualSearch((current) => ({ ...current, [assignmentKey]: "" }));
+    setSignupSelectedStores((current) => {
+      const next = new Set(current);
+      if (previousStoreKey) next.delete(previousStoreKey);
+      next.add(storeKey);
+      return Array.from(next);
+    });
+  };
+
+  const handleSignupClearManualStore = (assignmentKey: string) => {
+    const previousStoreKey = signupManualOverrides[assignmentKey];
+    if (!previousStoreKey) return;
+    setSignupManualOverrides((current) => {
+      const next = { ...current };
+      delete next[assignmentKey];
+      return next;
+    });
+    setSignupSelectedStores((current) => current.filter((key) => key !== previousStoreKey));
   };
 
   if (isBooting) {
@@ -827,7 +931,9 @@ export default function AuthApp() {
                           <button
                             key={entry.repLabel}
                             type="button"
-                            onClick={() => handleSignupSelectRep(entry)}
+                            onClick={() => {
+                              void handleSignupSelectRep(entry);
+                            }}
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-white/10"
                           >
                             <div className="font-semibold text-cyan-200">{entry.repLabel}</div>
@@ -843,26 +949,165 @@ export default function AuthApp() {
                     </div>
                   </div>
 
+                  {signupRepStoreMatches.length > 0 && (
+                    <div className="space-y-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+                      <div>
+                        <div className="text-sm font-semibold text-white">Resolved Actual Teams</div>
+                        <div className="text-xs text-slate-400">
+                          Auto-matched teams are shown in green. Any coversheet store that could not be matched stays red until you pick the correct actual team or leave it unmatched.
+                        </div>
+                      </div>
+
+                      {signupActualTeams.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {signupActualTeams.map((team) => (
+                            <span
+                              key={team.storeKey}
+                              className="rounded-full border border-emerald-400/35 bg-emerald-500/12 px-2.5 py-1 text-[11px] font-medium text-emerald-200"
+                            >
+                              {[team.storeCode, team.storeName].filter(Boolean).join(" - ") || team.storeName}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                          No actual teams have resolved yet for this rep selection.
+                        </div>
+                      )}
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {signupRepStoreMatches.map((match) => {
+                          const manualOverrideKey = signupManualOverrides[match.assignmentKey];
+                          const manualOverrideStore = manualOverrideKey ? signupStoreByKey.get(manualOverrideKey) : null;
+                          const isResolved = match.matchedTeams.length > 0 || Boolean(manualOverrideStore);
+                          const manualSearchQuery = signupManualSearch[match.assignmentKey] || "";
+                          const normalizedManualSearch = normalizeText(manualSearchQuery).toLowerCase();
+                          const manualMatches = signupStoreUniverse
+                            .filter((store) => {
+                              const claimedByOtherManual = Object.entries(signupManualOverrides).some(
+                                ([assignmentKey, storeKey]) => assignmentKey !== match.assignmentKey && storeKey === store.storeKey
+                              );
+                              if (claimedByOtherManual) return false;
+                              if (!normalizedManualSearch) return true;
+                              return `${store.storeCode} ${store.storeName} ${store.region}`
+                                .toLowerCase()
+                                .includes(normalizedManualSearch);
+                            })
+                            .slice(0, 8);
+
+                          return (
+                            <div
+                              key={match.assignmentKey}
+                              className={cn(
+                                "rounded-2xl border p-3",
+                                isResolved ? "border-emerald-500/25 bg-emerald-500/6" : "border-rose-500/25 bg-rose-500/6"
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold text-white">{match.displayLabel}</div>
+                                  <div className="mt-1 text-[11px] text-slate-400">
+                                    {match.employeeCount} coversheet employee{match.employeeCount === 1 ? "" : "s"}
+                                  </div>
+                                </div>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]",
+                                    isResolved ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"
+                                  )}
+                                >
+                                  {manualOverrideStore ? "Manual match" : match.matchedTeams.length > 0 ? "Auto matched" : "Needs match"}
+                                </span>
+                              </div>
+
+                              {match.matchedTeams.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-1.5">
+                                  {match.matchedTeams.map((team) => (
+                                    <span
+                                      key={team.storeKey}
+                                      className="rounded-full border border-emerald-400/35 bg-emerald-500/12 px-2 py-0.5 text-[11px] text-emerald-200"
+                                    >
+                                      {[team.storeCode, team.storeName].filter(Boolean).join(" - ") || team.storeName}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {!match.matchedTeams.length && manualOverrideStore && (
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-emerald-400/35 bg-emerald-500/12 px-2 py-0.5 text-[11px] text-emerald-200">
+                                    {[manualOverrideStore.storeCode, manualOverrideStore.storeName].filter(Boolean).join(" - ") || manualOverrideStore.storeName}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSignupClearManualStore(match.assignmentKey)}
+                                    className="text-[11px] font-medium text-amber-200 transition hover:text-amber-100"
+                                  >
+                                    Clear manual match
+                                  </button>
+                                </div>
+                              )}
+
+                              {!match.matchedTeams.length && !manualOverrideStore && (
+                                <div className="mt-3 space-y-2">
+                                  <div className="text-xs text-rose-200">
+                                    No actual team matched automatically. Search the correct team below or leave this store unmatched.
+                                  </div>
+                                  <Input
+                                    value={manualSearchQuery}
+                                    onChange={(event) => handleSignupManualSearchChange(match.assignmentKey, event.target.value)}
+                                    className="h-10 border-rose-400/20 bg-white/5 text-white placeholder:text-slate-500"
+                                    placeholder="Search actual teams by name, code, or region"
+                                  />
+                                  <div className="max-h-32 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
+                                    {manualMatches.length === 0 ? (
+                                      <div className="px-2 py-1 text-xs text-slate-400">No actual teams matched this search.</div>
+                                    ) : (
+                                      manualMatches.map((store) => (
+                                        <button
+                                          key={`${match.assignmentKey}-${store.storeKey}`}
+                                          type="button"
+                                          onClick={() => handleSignupAssignManualStore(match.assignmentKey, store.storeKey)}
+                                          className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-white/10"
+                                        >
+                                          <div className="font-semibold text-cyan-200">{store.storeCode} - {store.storeName}</div>
+                                          <div className="text-slate-400">{store.region}</div>
+                                        </button>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-300">Assign Stores Before Finish</label>
+                    <label className="text-sm font-medium text-slate-300">Add Extra Actual Teams</label>
                     <Input
                       value={signupStoreSearch}
                       onChange={(e) => setSignupStoreSearch(e.target.value)}
                       className="h-11 border-white/10 bg-white/5 text-white placeholder:text-slate-500"
-                      placeholder="Search stores by name, code, or region"
+                      placeholder="Search actual teams by name, code, or region"
                     />
-                    {signupSelectedStores.length > 0 && (
+                    {signupActualTeams.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 rounded-xl border border-white/10 bg-black/20 p-2">
-                        {signupSelectedStores.map((storeKey) => (
+                        {signupActualTeams.map((store) => {
+                          const storeKey = [store.storeCode, store.storeName].filter(Boolean).join(" - ") || store.storeName;
+                          return (
                           <button
-                            key={storeKey}
+                            key={store.storeKey}
                             type="button"
-                            onClick={() => handleSignupRemoveStore(storeKey)}
+                            onClick={() => handleSignupRemoveStore(store.storeKey)}
                             className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/20"
                           >
                             {storeKey} ×
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                     <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
