@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Building2, CalendarRange, Printer, Search, Download, RefreshCw, UserRound, WandSparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Building2, CalendarRange, Printer, Search, Download, RefreshCw, Upload, UserRound, WandSparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,12 @@ import {
   type LeaveApplication,
 } from "@/services/leave";
 import { formatCurrency, loadPayrollSettings, type PayrollSettings } from "@/services/payroll";
+import {
+  loadStoredHolidayPlannerData,
+  saveStoredHolidayPlannerData,
+  type HolidayPlannerData,
+  type HolidayPlannerEntry,
+} from "@/services/holidayPlannerStorage";
 import { getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
@@ -126,6 +132,9 @@ type AttendanceDayRow = {
   targetHours: number;
   workedHours: number;
   payableHours: number;
+  overtimePayAmount: number;
+  appliedRateMultiplier: number;
+  holidayPlannerApplied: boolean;
   payAmount: number;
   isPublicHoliday: boolean;
   firstClock: string;
@@ -192,6 +201,34 @@ function normalizeText(value: unknown) {
 function normalizeCompare(value: unknown) {
   return normalizeText(value).toLowerCase();
 }
+
+function normalizeHeaderKey(value: unknown) {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+const HOLIDAY_EMPLOYEE_CODE_KEYS = [
+  "employee_code",
+  "employee_no",
+  "employee_number",
+  "employee_id",
+  "payroll_code",
+  "payroll_number",
+  "employee",
+  "code",
+];
+
+const HOLIDAY_DATE_KEYS = [
+  "date",
+  "work_date",
+  "holiday_date",
+  "public_holiday_date",
+  "public_holiday",
+  "ph_date",
+];
 
 function getSearchTokens(query: unknown) {
   return normalizeCompare(query)
@@ -416,33 +453,36 @@ function calculateActualWorkedHours(firstClock: string, lastClock: string, clock
   const start = parseClockTimeToSeconds(firstClock || "");
   const end = parseClockTimeToSeconds(lastClock || "");
   if (start === null || end === null || clockCount < 2 || end <= start) return 0;
-  return Number(((end - start) / 3600).toFixed(2));
+  return (end - start) / 3600;
 }
 
-function calculatePayrollHours(row: AttendanceDayRow, shiftRow: ShiftRow | undefined, day: ShiftDayKey, payrollRate: number) {
+function calculatePayrollHours(
+  row: AttendanceDayRow,
+  shiftRow: ShiftRow | undefined,
+  day: ShiftDayKey,
+  payrollRate: number
+) {
   if (!row || row.clockCount < 2 || row.status === "AWOL" || row.status === "No In/Out" || row.status === "Day Off" || row.status === "On Leave") {
-    return { payableHours: 0, payAmount: 0 };
-  }
-
-  const rateMultiplier = day === "sunday" ? 1.5 : 1;
-  const effectiveRate = Number((payrollRate * rateMultiplier).toFixed(2));
-
-  if (row.isPublicHoliday) {
-    const holidayHours = Number(Math.min(row.workedHours, getPayrollDayCap(day)).toFixed(2));
-    return { payableHours: holidayHours, payAmount: Number((holidayHours * effectiveRate).toFixed(2)) };
+    return { payableHours: 0, payAmount: 0, overtimePayAmount: 0, appliedRateMultiplier: 0 };
   }
 
   const scheduledStart = getShiftStartSeconds(shiftRow, day);
   const clockInSeconds = parseClockTimeToSeconds(row.firstClock || "");
   const lateHours =
     scheduledStart !== null && clockInSeconds !== null && clockInSeconds > scheduledStart
-      ? Number(((clockInSeconds - scheduledStart) / 3600).toFixed(2))
+      ? (clockInSeconds - scheduledStart) / 3600
       : 0;
-  const basePayable = Math.max(0, Number((getPayrollDayCap(day) - lateHours).toFixed(2)));
-  const payableHours = Number(Math.min(row.workedHours, basePayable).toFixed(2));
+  const basePayable = Math.max(0, getPayrollDayCap(day) - lateHours);
+  const payableHours = Math.max(0, Math.min(row.workedHours, basePayable));
+  const baseRateMultiplier = day === "sunday" ? 1.5 : 1;
+  const appliedRateMultiplier = row.isPublicHoliday && row.holidayPlannerApplied ? 2 : baseRateMultiplier;
+  const basePayAmount = payableHours * payrollRate * baseRateMultiplier;
+  const payAmount = payableHours * payrollRate * appliedRateMultiplier;
   return {
-    payableHours,
-    payAmount: Number((payableHours * effectiveRate).toFixed(2)),
+    payableHours: Number(payableHours.toFixed(6)),
+    payAmount: Number(payAmount.toFixed(2)),
+    overtimePayAmount: Number(Math.max(0, payAmount - basePayAmount).toFixed(2)),
+    appliedRateMultiplier,
   };
 }
 
@@ -467,16 +507,133 @@ function getShiftStartSeconds(row: ShiftRow | undefined, day: ShiftDayKey) {
   return parseShiftStartSeconds(row[day]);
 }
 
-function formatHours(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
 function formatWorkedHours(value: number) {
-  return formatHours(Number(value.toFixed(2)));
+  const roundedMinutes = Math.max(0, Math.round((Number.isFinite(value) ? value : 0) * 60));
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
 function formatPayrollMoney(value: number) {
   return formatCurrency(value);
+}
+
+function buildHolidayPlannerLookupKey(employeeCode: string, dateKey: string) {
+  return `${normalizeEmployeeCode(employeeCode)}__${dateKey}`;
+}
+
+function parseHolidayPlannerDateString(value: string) {
+  const clean = normalizeText(value);
+  if (!clean) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+
+  const slashMatch = clean.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (slashMatch) {
+    const day = Number(slashMatch[1]);
+    const month = Number(slashMatch[2]);
+    const year = Number(slashMatch[3].length === 2 ? `20${slashMatch[3]}` : slashMatch[3]);
+    if (year >= 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(clean);
+  return Number.isNaN(parsed.getTime()) ? "" : formatDateKey(parsed);
+}
+
+function findHolidayPlannerHeaderRow(rows: unknown[][]) {
+  const maxRows = Math.min(rows.length, 30);
+  let bestIndex = -1;
+  let bestScore = 0;
+
+  for (let rowIndex = 0; rowIndex < maxRows; rowIndex += 1) {
+    const row = rows[rowIndex];
+    if (!Array.isArray(row) || row.length === 0) continue;
+    const keys = row.map((cell) => normalizeHeaderKey(cell)).filter(Boolean);
+    if (keys.length === 0) continue;
+    const hasEmployeeCode = keys.some((key) => HOLIDAY_EMPLOYEE_CODE_KEYS.includes(key));
+    const hasDate = keys.some((key) => HOLIDAY_DATE_KEYS.includes(key));
+    const score =
+      keys.filter((key) => HOLIDAY_EMPLOYEE_CODE_KEYS.includes(key)).length * 3 +
+      keys.filter((key) => HOLIDAY_DATE_KEYS.includes(key)).length * 3;
+    if (hasEmployeeCode && hasDate && score >= bestScore) {
+      bestIndex = rowIndex;
+      bestScore = score;
+    }
+  }
+
+  return bestIndex;
+}
+
+function chooseHolidayPlannerSheet(xlsx: typeof import("xlsx"), workbook: import("xlsx").WorkBook) {
+  let bestSheet: { rows: unknown[][]; headerIndex: number; sheetName: string; score: number } | null = null;
+
+  workbook.SheetNames.forEach((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return;
+    const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" }) as unknown[][];
+    if (!rows.length) return;
+    const headerIndex = findHolidayPlannerHeaderRow(rows);
+    if (headerIndex < 0) return;
+    const headers = (rows[headerIndex] || []).map((cell) => normalizeHeaderKey(cell));
+    const score =
+      headers.filter((key) => HOLIDAY_EMPLOYEE_CODE_KEYS.includes(key)).length * 3 +
+      headers.filter((key) => HOLIDAY_DATE_KEYS.includes(key)).length * 3 +
+      (sheetName.toLowerCase().includes("holiday") ? 2 : 0);
+    if (!bestSheet || score > bestSheet.score) {
+      bestSheet = { rows, headerIndex, sheetName, score };
+    }
+  });
+
+  return bestSheet;
+}
+
+async function parseHolidayPlannerWorkbook(file: File): Promise<HolidayPlannerEntry[]> {
+  const xlsx = await import("xlsx");
+  const buffer = await file.arrayBuffer();
+  const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
+  const selectedSheet = chooseHolidayPlannerSheet(xlsx, workbook);
+  if (!selectedSheet) return [];
+
+  const { rows, headerIndex } = selectedSheet as { rows: unknown[][]; headerIndex: number; sheetName: string; score: number };
+  const headerRow = (rows[headerIndex] || []) as unknown[];
+  const headers = headerRow.map((cell: unknown, index: number) => normalizeHeaderKey(cell) || `column_${index + 1}`);
+  const employeeCodeKey =
+    headers.find((key: string) => HOLIDAY_EMPLOYEE_CODE_KEYS.includes(key)) || "";
+  const dateKey =
+    headers.find((key: string) => HOLIDAY_DATE_KEYS.includes(key)) || "";
+  if (!employeeCodeKey || !dateKey) return [];
+
+  const entries = new Map<string, HolidayPlannerEntry>();
+
+  for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
+    if (!Array.isArray(row)) continue;
+    const record = headers.reduce<Record<string, unknown>>((acc: Record<string, unknown>, header: string, index: number) => {
+      acc[header] = row[index];
+      return acc;
+    }, {});
+
+    const employeeCode = normalizeEmployeeCode(record[employeeCodeKey]);
+    const rawDate = record[dateKey];
+    let parsedDate = "";
+
+    if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+      parsedDate = formatDateKey(rawDate);
+    } else if (typeof rawDate === "number" && Number.isFinite(rawDate)) {
+      const parsedExcelDate = xlsx.SSF.parse_date_code(rawDate);
+      if (parsedExcelDate) {
+        parsedDate = `${parsedExcelDate.y}-${String(parsedExcelDate.m).padStart(2, "0")}-${String(parsedExcelDate.d).padStart(2, "0")}`;
+      }
+    } else {
+      parsedDate = parseHolidayPlannerDateString(String(rawDate || ""));
+    }
+
+    if (!employeeCode || !parsedDate) continue;
+    entries.set(buildHolidayPlannerLookupKey(employeeCode, parsedDate), { employeeCode, dateKey: parsedDate });
+  }
+
+  return Array.from(entries.values());
 }
 
 function escapeHtml(value: string) {
@@ -715,8 +872,10 @@ export default function ReportsBuilder({
   const [generatedRecords, setGeneratedRecords] = useState<AttendanceRecord[]>([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(() => loadPayrollSettings());
+  const [holidayPlannerData, setHolidayPlannerData] = useState<HolidayPlannerData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const holidayPlannerInputRef = useRef<HTMLInputElement | null>(null);
   const liveLoadedRecordCount = records.length;
 
   useEffect(() => {
@@ -726,6 +885,17 @@ export default function ReportsBuilder({
     window.addEventListener("payroll-settings-updated", refresh as EventListener);
     return () => {
       window.removeEventListener("payroll-settings-updated", refresh as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const stored = await loadStoredHolidayPlannerData();
+      if (alive) setHolidayPlannerData(stored);
+    })();
+    return () => {
+      alive = false;
     };
   }, []);
 
@@ -969,6 +1139,44 @@ export default function ReportsBuilder({
     const years = Array.from(new Set(generatedDateKeys.map((dateKey) => parseDateKey(dateKey).getFullYear())));
     return getCombinedCalendarEvents(years);
   }, [generatedCriteria, generatedDateKeys]);
+  const holidayPlannerLookup = useMemo(
+    () =>
+      new Set(
+        (holidayPlannerData?.entries || []).map((entry) =>
+          buildHolidayPlannerLookupKey(entry.employeeCode, entry.dateKey)
+        )
+      ),
+    [holidayPlannerData]
+  );
+
+  const openHolidayPlannerUpload = () => {
+    holidayPlannerInputRef.current?.click();
+  };
+
+  const handleHolidayPlannerFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const entries = await parseHolidayPlannerWorkbook(file);
+      if (entries.length === 0) {
+        setStatusMessage("No holiday planner rows were found in that workbook.");
+        return;
+      }
+
+      const payload: HolidayPlannerData = {
+        fileName: file.name,
+        uploadedAt: new Date().toISOString(),
+        entries,
+      };
+      await saveStoredHolidayPlannerData(payload);
+      setHolidayPlannerData(payload);
+      setStatusMessage(`Holiday planner loaded. ${entries.length} employee/date public-holiday assignments are now active in payroll reports.`);
+    } catch (error) {
+      setStatusMessage(`Could not import the holiday planner: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  };
 
   const generatedSections = useMemo<StoreSection[]>(() => {
     if (!generatedCriteria) return [];
@@ -1015,6 +1223,7 @@ export default function ReportsBuilder({
         const holidayTitle =
           generatedCalendarEvents.find((event) => event.date === dateKey && event.type === "holiday")?.title || "";
         const isPublicHoliday = !!holidayTitle;
+        const holidayPlannerApplied = isPublicHoliday && holidayPlannerLookup.has(buildHolidayPlannerLookupKey(normalizedEmployeeCode, dateKey));
         const clockings = Array.isArray(attendance?.clockings) ? attendance!.clockings.filter(Boolean) : [];
         const clockCount = clockings.length || Number(attendance?.clock_count || 0);
         const hasClock = clockCount > 0;
@@ -1034,6 +1243,9 @@ export default function ReportsBuilder({
             targetHours: leaveApplication ? 0 : (isPublicHoliday ? 0 : targetHours),
             workedHours,
             payableHours: 0,
+            overtimePayAmount: 0,
+            appliedRateMultiplier: 0,
+            holidayPlannerApplied,
             payAmount: 0,
             isPublicHoliday,
             firstClock,
@@ -1058,6 +1270,9 @@ export default function ReportsBuilder({
            targetHours: leaveApplication ? 0 : (isPublicHoliday ? 0 : targetHours),
            workedHours,
            payableHours: payrollTotals.payableHours,
+           overtimePayAmount: payrollTotals.overtimePayAmount,
+           appliedRateMultiplier: payrollTotals.appliedRateMultiplier,
+           holidayPlannerApplied,
            payAmount: payrollTotals.payAmount,
            isPublicHoliday,
            firstClock,
@@ -1102,7 +1317,7 @@ export default function ReportsBuilder({
         ),
       }))
       .sort((a, b) => a.store.localeCompare(b.store));
-  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, employeeMap, generatedCalendarEvents, generatedCriteria, generatedDateKeys, leaveLookup, rosterSourcesByEmployee, storeDeviceMap]);
+  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, employeeMap, generatedCalendarEvents, generatedCriteria, generatedDateKeys, holidayPlannerLookup, leaveLookup, rosterSourcesByEmployee, storeDeviceMap]);
 
   const generatedTotals = useMemo(() => {
     return generatedSections.reduce(
@@ -1113,6 +1328,7 @@ export default function ReportsBuilder({
             summary.workedHours += row.payableHours;
             summary.payableHours += row.payableHours;
             summary.payAmount += row.payAmount;
+            summary.overtimePayAmount += row.overtimePayAmount;
              if (row.status === "P/H") summary.inOut += 1;
              if (row.status === "Public Holiday") summary.noInOut += 1;
              if (row.status === "In/Out") summary.inOut += 1;
@@ -1124,7 +1340,7 @@ export default function ReportsBuilder({
         });
         return summary;
       },
-      { totalRows: 0, workedHours: 0, payableHours: 0, payAmount: 0, inOut: 0, noInOut: 0, awol: 0, leave: 0, dayOff: 0 }
+      { totalRows: 0, workedHours: 0, payableHours: 0, payAmount: 0, overtimePayAmount: 0, inOut: 0, noInOut: 0, awol: 0, leave: 0, dayOff: 0 }
     );
   }, [generatedSections]);
   const isPayrollReport = generatedCriteria?.templateKey === "payroll_report";
@@ -1475,6 +1691,7 @@ export default function ReportsBuilder({
         const empWorked = Number(employee.rows.reduce((sum, row) => sum + row.payableHours, 0).toFixed(2));
         const empPayable = Number(employee.rows.reduce((sum, row) => sum + row.payableHours, 0).toFixed(2));
         const empPay = Number(employee.rows.reduce((sum, row) => sum + row.payAmount, 0).toFixed(2));
+        const empOvertimePay = Number(employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0).toFixed(2));
 
         const metaLine = [
           employee.role,
@@ -1688,6 +1905,7 @@ export default function ReportsBuilder({
           const signatureSummary = [
             `Worked hours: ${formatWorkedHours(empWorked)}`,
             `Pay amount: ${formatPayrollMoney(empPay)}`,
+            `Overtime pay: ${formatPayrollMoney(empOvertimePay)}`,
           ];
           doc.setFontSize(8);
           doc.setTextColor(15, 23, 42);
@@ -1808,7 +2026,8 @@ export default function ReportsBuilder({
       return;
     }
 
-    const reportTitle = generatedCriteria.templateKey === "payroll_report" ? "Payroll Report" : "Attendance Report";
+    const printIsPayrollReport = previewIsPayrollReport;
+    const reportTitle = printIsPayrollReport ? "Payroll Report" : "Attendance Report";
 
     const sectionsHtml = generatedSections
       .map(
@@ -1835,6 +2054,7 @@ export default function ReportsBuilder({
         const empWorked = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                   const empPayable = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                   const empPay = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
+                  const empOvertimePay = employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0);
                   return `
                   <div class="employee-block">
                     <div class="employee-header">
@@ -1859,14 +2079,18 @@ export default function ReportsBuilder({
                           <div class="summary-label">Worked Hrs</div>
                           <div class="summary-value">${formatWorkedHours(empWorked)}</div>
                         </div>
-                        ${generatedCriteria.templateKey === "payroll_report" ? `
+                        ${printIsPayrollReport ? `
                         <div class="summary-item">
                           <div class="summary-label">Pay Owed</div>
                           <div class="summary-value green">${formatPayrollMoney(empPay)}</div>
+                        </div>
+                        <div class="summary-item">
+                          <div class="summary-label">Overtime Pay</div>
+                          <div class="summary-value amber">${formatPayrollMoney(empOvertimePay)}</div>
                         </div>` : ""}
                       </div>
                     </div>
-                  ${generatedCriteria.templateKey === "payroll_report" ? `<div class="employee-rate">Payroll rate: ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} / hour | Payable hours: ${escapeHtml(formatWorkedHours(empPayable))}</div>` : ""}
+                  ${printIsPayrollReport ? `<div class="employee-rate">Payroll hours: ${escapeHtml(formatWorkedHours(empPayable))} at ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} / hour | Sundays paid at 1.5x | Holiday planner public holidays paid at 2x | Overtime pay: ${escapeHtml(formatPayrollMoney(empOvertimePay))}</div>` : ""}
                     <table>
                       <thead>
                         <tr>
@@ -1877,7 +2101,7 @@ export default function ReportsBuilder({
                           <th style="text-align:center">Worked Hrs</th>
                           <th style="text-align:center">In</th>
                           <th style="text-align:center">Out</th>
-                          ${generatedCriteria.templateKey === "payroll_report" ? '<th style="text-align:center">Pay</th>' : '<th style="text-align:center">#</th>'}
+                          ${printIsPayrollReport ? '<th style="text-align:center">Pay</th>' : '<th style="text-align:center">#</th>'}
                           <th>Clocks</th>
                           <th style="text-align:right">Status</th>
                           <th>Notes</th>
@@ -1895,7 +2119,7 @@ export default function ReportsBuilder({
                     <td style="text-align:center">${escapeHtml(formatWorkedHours(row.payableHours))}</td>
                               <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
                               <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
-                              ${generatedCriteria.templateKey === "payroll_report" ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
+                              ${printIsPayrollReport ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
                               <td>${escapeHtml(row.clockings.length > 0 ? row.clockings.join(" | ") : "-")}</td>
                               <td style="text-align:right"><span class="status ${getStatusCssClass(row.status)}">${escapeHtml(row.status)}</span></td>
                               <td></td>
@@ -1905,12 +2129,15 @@ export default function ReportsBuilder({
                           .join("")}
                       </tbody>
                     </table>
-                    ${generatedCriteria.templateKey === "payroll_report" ? `
+                    ${printIsPayrollReport ? `
                     <div class="signature-block">
                       <div class="signature-title">Employee signature</div>
                       <div class="signature-line"></div>
                       <div class="signature-footer">
                         <span>Employee initials / signature</span>
+                        <span>Worked hours: ${escapeHtml(formatWorkedHours(empWorked))}</span>
+                        <span>Pay amount: ${escapeHtml(formatPayrollMoney(empPay))}</span>
+                        <span>Overtime pay: ${escapeHtml(formatPayrollMoney(empOvertimePay))}</span>
                       </div>
                     </div>` : ""}
                   </div>
@@ -2044,7 +2271,7 @@ export default function ReportsBuilder({
           </style>
         </head>
         <body>
-          <div class="report-container ${generatedCriteria.templateKey === "payroll_report" ? "payroll-report" : ""}">
+          <div class="report-container ${printIsPayrollReport ? "payroll-report" : ""}">
             ${sectionsHtml}
           </div>
         </body>
@@ -2056,7 +2283,7 @@ export default function ReportsBuilder({
       printWindow.print();
     }, 250);
     setStatusMessage(
-      generatedCriteria.templateKey === "payroll_report"
+      printIsPayrollReport
         ? "Opened a print-friendly version of the payroll report."
         : "Opened a print-friendly version of the attendance report."
     );
@@ -2149,6 +2376,32 @@ export default function ReportsBuilder({
                 </div>
               )}
               <div className="mt-4 text-xs text-slate-500">Available: {availableDates.length > 0 ? availableDates.slice(0, 5).join(", ") + "..." : "None"}</div>
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Holiday Planner</div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      Upload employee code and holiday date pairs so only planned public-holiday workers get paid at 2x.
+                    </div>
+                  </div>
+                  <Button type="button" variant="outline" onClick={openHolidayPlannerUpload}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Holiday Planner
+                  </Button>
+                </div>
+                <input
+                  ref={holidayPlannerInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(event) => void handleHolidayPlannerFileChange(event)}
+                />
+                <div className="mt-3 text-xs text-slate-500">
+                  {holidayPlannerData
+                    ? `${holidayPlannerData.fileName} | ${holidayPlannerData.entries.length} employee/date assignments loaded`
+                    : "No holiday planner uploaded yet."}
+                </div>
+              </div>
             </div>
 
             <div className="rounded-xl border border-white/10 bg-white/5 p-5">
@@ -2537,6 +2790,12 @@ export default function ReportsBuilder({
                     </div>
                   )}
                   {previewIsPayrollReport && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <div className="text-xs uppercase tracking-[0.2em] text-amber-600">Overtime Pay</div>
+                      <div className="mt-2 text-2xl font-bold text-amber-700">{formatPayrollMoney(generatedTotals.overtimePayAmount)}</div>
+                    </div>
+                  )}
+                  {previewIsPayrollReport && (
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Rate</div>
                       <div className="mt-2 text-2xl font-bold text-slate-900">{formatPayrollMoney(payrollSettings.hourlyRate)}</div>
@@ -2584,6 +2843,7 @@ export default function ReportsBuilder({
                       const workedHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                             const payableHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
                             const payAmount = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
+                            const overtimePayAmount = employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0);
 
                             return (
                               <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-4 py-5 first:border-t-0 sm:px-6 sm:py-6">
@@ -2600,7 +2860,7 @@ export default function ReportsBuilder({
                                     </div>
                                   </div>
 
-                                  <div className={`grid gap-4 ${previewIsPayrollReport ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+                                  <div className={`grid gap-4 ${previewIsPayrollReport ? "sm:grid-cols-5" : "sm:grid-cols-3"}`}>
                                     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                                       <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">In/Out Days</div>
                                       <div className="mt-2 text-xl font-bold text-gray-700">{inOutCount}</div>
@@ -2619,10 +2879,16 @@ export default function ReportsBuilder({
                                         <div className="mt-2 text-xl font-bold text-emerald-700">{formatPayrollMoney(payAmount)}</div>
                                       </div>
                                     )}
+                                    {previewIsPayrollReport && (
+                                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                        <div className="text-[11px] uppercase tracking-[0.2em] text-amber-600">Overtime Pay</div>
+                                        <div className="mt-2 text-xl font-bold text-amber-700">{formatPayrollMoney(overtimePayAmount)}</div>
+                                      </div>
+                                    )}
                                   </div>
                                   {previewIsPayrollReport && (
                                     <div className="mt-3 text-xs text-slate-400">
-                                      Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Sundays paid at 1.5x
+                                      Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Sundays paid at 1.5x | Holiday planner public holidays paid at 2x | Overtime pay: {formatPayrollMoney(overtimePayAmount)}
                                     </div>
                                   )}
                                 </div>
@@ -2644,6 +2910,9 @@ export default function ReportsBuilder({
                                         <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
                                         {previewIsPayrollReport && (
                                           <div className="rounded-lg bg-emerald-950/30 px-2 py-1.5 text-emerald-200">Pay: {formatPayrollMoney(row.payAmount)}</div>
+                                        )}
+                                        {previewIsPayrollReport && row.overtimePayAmount > 0 && (
+                                          <div className="rounded-lg bg-amber-950/30 px-2 py-1.5 text-amber-200">Overtime: {formatPayrollMoney(row.overtimePayAmount)}</div>
                                         )}
                                       </div>
                                       <div className="mt-2 text-xs text-slate-400">Clocks ({row.clockCount}): {row.clockings.length > 0 ? row.clockings.join(" | ") : "No clocks"}</div>
