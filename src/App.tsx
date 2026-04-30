@@ -1531,6 +1531,7 @@ export default function App({ initialSession = null }: AppProps) {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [expandedProfileTeamKeys, setExpandedProfileTeamKeys] = useState<Set<string>>(new Set());
+  const [profileIncludeInactiveTeams, setProfileIncludeInactiveTeams] = useState(false);
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportDate, setDeviceImportDate] = useState("");
 
@@ -1706,6 +1707,12 @@ export default function App({ initialSession = null }: AppProps) {
     const allowedKeys = new Set(profileEffectiveStoreKeys);
 
     employees.forEach((employee) => {
+      const isActiveProfile =
+        employee.active !== false &&
+        employee.status !== "inactive" &&
+        employee.status !== "terminated";
+      if (!profileIncludeInactiveTeams && !isActiveProfile) return;
+
       const scope = getEmployeeScopeInfo(employee);
       if (!scope.key || !allowedKeys.has(scope.key)) return;
       const current = grouped.get(scope.key) || [];
@@ -1725,7 +1732,7 @@ export default function App({ initialSession = null }: AppProps) {
     });
 
     return grouped;
-  }, [employees, profileEffectiveStoreKeys]);
+  }, [employees, profileEffectiveStoreKeys, profileIncludeInactiveTeams]);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
   const employeeTableRef = useRef<HTMLDivElement>(null);
@@ -2242,6 +2249,7 @@ export default function App({ initialSession = null }: AppProps) {
         setProfileStoreUniverse(assignableStores);
         setProfileTeamUniverse(teamStores);
         setExpandedProfileTeamKeys(new Set());
+        setProfileIncludeInactiveTeams(false);
         setProfileAssignableUsers(users.filter((user) => user.active));
       }
     })();
@@ -2269,6 +2277,7 @@ export default function App({ initialSession = null }: AppProps) {
         setProfileStoreUniverse(assignableStores);
         setProfileTeamUniverse(teamStores);
         setExpandedProfileTeamKeys(new Set());
+        setProfileIncludeInactiveTeams(false);
         setProfileAssignableUsers(users.filter((user) => user.active));
       })();
       return () => {
@@ -2281,6 +2290,7 @@ export default function App({ initialSession = null }: AppProps) {
     setProfileStoreUniverse([]);
     setProfileTeamUniverse([]);
     setExpandedProfileTeamKeys(new Set());
+    setProfileIncludeInactiveTeams(false);
     setProfileAssignableUsers([]);
   }, [editingProfile, session?.coversheetCode, session?.name, session?.role, session?.surname, session?.username]);
 
@@ -6039,26 +6049,48 @@ export default function App({ initialSession = null }: AppProps) {
 
               {isRepAssignmentMode && (
                 <div className="mt-5 rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-                  <div className="mb-3">
-                    <h4 className="text-lg font-semibold text-white">Actual Teams</h4>
-                    <p className="text-sm text-slate-400">
-                      These are the matched employee teams behind the selected coversheet stores. Overview, reports, and roster-linked attendance use this resolved team scope.
-                    </p>
+                <div className="mb-3">
+                  <h4 className="text-lg font-semibold text-white">Actual Teams</h4>
+                  <p className="text-sm text-slate-400">
+                    These are the matched employee teams behind the selected coversheet stores. Overview, reports, and roster-linked attendance use this resolved team scope.
+                  </p>
+                </div>
+
+                  <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setProfileIncludeInactiveTeams((current) => !current)}
+                      className={`rounded-full border px-3 py-1 text-sm transition ${
+                        profileIncludeInactiveTeams
+                          ? "border-amber-400/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                          : "border-emerald-400/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20"
+                      }`}
+                    >
+                      {profileIncludeInactiveTeams ? "Including inactive profiles" : "Active profiles only"}
+                    </button>
+                    <div className="text-xs text-slate-400">
+                      {profileIncludeInactiveTeams
+                        ? "Resolved team counts include active, inactive, and terminated employee profiles."
+                        : "Resolved team counts only include active employee profiles by default."}
+                    </div>
                   </div>
 
                   <div className="mb-4 flex flex-wrap gap-2">
                     {profileResolvedStoresDetailed.length > 0 ? (
-                      profileResolvedStoresDetailed.map((store) => (
-                        <button
-                          type="button"
-                          key={store.storeKey}
-                          onClick={() => toggleProfileResolvedTeam(store.storeKey)}
-                          className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-sm text-violet-100 transition hover:bg-violet-500/20"
-                        >
-                          {store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}
-                          <span className="ml-2 text-violet-300">({store.employeeCount})</span>
-                        </button>
-                      ))
+                      profileResolvedStoresDetailed.map((store) => {
+                        const teamEmployees = profileResolvedTeamEmployees.get(store.storeKey) || [];
+                        return (
+                          <button
+                            type="button"
+                            key={store.storeKey}
+                            onClick={() => toggleProfileResolvedTeam(store.storeKey)}
+                            className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-sm text-violet-100 transition hover:bg-violet-500/20"
+                          >
+                            {store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}
+                            <span className="ml-2 text-violet-300">({teamEmployees.length})</span>
+                          </button>
+                        );
+                      })
                     ) : (
                       <span className="text-sm text-slate-500">No matched teams resolved yet.</span>
                     )}
