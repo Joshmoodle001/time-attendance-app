@@ -1530,6 +1530,7 @@ export default function App({ initialSession = null }: AppProps) {
   const [profileStoreSearch, setProfileStoreSearch] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
+  const [expandedProfileTeamKeys, setExpandedProfileTeamKeys] = useState<Set<string>>(new Set());
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportDate, setDeviceImportDate] = useState("");
 
@@ -1700,6 +1701,31 @@ export default function App({ initialSession = null }: AppProps) {
   const [employeeFilterRegion, setEmployeeFilterRegion] = useState("all");
   const [employeeFilterStatus, setEmployeeFilterStatus] = useState("all");
   const [employeeLocations, setEmployeeLocations] = useState<{ regions: string[]; stores: { store: string; region: string }[] }>({ regions: [], stores: [] });
+  const profileResolvedTeamEmployees = useMemo(() => {
+    const grouped = new Map<string, Employee[]>();
+    const allowedKeys = new Set(profileEffectiveStoreKeys);
+
+    employees.forEach((employee) => {
+      const scope = getEmployeeScopeInfo(employee);
+      if (!scope.key || !allowedKeys.has(scope.key)) return;
+      const current = grouped.get(scope.key) || [];
+      current.push(employee);
+      grouped.set(scope.key, current);
+    });
+
+    grouped.forEach((list, key) => {
+      grouped.set(
+        key,
+        [...list].sort(
+          (a, b) =>
+            `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`) ||
+            String(a.employee_code || "").localeCompare(String(b.employee_code || ""))
+        )
+      );
+    });
+
+    return grouped;
+  }, [employees, profileEffectiveStoreKeys]);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
   const employeeTableRef = useRef<HTMLDivElement>(null);
@@ -2215,6 +2241,7 @@ export default function App({ initialSession = null }: AppProps) {
         setProfileEffectiveStoreKeys(effectiveStores);
         setProfileStoreUniverse(assignableStores);
         setProfileTeamUniverse(teamStores);
+        setExpandedProfileTeamKeys(new Set());
         setProfileAssignableUsers(users.filter((user) => user.active));
       }
     })();
@@ -2241,6 +2268,7 @@ export default function App({ initialSession = null }: AppProps) {
         setProfileEffectiveStoreKeys(effectiveStores);
         setProfileStoreUniverse(assignableStores);
         setProfileTeamUniverse(teamStores);
+        setExpandedProfileTeamKeys(new Set());
         setProfileAssignableUsers(users.filter((user) => user.active));
       })();
       return () => {
@@ -2252,6 +2280,7 @@ export default function App({ initialSession = null }: AppProps) {
     setProfileEffectiveStoreKeys([]);
     setProfileStoreUniverse([]);
     setProfileTeamUniverse([]);
+    setExpandedProfileTeamKeys(new Set());
     setProfileAssignableUsers([]);
   }, [editingProfile, session?.coversheetCode, session?.name, session?.role, session?.surname, session?.username]);
 
@@ -6020,13 +6049,15 @@ export default function App({ initialSession = null }: AppProps) {
                   <div className="mb-4 flex flex-wrap gap-2">
                     {profileResolvedStoresDetailed.length > 0 ? (
                       profileResolvedStoresDetailed.map((store) => (
-                        <div
+                        <button
+                          type="button"
                           key={store.storeKey}
-                          className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-sm text-violet-100"
+                          onClick={() => toggleProfileResolvedTeam(store.storeKey)}
+                          className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-sm text-violet-100 transition hover:bg-violet-500/20"
                         >
                           {store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}
                           <span className="ml-2 text-violet-300">({store.employeeCount})</span>
-                        </div>
+                        </button>
                       ))
                     ) : (
                       <span className="text-sm text-slate-500">No matched teams resolved yet.</span>
@@ -6035,12 +6066,45 @@ export default function App({ initialSession = null }: AppProps) {
 
                   {profileResolvedStoresDetailed.length > 0 && (
                     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                      {profileResolvedStoresDetailed.map((store) => (
-                        <div key={store.storeKey} className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 text-left text-white">
-                          <div className="font-semibold">{store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}</div>
-                          <div className="mt-1 text-xs text-slate-400">{store.region || "No region"} | {store.employeeCount} matched employees</div>
-                        </div>
-                      ))}
+                      {profileResolvedStoresDetailed.map((store) => {
+                        const isExpanded = expandedProfileTeamKeys.has(store.storeKey);
+                        const teamEmployees = profileResolvedTeamEmployees.get(store.storeKey) || [];
+
+                        return (
+                          <div key={store.storeKey} className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 text-left text-white">
+                            <button
+                              type="button"
+                              onClick={() => toggleProfileResolvedTeam(store.storeKey)}
+                              className="flex w-full items-start justify-between gap-3 text-left"
+                            >
+                              <div>
+                                <div className="font-semibold">{store.storeCode ? `${store.storeCode} - ` : ""}{store.storeName}</div>
+                                <div className="mt-1 text-xs text-slate-400">{store.region || "No region"} | {teamEmployees.length} matched employees</div>
+                              </div>
+                              <div className="text-xs text-violet-300">{isExpanded ? "Hide" : "Show"}</div>
+                            </button>
+
+                            {isExpanded && (
+                              <div className="mt-3 space-y-2 border-t border-slate-700 pt-3">
+                                {teamEmployees.length > 0 ? (
+                                  teamEmployees.map((employee) => (
+                                    <div key={`${store.storeKey}-${employee.employee_code}`} className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2">
+                                      <div className="text-sm font-medium text-white">
+                                        {employee.employee_code} - {employee.first_name} {employee.last_name}
+                                      </div>
+                                      <div className="mt-1 text-xs text-slate-400">
+                                        {employee.team || "No team"}{employee.department ? ` | ${employee.department}` : ""}{employee.region ? ` | ${employee.region}` : ""}
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="text-sm text-slate-500">No employee profiles matched this team.</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -6131,6 +6195,7 @@ export default function App({ initialSession = null }: AppProps) {
       }
       const effectiveStores = await getResolvedStoreAssignments(session.username, session.role);
       setProfileEffectiveStoreKeys(effectiveStores);
+      setExpandedProfileTeamKeys(new Set());
       setProfileMessage("Profile assignments updated successfully.");
       setTimeout(() => setProfileMessage(""), 3500);
     } catch (error) {
@@ -6138,6 +6203,15 @@ export default function App({ initialSession = null }: AppProps) {
     } finally {
       setProfileSaving(false);
     }
+  };
+
+  const toggleProfileResolvedTeam = (teamKey: string) => {
+    setExpandedProfileTeamKeys((current) => {
+      const next = new Set(current);
+      if (next.has(teamKey)) next.delete(teamKey);
+      else next.add(teamKey);
+      return next;
+    });
   };
 
   const handleLogout = () => {

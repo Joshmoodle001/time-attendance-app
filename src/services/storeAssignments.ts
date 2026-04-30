@@ -170,18 +170,20 @@ async function buildCoversheetResolutionEntries(employees: Employee[]) {
 
 async function resolveAssignedKeysToTeamKeys(assignedKeys: string[]) {
   const employees = await getEmployees();
-  const teamUniverse = buildTeamUniverse(employees);
-  const directMatcher = buildTeamAssignmentMatcher(assignedKeys);
   const resolvedTeamKeys = new Set<string>();
-
-  teamUniverse.forEach((team) => {
-    if (directMatcher(team.storeKey) || directMatcher(`${team.storeCode ? `${team.storeCode} - ` : ""}${team.storeName}`)) {
-      resolvedTeamKeys.add(team.storeKey);
-    }
-  });
 
   const coversheetEntries = await buildCoversheetResolutionEntries(employees);
   assignedKeys.forEach((assignedKey) => {
+    if (!isCoversheetAssignmentKey(assignedKey)) {
+      const directMatcher = buildTeamAssignmentMatcher([assignedKey]);
+      buildTeamUniverse(employees).forEach((team) => {
+        if (directMatcher(team.storeKey) || directMatcher(`${team.storeCode ? `${team.storeCode} - ` : ""}${team.storeName}`)) {
+          resolvedTeamKeys.add(team.storeKey);
+        }
+      });
+      return;
+    }
+
     const matchedEntry = coversheetEntries.find(
       (entry) =>
         entry.legacyKeys.has(assignedKey) ||
