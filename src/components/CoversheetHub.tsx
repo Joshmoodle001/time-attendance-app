@@ -344,6 +344,45 @@ function findHeaderRow(rows: unknown[][]) {
   return bestIndex;
 }
 
+type WorkbookSheetSelection = {
+  sheetName: string;
+  headerIndex: number;
+  rows: unknown[][];
+  score: number;
+};
+
+function chooseWorkbookSheet(xlsx: typeof import("xlsx"), workbook: import("xlsx").WorkBook): WorkbookSheetSelection | null {
+  let bestMatch: WorkbookSheetSelection | null = null;
+
+  workbook.SheetNames.forEach((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return;
+
+    const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][];
+    if (!rows.length) return;
+
+    const headerIndex = findHeaderRow(rows);
+    if (headerIndex < 0) return;
+
+    const headerRow = rows[headerIndex] || [];
+    const headers = headerRow.map((cell, index) => normalizeKey(normalizeValue(cell)) || `column_${index + 1}`);
+    const score =
+      headers.filter((key) => STORE_CODE_KEYS.includes(key)).length * 3 +
+      headers.filter((key) => STORE_NAME_KEYS.includes(key)).length * 2 +
+      headers.filter((key) => EMPLOYEE_CODE_KEYS.includes(key)).length * 3 +
+      headers.filter((key) => EMPLOYEE_NAME_KEYS.includes(key)).length * 2 +
+      headers.filter((key) => FIRST_NAME_KEYS.includes(key) || LAST_NAME_KEYS.includes(key)).length +
+      headers.filter((key) => REP_LABEL_KEYS.includes(key) || STATUS_KEYS.includes(key)).length +
+      (sheetName.toLowerCase().includes("raw") ? 4 : 0);
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { sheetName, headerIndex, rows, score };
+    }
+  });
+
+  return bestMatch;
+}
+
 function getEntry(entries: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = entries[key];
@@ -370,6 +409,32 @@ function collectStatuses(entries: Record<string, unknown>, keySet: CoversheetSta
   return Array.from(new Set(statuses));
 }
 
+function splitStoreLabel(rawStoreCode: string, rawStoreName: string) {
+  const explicitCode = rawStoreCode.trim();
+  const explicitName = rawStoreName.trim();
+
+  if (explicitCode && explicitName) {
+    return {
+      storeCode: explicitCode,
+      storeName: explicitName,
+    };
+  }
+
+  const combined = explicitName || explicitCode;
+  const match = combined.match(/^([A-Za-z0-9]+)\s*-\s*(.+)$/);
+  if (match) {
+    return {
+      storeCode: match[1].trim(),
+      storeName: match[2].trim(),
+    };
+  }
+
+  return {
+    storeCode: explicitCode,
+    storeName: explicitName || explicitCode,
+  };
+}
+
 async function loadStoredCoversheetData(): Promise<CoversheetData | null> {
   const payload = await loadStoredCoversheetPayload();
   if (!payload || !payload.fileName || !payload.uploadedAt || !Array.isArray(payload.stores)) {
@@ -392,14 +457,10 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
   const xlsx = await import("xlsx");
   const buffer = await file.arrayBuffer();
   const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
-  const firstSheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[firstSheetName];
-  if (!sheet) return [];
+  const selectedSheet = chooseWorkbookSheet(xlsx, workbook);
+  if (!selectedSheet) return [];
 
-  const rows = xlsx.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "" });
-  if (!rows.length) return [];
-
-  const headerIndex = findHeaderRow(rows);
+  const { rows, headerIndex } = selectedSheet;
   const fallbackHeaders = rows[0] || [];
   const headerRow = headerIndex >= 0 ? rows[headerIndex] : fallbackHeaders;
   const startIndex = headerIndex >= 0 ? headerIndex + 1 : 1;
@@ -434,8 +495,8 @@ async function parseWorkbook(file: File): Promise<CoversheetStoreGroup[]> {
     if (!storeCode && !storeName) continue;
     if (!employeeCode && !employeeName) continue;
 
-    const cleanStoreCode = storeCode.trim();
-    const cleanStoreName = storeName.trim() || "Unknown Store";
+    const { storeCode: cleanStoreCode, storeName: parsedStoreName } = splitStoreLabel(storeCode, storeName);
+    const cleanStoreName = parsedStoreName || "Unknown Store";
     const storeId = `${cleanStoreCode || "no-code"}__${cleanStoreName.toLowerCase()}`;
 
     if (!storeMap.has(storeId)) {
