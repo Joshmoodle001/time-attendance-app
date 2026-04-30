@@ -27,6 +27,7 @@ import {
   type Employee,
   type EmployeeInput,
 } from "@/services/database";
+import { applyDeviceRegionsToEmployees, loadStoredDeviceRegionTruth } from "@/services/deviceRegionTruth";
 import {
   getEmployeeUpdateUploadLogs,
   type EmployeeUpdateReportItem,
@@ -227,11 +228,12 @@ export default function EmployeesHub({
 
     try {
       await initializeEmployeeDatabase();
-      const data = await getEmployees();
-      setEmployees(data);
-      setEmployeeLocations(deriveEmployeeLocationsFromProfiles(data));
+      const [data, deviceRegionTruth] = await Promise.all([getEmployees(), loadStoredDeviceRegionTruth()]);
+      const resolvedEmployees = applyDeviceRegionsToEmployees(data, deviceRegionTruth);
+      setEmployees(resolvedEmployees);
+      setEmployeeLocations(deriveEmployeeLocationsFromProfiles(resolvedEmployees));
       employeeRequestRef.current = { fetchedAt: Date.now(), inFlight: false };
-      return data;
+      return resolvedEmployees;
     } finally {
       employeeRequestRef.current.inFlight = false;
     }

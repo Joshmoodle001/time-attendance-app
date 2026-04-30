@@ -14,6 +14,14 @@ import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
 import { DEFAULT_SUPER_ADMIN_USERNAME, getAuthSession, getUsers, updateUserProfile, logout, refreshSession, refreshSessionRemote, type AuthSession, type AuthUser } from "@/services/auth";
 import { getAllStores, getAssignableStoresForRole, getResolvedStoreAssignments, getStoreAssignments, saveStoreAssignments, type StoreInfo } from "@/services/storeAssignments";
+import {
+  applyDeviceRegionsToDeviceRecords,
+  applyDeviceRegionsToEmployees,
+  buildDeviceRegionTruthEntriesFromRows,
+  loadStoredDeviceRegionTruth,
+  saveStoredDeviceRegionTruth,
+  type DeviceRegionTruthData,
+} from "@/services/deviceRegionTruth";
 import { buildTeamAssignmentMatcher, getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
@@ -241,6 +249,7 @@ type DeviceRecord = {
   description: string;
   storeCode: string;
   storeName: string;
+  region?: string;
   deviceType: string;
   readerType: string;
   status: "online" | "offline" | "warning";
@@ -421,6 +430,7 @@ function normalizeDeviceRecordInput(record: Partial<DeviceRecord> | null | undef
     description: String(record.description || "").trim(),
     storeCode,
     storeName: String(record.storeName || "").trim(),
+    region: String(record.region || "").trim(),
     deviceType: String(record.deviceType || "").trim(),
     readerType: String(record.readerType || "").trim(),
     status,
@@ -1474,8 +1484,10 @@ function normalizeDashboardSession(session: AuthSession | null | undefined): Aut
 export default function App({ initialSession = null }: AppProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const deviceUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const deviceRegionUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [deviceRecords, setDeviceRecords] = useState<DeviceRecord[]>([]);
+  const [deviceRegionTruth, setDeviceRegionTruth] = useState<DeviceRegionTruthData | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [selectedStore, setSelectedStore] = useState("all");
@@ -1534,10 +1546,14 @@ export default function App({ initialSession = null }: AppProps) {
   const [profileIncludeInactiveTeams, setProfileIncludeInactiveTeams] = useState(false);
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportDate, setDeviceImportDate] = useState("");
+  const effectiveDeviceRecords = useMemo(
+    () => applyDeviceRegionsToDeviceRecords(deviceRecords, deviceRegionTruth),
+    [deviceRecords, deviceRegionTruth]
+  );
 
   const storeDeviceMap = useMemo<Map<string, StoreDeviceStatus>>(() => {
     const map = new Map<string, StoreDeviceStatus>();
-    for (const d of deviceRecords) {
+    for (const d of effectiveDeviceRecords) {
       const code = d.storeCode.toLowerCase().trim();
       if (!code) continue;
       const isPhysical = isPhysicalDeviceType(d.deviceType);
@@ -1550,11 +1566,11 @@ export default function App({ initialSession = null }: AppProps) {
       });
     }
     return map;
-  }, [deviceRecords]);
+  }, [effectiveDeviceRecords]);
 
   const storeDeviceNameMap = useMemo<Map<string, StoreDeviceStatus>>(() => {
     const map = new Map<string, StoreDeviceStatus>();
-    for (const d of deviceRecords) {
+    for (const d of effectiveDeviceRecords) {
       const nameKey = String(d.storeName || "").toLowerCase().trim();
       if (!nameKey) continue;
       const isPhysical = isPhysicalDeviceType(d.deviceType);
@@ -1567,7 +1583,7 @@ export default function App({ initialSession = null }: AppProps) {
       });
     }
     return map;
-  }, [deviceRecords]);
+  }, [effectiveDeviceRecords]);
 
   const hasPhysicalDeviceForStore = useCallback((storeCode: unknown, storeName?: unknown): boolean => {
     if (storeDeviceMap.size === 0 && storeDeviceNameMap.size === 0) return true;
@@ -1697,6 +1713,10 @@ export default function App({ initialSession = null }: AppProps) {
 
   // Employee state
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const effectiveEmployees = useMemo(
+    () => applyDeviceRegionsToEmployees(employees, deviceRegionTruth),
+    [employees, deviceRegionTruth]
+  );
   const [employeeSearch, setEmployeeSearch] = useState("");
   const deferredEmployeeSearch = useDeferredValue(employeeSearch);
   const [employeeFilterRegion, setEmployeeFilterRegion] = useState("all");
@@ -1706,7 +1726,7 @@ export default function App({ initialSession = null }: AppProps) {
     const grouped = new Map<string, Employee[]>();
     const allowedKeys = new Set(profileEffectiveStoreKeys);
 
-    employees.forEach((employee) => {
+    effectiveEmployees.forEach((employee) => {
       const isActiveProfile =
         employee.active !== false &&
         employee.status !== "inactive" &&
@@ -1732,7 +1752,7 @@ export default function App({ initialSession = null }: AppProps) {
     });
 
     return grouped;
-  }, [employees, profileEffectiveStoreKeys, profileIncludeInactiveTeams]);
+  }, [effectiveEmployees, profileEffectiveStoreKeys, profileIncludeInactiveTeams]);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
   const employeeTableRef = useRef<HTMLDivElement>(null);
@@ -1850,21 +1870,25 @@ export default function App({ initialSession = null }: AppProps) {
 
     try {
       await initializeEmployeeDatabase();
-      const data = await getEmployees();
-      setEmployees(data);
-      setEmployeeLocations(deriveEmployeeLocationsFromProfiles(data));
+      const [data, latestDeviceRegionTruth] = await Promise.all([getEmployees(), loadStoredDeviceRegionTruth()]);
+      if (latestDeviceRegionTruth) {
+        setDeviceRegionTruth(latestDeviceRegionTruth);
+      }
+      const resolvedEmployees = applyDeviceRegionsToEmployees(data, latestDeviceRegionTruth || deviceRegionTruth);
+      setEmployees(resolvedEmployees);
+      setEmployeeLocations(deriveEmployeeLocationsFromProfiles(resolvedEmployees));
       employeeRequestRef.current = {
         fetchedAt: Date.now(),
         inFlight: false,
       };
-      return data;
+      return resolvedEmployees;
     } finally {
       employeeRequestRef.current = {
         ...employeeRequestRef.current,
         inFlight: false,
       };
     }
-  }, [employees]);
+  }, [deviceRegionTruth, employees]);
 
   const loadEmployeeUpdateLogs = async () => {
     const logs = await getEmployeeUpdateUploadLogs();
@@ -2008,7 +2032,7 @@ export default function App({ initialSession = null }: AppProps) {
       const [employeeProfiles, shiftRosters, shiftRosterHistory, leaveUploads, dayAttendance, rangeAttendance, leaveApplicationsForDate, leaveApplicationsForRange, latestSyncLogs, dayClockEvents, rangeClockEvents, shiftSyncSettings, latestConfig] =
         await Promise.all([
           shouldFetchEmployees
-            ? (employees.length > 0 ? Promise.resolve(employees) : getEmployees())
+            ? (effectiveEmployees.length > 0 ? Promise.resolve(effectiveEmployees) : loadEmployees({ force: true }))
             : Promise.resolve(cache!.employees),
           shouldFetchShifts ? getShiftRosters() : Promise.resolve(cache!.shiftRosters),
           shouldFetchShifts ? getShiftRosterHistory() : Promise.resolve(cache!.shiftRosterHistory),
@@ -2038,7 +2062,7 @@ export default function App({ initialSession = null }: AppProps) {
         ? employeeProfiles.filter((employee) => roleStoreMatcher(employee))
         : employeeProfiles;
 
-      const scopedEmployeeProfiles = deviceRecords.length > 0
+      const scopedEmployeeProfiles = effectiveDeviceRecords.length > 0
         ? roleScopedEmployeeProfiles.filter((employee) => hasPhysicalDeviceForStore(employee.store_code, employee.store))
         : roleScopedEmployeeProfiles;
 
@@ -2046,11 +2070,11 @@ export default function App({ initialSession = null }: AppProps) {
         scopedEmployeeProfiles.map((employee) => normalizeEmployeeCode(employee.employee_code)).filter(Boolean)
       );
 
-      const filteredRangeAttendance = deviceRecords.length > 0
+      const filteredRangeAttendance = effectiveDeviceRecords.length > 0
         ? rangeAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
         : rangeAttendance;
 
-      const filteredDayAttendance = deviceRecords.length > 0
+      const filteredDayAttendance = effectiveDeviceRecords.length > 0
         ? dayAttendance.filter((rec) => hasPhysicalDeviceForStore(rec.store_code, rec.store))
         : dayAttendance;
 
@@ -2061,7 +2085,7 @@ export default function App({ initialSession = null }: AppProps) {
         ? filteredDayAttendance.filter((record) => filteredEmployeeCodes.has(normalizeEmployeeCode(record.employee_code)))
         : filteredDayAttendance;
 
-      const shouldFilterClockEvents = deviceRecords.length > 0 || isFieldRole;
+      const shouldFilterClockEvents = effectiveDeviceRecords.length > 0 || isFieldRole;
       const filteredDayClockEvents = shouldFilterClockEvents
         ? dayClockEvents.filter((ev) => {
             const code = normalizeEmployeeCode(ev.employee_code);
@@ -2197,7 +2221,7 @@ export default function App({ initialSession = null }: AppProps) {
       };
       setIsLoadingOverview(false);
     }
-  }, [deviceRecords.length, employees, hasPhysicalDeviceForStore, isFieldRole, overviewEndDate, overviewStartDate, profileEffectiveStoreKeys, selectedOverviewDate]);
+  }, [effectiveDeviceRecords.length, effectiveEmployees, hasPhysicalDeviceForStore, isFieldRole, loadEmployees, overviewEndDate, overviewStartDate, profileEffectiveStoreKeys, selectedOverviewDate]);
 
   const loadAttendanceForDate = async (date: string, options?: { silent?: boolean }) => {
     if (!date) return [];
@@ -2322,6 +2346,11 @@ export default function App({ initialSession = null }: AppProps) {
     let alive = true;
 
     const hydrateSavedData = async () => {
+      const storedDeviceRegionTruth = await loadStoredDeviceRegionTruth();
+      if (alive && storedDeviceRegionTruth) {
+        setDeviceRegionTruth(storedDeviceRegionTruth);
+      }
+
       const indexedDbDeviceCache = await readDeviceCacheFromIndexedDb();
       if (!alive) return;
 
@@ -3750,18 +3779,18 @@ export default function App({ initialSession = null }: AppProps) {
     if (!isFieldRole) return filteredRecords;
     const matcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
     const allowedEmployeeCodes = new Set(
-      employees
+      effectiveEmployees
         .filter((employee) => matcher(employee))
         .map((employee) => normalizeEmployeeCode(employee.employee_code))
         .filter(Boolean)
     );
     return filteredRecords.filter((record) => allowedEmployeeCodes.has(normalizeEmployeeCode(record.employeeCode)));
-  }, [employees, filteredRecords, isFieldRole, profileEffectiveStoreKeys]);
+  }, [effectiveEmployees, filteredRecords, isFieldRole, profileEffectiveStoreKeys]);
   const scopedReportEmployees = useMemo(() => {
-    if (!isFieldRole) return employees;
+    if (!isFieldRole) return effectiveEmployees;
     const matcher = buildStoreAssignmentMatcher(profileEffectiveStoreKeys);
-    return employees.filter((employee) => matcher(employee));
-  }, [employees, isFieldRole, profileEffectiveStoreKeys]);
+    return effectiveEmployees.filter((employee) => matcher(employee));
+  }, [effectiveEmployees, isFieldRole, profileEffectiveStoreKeys]);
 
   const reportDateRangeLabel = useMemo(() => {
     if (availableDates.length > 1) {
@@ -4133,6 +4162,42 @@ export default function App({ initialSession = null }: AppProps) {
       .filter(Boolean) as DeviceRecord[];
   };
 
+  const parseDeviceRegionWorkbook = (workbook: WorkBook, xlsx: XlsxRuntime) => {
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) return [];
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+    const readValue = (entries: Record<string, unknown>, keys: string[]) => {
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(entries, key)) {
+          const value = entries[key];
+          if (value !== undefined && value !== null && String(value).trim() !== "") {
+            return value;
+          }
+        }
+      }
+      return "";
+    };
+
+    return buildDeviceRegionTruthEntriesFromRows(
+      rows.map((row) => {
+        const entries = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
+          const lower = String(key).trim().toLowerCase();
+          const compact = lower.replace(/[^a-z0-9]+/g, "");
+          acc[lower] = value;
+          acc[compact] = value;
+          return acc;
+        }, {});
+
+        return {
+          deviceLabel: readValue(entries, ["devices", "device", "store", "team", "storeteam"]),
+          region: readValue(entries, ["region", "regions"]),
+        };
+      })
+    );
+  };
+
   const handleDeviceUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -4184,6 +4249,53 @@ export default function App({ initialSession = null }: AppProps) {
       setSaveMessage(`Device upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       event.target.value = "";
+    }
+  };
+
+  const handleDeviceRegionUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const xlsx = await loadXlsxRuntime();
+      const workbook = xlsx.read(buffer, { type: "array" });
+      const entries = parseDeviceRegionWorkbook(workbook, xlsx);
+
+      if (!entries.length) {
+        setSaveMessage(`No device-region rows were found in ${file.name}`);
+        return;
+      }
+
+      const payload: DeviceRegionTruthData = {
+        fileName: file.name,
+        uploadedAt: new Date().toISOString(),
+        entries,
+      };
+
+      await saveStoredDeviceRegionTruth(payload);
+      setDeviceRegionTruth(payload);
+      await loadEmployees({ force: true });
+
+      if (session && (session.role === "rep" || session.role === "regional" || session.role === "divisional")) {
+        const [assignedStores, effectiveStores, assignableStores, teamStores, users] = await Promise.all([
+          getStoreAssignments(session.username),
+          getResolvedStoreAssignments(session.username, session.role),
+          getAssignableStoresForRole(session.role),
+          getAllStores(),
+          getUsers(),
+        ]);
+        setProfileAssignedStoreKeys(assignedStores);
+        setProfileEffectiveStoreKeys(effectiveStores);
+        setProfileStoreUniverse(assignableStores);
+        setProfileTeamUniverse(teamStores);
+        setProfileAssignableUsers(users.filter((user) => user.active));
+      }
+
+      setSaveMessage(`Imported ${entries.length} device-region truth rows from ${file.name}`);
+    } catch (error) {
+      setSaveMessage(`Device-region upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   };
 
@@ -5139,11 +5251,11 @@ export default function App({ initialSession = null }: AppProps) {
 
   // ==================== RENDER DEVICES ====================
   const renderDevices = () => {
-    const onlineCount = deviceRecords.filter(d => d.status === "online").length;
-    const offlineCount = deviceRecords.filter(d => d.status === "offline").length;
-    const warningCount = deviceRecords.filter(d => d.status === "warning").length;
-    const physicalCount = deviceRecords.filter(d => isPhysicalDeviceType(d.deviceType)).length;
-    const logicalCount = deviceRecords.filter(d => normalizeDeviceType(d.deviceType) === "logical").length;
+    const onlineCount = effectiveDeviceRecords.filter(d => d.status === "online").length;
+    const offlineCount = effectiveDeviceRecords.filter(d => d.status === "offline").length;
+    const warningCount = effectiveDeviceRecords.filter(d => d.status === "warning").length;
+    const physicalCount = effectiveDeviceRecords.filter(d => isPhysicalDeviceType(d.deviceType)).length;
+    const logicalCount = effectiveDeviceRecords.filter(d => normalizeDeviceType(d.deviceType) === "logical").length;
 
     return (
       <div className="space-y-6">
@@ -5163,6 +5275,13 @@ export default function App({ initialSession = null }: AppProps) {
               >
                 <Monitor className="w-4 h-4 mr-2" /> Upload Device Data
               </Button>
+              <Button
+                variant="outline"
+                className="border-slate-600 bg-slate-900 text-slate-50 hover:border-emerald-400 hover:bg-slate-800 hover:text-white"
+                onClick={() => deviceRegionUploadInputRef.current?.click()}
+              >
+                <Upload className="w-4 h-4 mr-2" /> Upload Device Regions
+              </Button>
             </div>
             <input
               ref={deviceUploadInputRef}
@@ -5171,7 +5290,14 @@ export default function App({ initialSession = null }: AppProps) {
               className="hidden"
               onChange={handleDeviceUpload}
             />
-            {deviceRecords.length === 0 ? (
+            <input
+              ref={deviceRegionUploadInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleDeviceRegionUpload}
+            />
+            {effectiveDeviceRecords.length === 0 ? (
               <div className="text-center py-8 text-slate-300">
                 <Monitor className="h-12 w-12 mx-auto mb-3 opacity-40" />
                 <p className="text-sm">No device data imported yet</p>
@@ -5181,7 +5307,7 @@ export default function App({ initialSession = null }: AppProps) {
               <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-5">
                   <div className="p-4 bg-slate-100 rounded-xl text-center">
-                    <div className="text-2xl font-bold text-slate-900">{deviceRecords.length}</div>
+                    <div className="text-2xl font-bold text-slate-900">{effectiveDeviceRecords.length}</div>
                     <div className="text-sm text-slate-700">Total Stores</div>
                   </div>
                   <div className="p-4 bg-green-50 rounded-xl text-center">
@@ -5206,6 +5332,7 @@ export default function App({ initialSession = null }: AppProps) {
                     <thead className="bg-slate-100">
                       <tr>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Store</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Region</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Store Code</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Serial</th>
                         <th className="px-4 py-3 text-center text-sm font-semibold text-slate-900">Type</th>
@@ -5215,12 +5342,13 @@ export default function App({ initialSession = null }: AppProps) {
                       </tr>
                     </thead>
                     <tbody className="bg-white">
-                      {deviceRecords.map((device) => (
+                      {effectiveDeviceRecords.map((device) => (
                         <tr key={device.id} className="border-t border-slate-200 bg-white text-slate-900 transition-colors even:bg-slate-50 hover:bg-cyan-100">
                           <td className="px-4 py-3">
                             <div className="font-medium text-sm text-slate-900">{device.storeName || device.name}</div>
                             <div className="text-xs text-slate-700">{device.name}</div>
                           </td>
+                          <td className="px-4 py-3 text-sm text-slate-900">{device.region || "-"}</td>
                           <td className="px-4 py-3 text-sm font-mono text-slate-900">{device.storeCode || "-"}</td>
                           <td className="px-4 py-3 text-sm font-mono text-slate-900">{device.id}</td>
                           <td className="px-4 py-3 text-center">

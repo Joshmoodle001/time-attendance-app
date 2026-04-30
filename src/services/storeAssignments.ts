@@ -3,6 +3,7 @@ import type { Employee } from "@/services/database";
 import { getEmployees, normalizeEmployeeCode } from "@/services/database";
 import { getUsers, type AuthRole } from "@/services/auth";
 import { loadStoredCoversheetData } from "@/services/coversheetStorage";
+import { applyDeviceRegionsToEmployees, applyDeviceRegionsToStores, loadStoredDeviceRegionTruth } from "@/services/deviceRegionTruth";
 import { buildTeamAssignmentMatcher, getEmployeeScopeInfo, getTeamScopeInfo, normalizeScopeCompare, normalizeScopeText } from "@/services/teamScope";
 
 export type StoreAssignment = {
@@ -133,6 +134,17 @@ function buildTeamUniverse(employees: Employee[]) {
   return Array.from(storeMap.values()).sort((a, b) => a.storeName.localeCompare(b.storeName));
 }
 
+async function getEmployeesWithResolvedRegions() {
+  const [employees, deviceRegionTruth] = await Promise.all([getEmployees(), loadStoredDeviceRegionTruth()]);
+  return applyDeviceRegionsToEmployees(employees, deviceRegionTruth);
+}
+
+async function buildResolvedTeamUniverse(employees?: Employee[]) {
+  const resolvedEmployees = employees || (await getEmployeesWithResolvedRegions());
+  const deviceRegionTruth = await loadStoredDeviceRegionTruth();
+  return applyDeviceRegionsToStores(buildTeamUniverse(resolvedEmployees), deviceRegionTruth);
+}
+
 async function buildCoversheetResolutionEntries(employees: Employee[]) {
   const coversheetData = await loadStoredCoversheetData();
   if (!coversheetData?.stores?.length) return [];
@@ -178,14 +190,15 @@ async function buildCoversheetResolutionEntries(employees: Employee[]) {
 }
 
 async function resolveAssignedKeysToTeamKeys(assignedKeys: string[]) {
-  const employees = await getEmployees();
+  const employees = await getEmployeesWithResolvedRegions();
   const resolvedTeamKeys = new Set<string>();
 
   const coversheetEntries = await buildCoversheetResolutionEntries(employees);
+  const teamUniverse = await buildResolvedTeamUniverse(employees);
   assignedKeys.forEach((assignedKey) => {
     if (!isCoversheetAssignmentKey(assignedKey)) {
       const directMatcher = buildTeamAssignmentMatcher([assignedKey]);
-      buildTeamUniverse(employees).forEach((team) => {
+      teamUniverse.forEach((team) => {
         if (directMatcher(team.storeKey) || directMatcher(`${team.storeCode ? `${team.storeCode} - ` : ""}${team.storeName}`)) {
           resolvedTeamKeys.add(team.storeKey);
         }
@@ -214,8 +227,8 @@ export async function resolveCoversheetAssignments(
   );
   if (requestedKeys.length === 0) return [];
 
-  const employees = await getEmployees();
-  const teamUniverse = buildTeamUniverse(employees);
+  const employees = await getEmployeesWithResolvedRegions();
+  const teamUniverse = await buildResolvedTeamUniverse(employees);
   const teamByKey = new Map(teamUniverse.map((team) => [team.storeKey, team]));
   const coversheetEntries = await buildCoversheetResolutionEntries(employees);
   const coversheetData = await loadStoredCoversheetData();
@@ -258,14 +271,14 @@ export async function resolveCoversheetAssignments(
 }
 
 export async function getAssignableStoresForRole(role: AuthRole): Promise<StoreInfo[]> {
-  const employees = await getEmployees();
+  const employees = await getEmployeesWithResolvedRegions();
   if (role !== "rep") {
-    return buildTeamUniverse(employees);
+    return buildResolvedTeamUniverse(employees);
   }
 
   const entries = await buildCoversheetResolutionEntries(employees);
   if (entries.length === 0) {
-    return buildTeamUniverse(employees);
+    return buildResolvedTeamUniverse(employees);
   }
 
   const coversheetData = await loadStoredCoversheetData();
@@ -402,14 +415,14 @@ export async function getAssignedEmployees(username: string): Promise<Employee[]
   const assignedStoreKeys = matchedUser ? await getResolvedStoreAssignments(username, matchedUser.role) : await getStoreAssignments(username);
   if (assignedStoreKeys.length === 0) return [];
 
-  const allEmployees = await getEmployees();
+  const allEmployees = await getEmployeesWithResolvedRegions();
   const matcher = buildTeamAssignmentMatcher(assignedStoreKeys);
   return allEmployees.filter((emp) => matcher(emp));
 }
 
 export async function getAllStores(): Promise<StoreInfo[]> {
-  const allEmployees = await getEmployees();
-  return buildTeamUniverse(allEmployees);
+  const allEmployees = await getEmployeesWithResolvedRegions();
+  return buildResolvedTeamUniverse(allEmployees);
 }
 
 function loadLocalAssignments(): StoreAssignment[] {

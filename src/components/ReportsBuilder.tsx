@@ -40,6 +40,7 @@ import {
   type HolidayPlannerData,
   type HolidayPlannerEntry,
 } from "@/services/holidayPlannerStorage";
+import { inferRetailBrand } from "@/services/deviceRegionTruth";
 import { getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
 
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
@@ -99,6 +100,10 @@ type StoreOption = {
   store: string;
   storeCode: string;
   displayName: string;
+  region: string;
+  brand: string;
+  regionBrandKey: string;
+  regionBrandLabel: string;
   employeeCount: number;
   employeeCodes: string[];
 };
@@ -963,6 +968,10 @@ export default function ReportsBuilder({
           store: scope.name || "Unassigned team",
           storeCode: scope.code,
           displayName: scope.label,
+          region: normalizeText(employee.region),
+          brand: inferRetailBrand(scope.label || scope.name || employee.team || employee.store),
+          regionBrandKey: "",
+          regionBrandLabel: "",
           employeeCount: 0,
           employeeCodes: [],
         };
@@ -980,21 +989,33 @@ export default function ReportsBuilder({
     return Array.from(values.values())
       .map((option) => ({
         ...option,
+        regionBrandKey: normalizeCompare(
+          option.region && option.brand ? `${option.region} ${option.brand}` : option.brand || option.region
+        ),
+        regionBrandLabel:
+          option.region && option.brand
+            ? `${option.region.charAt(0)}${option.region.slice(1).toLowerCase()} ${option.brand}`
+            : option.brand || option.region,
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [employees, includeInactiveProfiles, storeDeviceMap]);
 
-  const storeBrandGroups = useMemo(() => {
-    const brands = ["Shoprite", "Checkers"];
-    return brands
-      .map((brand) => ({
-        label: brand,
-        count: storeOptions.filter((opt) =>
-          normalizeCompare(opt.displayName).includes(normalizeCompare(brand))
-        ).length,
-      }))
-      .filter((group) => group.count > 0);
+  const storeRegionBrandGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; count: number }>();
+
+    storeOptions.forEach((option) => {
+      if (!option.regionBrandKey || !option.regionBrandLabel) return;
+      const existing = groups.get(option.regionBrandKey) || {
+        key: option.regionBrandKey,
+        label: option.regionBrandLabel,
+        count: 0,
+      };
+      existing.count += 1;
+      groups.set(option.regionBrandKey, existing);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [storeOptions]);
 
   // Store search with partial matching - shows full store name + employee count
@@ -1069,9 +1090,9 @@ export default function ReportsBuilder({
     setSelectedStores((current) => current.filter((value) => value !== storeKey));
   };
 
-  const addStoresByBrand = (brandKeyword: string) => {
+  const addStoresByRegionBrandGroup = (regionBrandKey: string) => {
     const matching = storeOptions
-      .filter((opt) => normalizeCompare(opt.displayName).includes(normalizeCompare(brandKeyword)))
+      .filter((opt) => opt.regionBrandKey === regionBrandKey)
       .map((opt) => opt.key);
     setSelectedStores((current) => {
       const currentSet = new Set(current);
@@ -2434,14 +2455,14 @@ export default function ReportsBuilder({
                 <div className="mt-4 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-slate-500">Quick select:</span>
-                    {storeBrandGroups.map((group) => (
+                    {storeRegionBrandGroups.map((group) => (
                       <button
                         key={group.label}
                         type="button"
-                        onClick={() => addStoresByBrand(group.label)}
+                        onClick={() => addStoresByRegionBrandGroup(group.key)}
                         className="rounded-full border border-cyan-500/30 bg-cyan-950/20 px-3 py-1 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-900/40"
                       >
-                        All {group.label} ({group.count})
+                        {group.label} ({group.count})
                       </button>
                     ))}
                     <button
