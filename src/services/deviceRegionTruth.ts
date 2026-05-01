@@ -326,17 +326,25 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
     ].filter(Boolean)
   );
 
+  // Separate numeric codes (real store codes) from alphabetic codes (brand names)
+  const numericCodes = new Set(Array.from(candidateCodes).filter((c) => /^\d+$/.test(c)));
+  const alphaCodes = new Set(Array.from(candidateCodes).filter((c) => !/^\d+$/.test(c)));
+
+  // Pass 1: Match by numeric store code only (highest priority - avoids brand name collisions)
   let matchedEntry =
-    entries.find((entry) => {
-      if (candidateCodes.size === 0) return false;
-      const entryCodes = collectCodeCandidates(entry.storeCode, entry.deviceLabel, entry.storeName);
-      for (const code of candidateCodes) {
-        if (entryCodes.has(code)) return true;
-      }
-      return false;
-    }) ||
-    entries.find((entry) => {
-      if (candidateNames.size === 0) return false;
+    numericCodes.size > 0
+      ? entries.find((entry) => {
+          const entryCodes = collectCodeCandidates(entry.storeCode, entry.deviceLabel, entry.storeName);
+          for (const code of numericCodes) {
+            if (entryCodes.has(code)) return true;
+          }
+          return false;
+        })
+      : null;
+
+  // Pass 2: Match by normalized name
+  if (!matchedEntry && candidateNames.size > 0) {
+    matchedEntry = entries.find((entry) => {
       const entryNames = new Set(
         [normalizeNameForMatch(entry.deviceLabel), normalizeNameForMatch(entry.storeName), normalizeNameForMatch(entry.teamLabel)].filter(Boolean)
       );
@@ -344,8 +352,19 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
         if (entryNames.has(name)) return true;
       }
       return false;
-    }) ||
-    null;
+    });
+  }
+
+  // Pass 3: Match by any code (including brand names - fallback)
+  if (!matchedEntry && candidateCodes.size > 0) {
+    matchedEntry = entries.find((entry) => {
+      const entryCodes = collectCodeCandidates(entry.storeCode, entry.deviceLabel, entry.storeName);
+      for (const code of candidateCodes) {
+        if (entryCodes.has(code)) return true;
+      }
+      return false;
+    });
+  }
 
   if (!matchedEntry) return null;
 
