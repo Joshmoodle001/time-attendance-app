@@ -1033,6 +1033,14 @@ export default function ReportsBuilder({
 
   // Hierarchical region → teams tree for selection UI
   const regionTree = useMemo(() => {
+    // Values that are NOT real regions (leave statuses, metadata, etc.)
+    const nonRegionValues = new Set([
+      "maternity", "given", "annual", "sick", "family responsibility",
+      "family responsibility leave", "unpaid", "study", "compassionate",
+      "on leave", "leave", "terminated", "inactive", "active",
+      "unassigned", "",
+    ]);
+
     const regions = new Map<string, {
       key: string;
       label: string;
@@ -1042,7 +1050,28 @@ export default function ReportsBuilder({
 
     storeOptions.forEach((option) => {
       const region = option.region || "Unassigned";
-      const key = normalizeCompare(region);
+      const normalizedRegion = normalizeCompare(region);
+
+      // Skip non-region values — these employees still count in "Unassigned"
+      if (nonRegionValues.has(normalizedRegion)) {
+        const fallbackKey = "unassigned";
+        if (!regions.has(fallbackKey)) {
+          regions.set(fallbackKey, {
+            key: fallbackKey,
+            label: "Unassigned",
+            teams: [],
+            totalEmployees: 0,
+          });
+        }
+        const group = regions.get(fallbackKey)!;
+        if (!group.teams.some((t) => t.key === option.key)) {
+          group.teams.push(option);
+          group.totalEmployees += option.employeeCount;
+        }
+        return;
+      }
+
+      const key = normalizedRegion;
       if (!regions.has(key)) {
         regions.set(key, {
           key,
