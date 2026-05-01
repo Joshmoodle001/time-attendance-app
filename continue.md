@@ -36,3 +36,35 @@
   - SQL ran successfully - employees table exists
   - localStorage key `employee-source-mode-v1` must be deleted for app to use Supabase
   - Deployed URL: https://time-attendance-app-main-i1ijhisyg-joshmoodle001s-projects.vercel.app
+
+## Session Log - 2026-05-01
+
+### 10:30 - Restructure Reports to Group by Region-Brand
+- User reported: Report grouping was not what they asked for. Reports should be grouped by region-brand (e.g. "Limpopo Checkers", "Limpopo Shoprite", "Local Checkers", "Local Shoprite") not by individual store/team.
+- Action taken: Restructured ReportsBuilder.tsx to group report output by region-brand first, then stores within each group.
+- Files changed:
+  - `src/components/ReportsBuilder.tsx` - major restructuring:
+    - Added `RegionBrandSection` type wrapping `StoreSection[]`
+    - Updated `StoreSection` type to include `brand`, `regionBrandKey`, `regionBrandLabel`
+    - Restructured `generatedSections` useMemo to group by region-brand → stores → employees
+    - Updated `generatedTotals` to iterate nested structure
+    - Updated `generatedAwolRows` to iterate nested structure
+    - Added `drawRegionBrandHeader` for PDF export with region-brand group headers
+    - Updated PDF export iteration: rbGroup → stores → employees
+    - Updated HTML print export with region-brand group headers and CSS styles
+    - Updated preview rendering with region-brand group headers (cyan-themed cards)
+- Validation:
+  - ✅ `npm run build` passes (TypeScript + Vite)
+- Result:
+  - Reports now grouped by region-brand (e.g. "Limpopo Checkers", "Limpopo Shoprite")
+  - Each region-brand group shows total employees and store count
+  - Store sections remain within their region-brand groups
+  - PDF, HTML print, and preview all updated
+- Next step:
+  - User should verify the Excel device-region truth data is uploaded correctly
+  - Consider adding region-brand filter dropdowns for report generation
+  - Device records still need region populated from device region truth (separate task)
+- Remember:
+  - Brand is inferred from store/team name via `inferRetailBrand()` (Checkers/Shoprite detection)
+  - Region comes from device region truth mapping (overrides employee region at runtime)
+  - Region-brand key = normalized "region brand" string (e.g. "limpopo checkers")

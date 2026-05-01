@@ -168,7 +168,19 @@ type StoreSection = {
   store: string;
   storeCode: string;
   region: string;
+  brand: string;
+  regionBrandKey: string;
+  regionBrandLabel: string;
   employees: EmployeeReport[];
+};
+
+type RegionBrandSection = {
+  key: string;
+  label: string;
+  region: string;
+  brand: string;
+  stores: StoreSection[];
+  totalEmployees: number;
 };
 
 type AwolReportRow = {
@@ -1199,9 +1211,18 @@ export default function ReportsBuilder({
     }
   };
 
-  const generatedSections = useMemo<StoreSection[]>(() => {
+  const generatedSections = useMemo<RegionBrandSection[]>(() => {
     if (!generatedCriteria) return [];
-    const sections = new Map<string, StoreSection>();
+
+    // Two-level grouping: region-brand → store → employees
+    const regionBrandGroups = new Map<string, {
+      key: string;
+      label: string;
+      region: string;
+      brand: string;
+      stores: Map<string, StoreSection>;
+      totalEmployees: number;
+    }>();
 
     generatedCriteria.employeeCodes.forEach((employeeCode) => {
       const normalizedEmployeeCode = normalizeEmployeeCode(employeeCode);
@@ -1220,6 +1241,16 @@ export default function ReportsBuilder({
         attendanceSamples[0]?.name ||
         normalizedEmployeeCode;
       const scope = getEmployeeScopeInfo(employee);
+
+      // Infer brand from store/team name
+      const brand = inferRetailBrand(scope.label || scope.name || employee?.team || employee?.store || store);
+      // Build region-brand key and label
+      const regionBrandKey = region && brand
+        ? normalizeCompare(`${region} ${brand}`)
+        : normalizeCompare(brand || region || "ungrouped");
+      const regionBrandLabel = region && brand
+        ? `${region.charAt(0).toUpperCase()}${region.slice(1).toLowerCase()} ${brand}`
+        : brand || region || "Ungrouped";
 
       const rows = generatedDateKeys.map((dateKey) => {
         const attendanceMatches = attendanceByEmployeeAndDate.get(getAttendanceKey(dateKey, normalizedEmployeeCode)) || [];
@@ -1304,19 +1335,36 @@ export default function ReportsBuilder({
          };
       });
 
+      // Get or create region-brand group
+      if (!regionBrandGroups.has(regionBrandKey)) {
+        regionBrandGroups.set(regionBrandKey, {
+          key: regionBrandKey,
+          label: regionBrandLabel,
+          region,
+          brand,
+          stores: new Map(),
+          totalEmployees: 0,
+        });
+      }
+      const rbGroup = regionBrandGroups.get(regionBrandKey)!;
+
+      // Get or create store section within this region-brand group
       const sectionKey = scope.key || `${storeCode || "no-code"}__${store}`;
-      if (!sections.has(sectionKey)) {
-        sections.set(sectionKey, {
+      if (!rbGroup.stores.has(sectionKey)) {
+        rbGroup.stores.set(sectionKey, {
           key: sectionKey,
           teamLabel: scope.label || (storeCode ? `${storeCode} - ${store}` : store),
           store: scope.name || store,
           storeCode: scope.code || storeCode,
           region,
+          brand,
+          regionBrandKey,
+          regionBrandLabel,
           employees: [],
         });
       }
 
-      sections.get(sectionKey)!.employees.push({
+      rbGroup.stores.get(sectionKey)!.employees.push({
         employeeCode: normalizedEmployeeCode,
         employeeName,
         role: normalizeText(employee?.job_title) || "Merchandiser",
@@ -1328,35 +1376,49 @@ export default function ReportsBuilder({
         storeCode,
         rows,
       });
+
+      rbGroup.totalEmployees += 1;
     });
 
-    return Array.from(sections.values())
-      .map((section) => ({
-        ...section,
-        employees: [...section.employees].sort(
-          (a, b) => a.employeeName.localeCompare(b.employeeName) || a.employeeCode.localeCompare(b.employeeCode)
-        ),
+    // Build final sorted structure: region-brand groups → sorted stores → sorted employees
+    return Array.from(regionBrandGroups.values())
+      .map((group) => ({
+        key: group.key,
+        label: group.label,
+        region: group.region,
+        brand: group.brand,
+        stores: Array.from(group.stores.values())
+          .map((store) => ({
+            ...store,
+            employees: [...store.employees].sort(
+              (a, b) => a.employeeName.localeCompare(b.employeeName) || a.employeeCode.localeCompare(b.employeeCode)
+            ),
+          }))
+          .sort((a, b) => a.store.localeCompare(b.store)),
+        totalEmployees: group.totalEmployees,
       }))
-      .sort((a, b) => a.store.localeCompare(b.store));
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, employeeMap, generatedCalendarEvents, generatedCriteria, generatedDateKeys, holidayPlannerLookup, leaveLookup, rosterSourcesByEmployee, storeDeviceMap]);
 
   const generatedTotals = useMemo(() => {
     return generatedSections.reduce(
-      (summary, section) => {
-        section.employees.forEach((employee) => {
-          employee.rows.forEach((row) => {
-            summary.totalRows += 1;
-            summary.workedHours += row.payableHours;
-            summary.payableHours += row.payableHours;
-            summary.payAmount += row.payAmount;
-            summary.overtimePayAmount += row.overtimePayAmount;
-             if (row.status === "P/H") summary.inOut += 1;
-             if (row.status === "Public Holiday") summary.noInOut += 1;
-             if (row.status === "In/Out") summary.inOut += 1;
-             if (row.status === "No In/Out") summary.noInOut += 1;
-             if (row.status === "AWOL") summary.awol += 1;
-             if (isLeaveStatus(row.status)) summary.leave += 1;
-             if (row.status === "Day Off") summary.dayOff += 1;
+      (summary, rbGroup) => {
+        rbGroup.stores.forEach((section) => {
+          section.employees.forEach((employee) => {
+            employee.rows.forEach((row) => {
+              summary.totalRows += 1;
+              summary.workedHours += row.payableHours;
+              summary.payableHours += row.payableHours;
+              summary.payAmount += row.payAmount;
+              summary.overtimePayAmount += row.overtimePayAmount;
+               if (row.status === "P/H") summary.inOut += 1;
+               if (row.status === "Public Holiday") summary.noInOut += 1;
+               if (row.status === "In/Out") summary.inOut += 1;
+               if (row.status === "No In/Out") summary.noInOut += 1;
+               if (row.status === "AWOL") summary.awol += 1;
+               if (isLeaveStatus(row.status)) summary.leave += 1;
+               if (row.status === "Day Off") summary.dayOff += 1;
+            });
           });
         });
         return summary;
@@ -1373,41 +1435,43 @@ export default function ReportsBuilder({
     if (!generatedCriteria || generatedCriteria.templateKey !== "awol_report") return [];
 
     return generatedSections
-      .flatMap((section) =>
-        section.employees.map((employee) => {
-          let currentStreak = 0;
-          const awolDates: string[] = [];
-          let lastDayAtWork = "";
+      .flatMap((rbGroup) =>
+        rbGroup.stores.flatMap((section) =>
+          section.employees.map((employee) => {
+            let currentStreak = 0;
+            const awolDates: string[] = [];
+            let lastDayAtWork = "";
 
-          for (let index = employee.rows.length - 1; index >= 0; index -= 1) {
-            const row = employee.rows[index];
-            if (row.status === "AWOL") {
-              currentStreak += 1;
-              awolDates.unshift(row.dateKey);
-              continue;
+            for (let index = employee.rows.length - 1; index >= 0; index -= 1) {
+              const row = employee.rows[index];
+              if (row.status === "AWOL") {
+                currentStreak += 1;
+                awolDates.unshift(row.dateKey);
+                continue;
+              }
+
+               if (isLeaveStatus(row.status) || row.status === "Day Off") {
+                 continue;
+               }
+
+              lastDayAtWork = row.dateKey;
+              break;
             }
 
-             if (isLeaveStatus(row.status) || row.status === "Day Off") {
-               continue;
-             }
-
-            lastDayAtWork = row.dateKey;
-            break;
-          }
-
-          return {
-            employeeCode: employee.employeeCode,
-            employeeName: employee.employeeName,
-            store: section.teamLabel || section.store,
-            storeCode: section.storeCode,
-            region: section.region,
-            department: employee.department,
-            currentAwolStreak: currentStreak,
-            awolDates,
-            lastDayAtWork,
-            lastDayAtWorkLabel: lastDayAtWork ? formatLongDate(lastDayAtWork) : "No worked day in selected range",
-          };
-        })
+            return {
+              employeeCode: employee.employeeCode,
+              employeeName: employee.employeeName,
+              store: section.teamLabel || section.store,
+              storeCode: section.storeCode,
+              region: section.region,
+              department: employee.department,
+              currentAwolStreak: currentStreak,
+              awolDates,
+              lastDayAtWork,
+              lastDayAtWorkLabel: lastDayAtWork ? formatLongDate(lastDayAtWork) : "No worked day in selected range",
+            };
+          })
+        )
       )
       .filter((row) => row.currentAwolStreak >= (generatedCriteria.awolThresholdDays || 0))
       .sort(
@@ -1631,6 +1695,32 @@ export default function ReportsBuilder({
       clockCount: number;
     }>) => Number(rows.reduce((sum, row) => sum + calculateWorkedHoursForRow(row), 0).toFixed(2));
 
+    const drawRegionBrandHeader = (rbGroup: RegionBrandSection, pageNumber: number) => {
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(marginX, topY - 14, contentWidth, 28, 6, 6, "F");
+
+      doc.setTextColor(34, 211, 238);
+      doc.setFontSize(14);
+      doc.text(rbGroup.label, marginX + 12, topY + 4);
+
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `${rbGroup.totalEmployees} team member${rbGroup.totalEmployees === 1 ? "" : "s"} across ${rbGroup.stores.length} store${rbGroup.stores.length === 1 ? "" : "s"} | ${formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)}`,
+        marginX + 12,
+        topY + 16
+      );
+
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `Generated ${new Date().toLocaleDateString("en-ZA")} • Page ${pageNumber}`,
+        pageWidth - marginX,
+        pageHeight - 10,
+        { align: "right" }
+      );
+    };
+
     const drawSectionHeader = (section: StoreSection, pageNumber: number) => {
       doc.setDrawColor(34, 211, 238);
       doc.setLineWidth(1.1);
@@ -1680,32 +1770,46 @@ export default function ReportsBuilder({
 
     let hasDrawnPayrollEmployeePage = false;
 
-    generatedSections.forEach((section, sectionIndex) => {
-      if (!exportIsPayrollReport) {
-        if (sectionIndex > 0) {
+    generatedSections.forEach((rbGroup, groupIndex) => {
+      // Draw region-brand group header
+      if (groupIndex > 0 || !exportIsPayrollReport) {
+        if (groupIndex > 0) {
           doc.addPage();
           pageNumber += 1;
         }
-
-        drawSectionHeader(section, pageNumber);
+        drawRegionBrandHeader(rbGroup, pageNumber);
       }
 
-      let cursorY = topY + 68;
-
-      section.employees.forEach((employee, employeeIndex) => {
-        if (exportIsPayrollReport) {
-          if (hasDrawnPayrollEmployeePage) {
+      rbGroup.stores.forEach((section, storeIndex) => {
+        if (!exportIsPayrollReport) {
+          if (storeIndex > 0 || groupIndex > 0) {
             doc.addPage();
             pageNumber += 1;
           }
-          if (employeeIndex === 0) {
-            drawSectionHeader(section, pageNumber);
-            cursorY = topY + 68;
-          } else {
-            cursorY = topY;
-          }
-          hasDrawnPayrollEmployeePage = true;
+
+          drawSectionHeader(section, pageNumber);
         }
+
+        let cursorY = exportIsPayrollReport && storeIndex === 0 && groupIndex === 0 ? topY + 40 : topY + 68;
+
+        section.employees.forEach((employee, employeeIndex) => {
+          if (exportIsPayrollReport) {
+            if (hasDrawnPayrollEmployeePage) {
+              doc.addPage();
+              pageNumber += 1;
+            }
+            if (employeeIndex === 0 && storeIndex === 0) {
+              drawRegionBrandHeader(rbGroup, pageNumber);
+              cursorY = topY + 40;
+            }
+            if (employeeIndex === 0) {
+              drawSectionHeader(section, pageNumber);
+              cursorY = topY + 68;
+            } else {
+              cursorY = topY;
+            }
+            hasDrawnPayrollEmployeePage = true;
+          }
 
         const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
         const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
@@ -1947,6 +2051,7 @@ export default function ReportsBuilder({
           doc.setTextColor(100, 116, 139);
           doc.text("Employee initials / signature", marginX + 12, signatureY + 64);
         }
+        });
       });
     });
 
@@ -2052,122 +2157,139 @@ export default function ReportsBuilder({
 
     const sectionsHtml = generatedSections
       .map(
-        (section) => {
-
-          const totalEmployees = section.employees.length;
-          return `
-          <section class="store-section">
-            <div class="store-header">
-              <div class="eyebrow">${escapeHtml(reportTitle)}</div>
-                  <h1>${escapeHtml(section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store))}</h1>
-              ${getStoreDeviceLabel(section.storeCode, section.store) ? `<div class="device-badge ${getStoreDeviceLabel(section.storeCode, section.store).includes('Physical') ? 'physical' : 'logical'}">${escapeHtml(getStoreDeviceLabel(section.storeCode, section.store))}</div>` : ''}
-              <div class="meta">
-                <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
-                <span>Region: ${escapeHtml(section.region)}</span>
-                <span>${totalEmployees} Team Member${totalEmployees !== 1 ? 's' : ''}</span>
-              </div>
-            </div>
-            ${section.employees
-              .map(
-                (employee) => {
-                  const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
-                  const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
-        const empWorked = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
-                  const empPayable = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
-                  const empPay = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
-                  const empOvertimePay = employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0);
-                  return `
-                  <div class="employee-block">
-                    <div class="employee-header">
-                      <div>
-                        <h2>${escapeHtml(`${employee.employeeCode} - ${employee.employeeName}`)}</h2>
-                        <div class="employee-meta">${escapeHtml(
-                          [employee.role, employee.department ? `Dept: ${employee.department}` : "", employee.team ? `Team: ${employee.team}` : "", employee.costCenter ? `Cost Centre: ${employee.costCenter}` : ""]
-                            .filter(Boolean)
-                            .join(" | ")
-                        )}</div>
-                      </div>
-                      <div class="summary-grid">
-                        <div class="summary-item">
-                          <div class="summary-label">In/Out</div>
-                          <div class="summary-value ${empInOut > 0 ? 'green' : ''}">${empInOut}</div>
+        (rbGroup) => {
+          const storesHtml = rbGroup.stores
+            .map((section) => {
+              const totalEmployees = section.employees.length;
+              return `
+              <section class="store-section">
+                <div class="store-header">
+                  <div class="eyebrow">${escapeHtml(reportTitle)}</div>
+                      <h1>${escapeHtml(section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store))}</h1>
+                  ${getStoreDeviceLabel(section.storeCode, section.store) ? `<div class="device-badge ${getStoreDeviceLabel(section.storeCode, section.store).includes('Physical') ? 'physical' : 'logical'}">${escapeHtml(getStoreDeviceLabel(section.storeCode, section.store))}</div>` : ''}
+                  <div class="meta">
+                    <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
+                    <span>Region: ${escapeHtml(section.region)}</span>
+                    <span>${totalEmployees} Team Member${totalEmployees !== 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+                ${section.employees
+                  .map(
+                    (employee) => {
+                      const empInOut = employee.rows.filter((row) => row.status === "In/Out").length;
+                      const empAwol = employee.rows.filter((row) => row.status === "AWOL").length;
+            const empWorked = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
+                      const empPayable = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
+                      const empPay = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
+                      const empOvertimePay = employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0);
+                      return `
+                      <div class="employee-block">
+                        <div class="employee-header">
+                          <div>
+                            <h2>${escapeHtml(`${employee.employeeCode} - ${employee.employeeName}`)}</h2>
+                            <div class="employee-meta">${escapeHtml(
+                              [employee.role, employee.department ? `Dept: ${employee.department}` : "", employee.team ? `Team: ${employee.team}` : "", employee.costCenter ? `Cost Centre: ${employee.costCenter}` : ""]
+                                .filter(Boolean)
+                                .join(" | ")
+                            )}</div>
+                          </div>
+                          <div class="summary-grid">
+                            <div class="summary-item">
+                              <div class="summary-label">In/Out</div>
+                              <div class="summary-value ${empInOut > 0 ? 'green' : ''}">${empInOut}</div>
+                            </div>
+                            <div class="summary-item">
+                              <div class="summary-label">AWOL</div>
+                              <div class="summary-value ${empAwol > 0 ? 'red' : ''}">${empAwol}</div>
+                            </div>
+                            <div class="summary-item">
+                              <div class="summary-label">Worked Hrs</div>
+                              <div class="summary-value">${formatWorkedHours(empWorked)}</div>
+                            </div>
+                            ${printIsPayrollReport ? `
+                            <div class="summary-item">
+                              <div class="summary-label">Pay Owed</div>
+                              <div class="summary-value green">${formatPayrollMoney(empPay)}</div>
+                            </div>
+                            <div class="summary-item">
+                              <div class="summary-label">Overtime Pay</div>
+                              <div class="summary-value amber">${formatPayrollMoney(empOvertimePay)}</div>
+                            </div>` : ""}
+                          </div>
                         </div>
-                        <div class="summary-item">
-                          <div class="summary-label">AWOL</div>
-                          <div class="summary-value ${empAwol > 0 ? 'red' : ''}">${empAwol}</div>
-                        </div>
-                        <div class="summary-item">
-                          <div class="summary-label">Worked Hrs</div>
-                          <div class="summary-value">${formatWorkedHours(empWorked)}</div>
-                        </div>
+                      ${printIsPayrollReport ? `<div class="employee-rate">Payroll hours: ${escapeHtml(formatWorkedHours(empPayable))} at ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} / hour | Sundays paid at 1.5x | Holiday planner public holidays paid at 2x | Overtime pay: ${escapeHtml(formatPayrollMoney(empOvertimePay))}</div>` : ""}
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Shift Date</th>
+                              <th>Day</th>
+                              <th>Week</th>
+                              <th>Roster</th>
+                              <th style="text-align:center">Worked Hrs</th>
+                              <th style="text-align:center">In</th>
+                              <th style="text-align:center">Out</th>
+                              ${printIsPayrollReport ? '<th style="text-align:center">Pay</th>' : '<th style="text-align:center">#</th>'}
+                              <th>Clocks</th>
+                              <th style="text-align:right">Status</th>
+                              <th>Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${employee.rows
+                              .map(
+                                (row) => `
+                                <tr>
+                                  <td>${escapeHtml(row.dateLabel)}</td>
+                                  <td>${escapeHtml(row.weekdayLabel)}</td>
+                                  <td>${escapeHtml(row.weekLabel)}</td>
+                                  <td>${escapeHtml(row.scheduleLabel)}</td>
+                        <td style="text-align:center">${escapeHtml(formatWorkedHours(row.payableHours))}</td>
+                                  <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
+                                  <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
+                                  ${printIsPayrollReport ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
+                                  <td>${escapeHtml(row.clockings.length > 0 ? row.clockings.join(" | ") : "-")}</td>
+                                  <td style="text-align:right"><span class="status ${getStatusCssClass(row.status)}">${escapeHtml(row.status)}</span></td>
+                                  <td></td>
+                                </tr>
+                              `
+                              )
+                              .join("")}
+                          </tbody>
+                        </table>
                         ${printIsPayrollReport ? `
-                        <div class="summary-item">
-                          <div class="summary-label">Pay Owed</div>
-                          <div class="summary-value green">${formatPayrollMoney(empPay)}</div>
-                        </div>
-                        <div class="summary-item">
-                          <div class="summary-label">Overtime Pay</div>
-                          <div class="summary-value amber">${formatPayrollMoney(empOvertimePay)}</div>
+                        <div class="signature-block">
+                          <div class="signature-title">Employee signature</div>
+                          <div class="signature-line"></div>
+                          <div class="signature-footer">
+                            <span>Employee initials / signature</span>
+                            <span>Worked hours: ${escapeHtml(formatWorkedHours(empWorked))}</span>
+                            <span>Pay amount: ${escapeHtml(formatPayrollMoney(empPay))}</span>
+                            <span>Overtime pay: ${escapeHtml(formatPayrollMoney(empOvertimePay))}</span>
+                          </div>
                         </div>` : ""}
                       </div>
-                    </div>
-                  ${printIsPayrollReport ? `<div class="employee-rate">Payroll hours: ${escapeHtml(formatWorkedHours(empPayable))} at ${escapeHtml(formatPayrollMoney(payrollSettings.hourlyRate))} / hour | Sundays paid at 1.5x | Holiday planner public holidays paid at 2x | Overtime pay: ${escapeHtml(formatPayrollMoney(empOvertimePay))}</div>` : ""}
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Shift Date</th>
-                          <th>Day</th>
-                          <th>Week</th>
-                          <th>Roster</th>
-                          <th style="text-align:center">Worked Hrs</th>
-                          <th style="text-align:center">In</th>
-                          <th style="text-align:center">Out</th>
-                          ${printIsPayrollReport ? '<th style="text-align:center">Pay</th>' : '<th style="text-align:center">#</th>'}
-                          <th>Clocks</th>
-                          <th style="text-align:right">Status</th>
-                          <th>Notes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${employee.rows
-                          .map(
-                            (row) => `
-                            <tr>
-                              <td>${escapeHtml(row.dateLabel)}</td>
-                              <td>${escapeHtml(row.weekdayLabel)}</td>
-                              <td>${escapeHtml(row.weekLabel)}</td>
-                              <td>${escapeHtml(row.scheduleLabel)}</td>
-                    <td style="text-align:center">${escapeHtml(formatWorkedHours(row.payableHours))}</td>
-                              <td style="text-align:center">${escapeHtml(row.firstClock || "-")}</td>
-                              <td style="text-align:center">${escapeHtml(row.lastClock || "-")}</td>
-                              ${printIsPayrollReport ? `<td style="text-align:center">${escapeHtml(formatPayrollMoney(row.payAmount))}</td>` : `<td style="text-align:center">${escapeHtml(String(row.clockCount))}</td>`}
-                              <td>${escapeHtml(row.clockings.length > 0 ? row.clockings.join(" | ") : "-")}</td>
-                              <td style="text-align:right"><span class="status ${getStatusCssClass(row.status)}">${escapeHtml(row.status)}</span></td>
-                              <td></td>
-                            </tr>
-                          `
-                          )
-                          .join("")}
-                      </tbody>
-                    </table>
-                    ${printIsPayrollReport ? `
-                    <div class="signature-block">
-                      <div class="signature-title">Employee signature</div>
-                      <div class="signature-line"></div>
-                      <div class="signature-footer">
-                        <span>Employee initials / signature</span>
-                        <span>Worked hours: ${escapeHtml(formatWorkedHours(empWorked))}</span>
-                        <span>Pay amount: ${escapeHtml(formatPayrollMoney(empPay))}</span>
-                        <span>Overtime pay: ${escapeHtml(formatPayrollMoney(empOvertimePay))}</span>
-                      </div>
-                    </div>` : ""}
-                  </div>
-                `;
-                }
-              )
-              .join("")}
-          </section>
-        `;
+                    `;
+                    }
+                  )
+                  .join("")}
+              </section>
+            `;
+            })
+            .join("");
+
+          return `
+            <div class="region-brand-group">
+              <div class="region-brand-header">
+                <h2 class="region-brand-title">${escapeHtml(rbGroup.label)}</h2>
+                <div class="region-brand-meta">
+                  <span>${rbGroup.totalEmployees} team member${rbGroup.totalEmployees === 1 ? '' : 's'}</span>
+                  <span>${rbGroup.stores.length} store${rbGroup.stores.length === 1 ? '' : 's'}</span>
+                  <span>${escapeHtml(formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate))}</span>
+                </div>
+              </div>
+              ${storesHtml}
+            </div>
+          `;
         }
       )
       .join("");
@@ -2184,6 +2306,19 @@ export default function ReportsBuilder({
             .report-container { max-width: 1200px; margin: 0 auto; }
             .store-section { margin-bottom: 48px; page-break-after: always; }
             .store-section:last-child { page-break-after: auto; }
+            .region-brand-group { margin-bottom: 56px; }
+            .region-brand-header {
+              background: linear-gradient(135deg, #0c1222 0%, #111827 50%, #0c1222 100%);
+              border: 1px solid #1e3a5f;
+              border-left: 4px solid #06b6d4;
+              border-radius: 12px;
+              padding: 20px 28px;
+              margin-bottom: 28px;
+            }
+            .region-brand-title { font-size: 22px; font-weight: 700; color: #22d3ee; margin-bottom: 6px; letter-spacing: -0.01em; }
+            .region-brand-meta { font-size: 12px; color: #71717a; display: flex; gap: 16px; flex-wrap: wrap; }
+            .region-brand-meta span { display: flex; align-items: center; gap: 6px; }
+            .region-brand-meta span:not(:last-child)::after { content: '•'; color: #3f3f46; }
             .store-header { 
               background: linear-gradient(135deg, #18181b 0%, #27272a 50%, #18181b 100%); 
               border: 1px solid #3f3f46;
@@ -2829,171 +2964,190 @@ export default function ReportsBuilder({
                 No team sections matched the current template criteria.
                   </div>
                 ) : (
-                  <div className="space-y-7">
-                    {generatedSections.map((section) => (
-                      <section key={section.key} className="overflow-hidden rounded-[28px] border border-gray-300 bg-slate-950/45 shadow-[0_24px_60px_rgba(2,6,23,0.28)]">
-                        <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-4 py-5 text-white sm:px-6">
-                          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-600">
-                            {previewIsPayrollReport ? "Payroll Report" : "Attendance Report"}
-                          </div>
-                          <div className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">
-                            {section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}
-                          </div>
-                          {(() => {
-                            const label = getStoreDeviceLabel(section.storeCode, section.store);
-                            if (!label) return null;
-                            const isPhysical = label.includes("Physical");
-                            return (
-                              <div className={`mt-2 inline-flex w-fit text-xs font-semibold px-3 py-1 rounded-full ${isPhysical ? "bg-green-900/60 text-green-400 border border-green-700" : "bg-amber-900/60 text-amber-400 border border-amber-700"}`}>
-                                {label}
-                              </div>
-                            );
-                          })()}
-                          <div className="mt-2 text-sm text-slate-200">
-                        Shift Date Range: {formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)} • Grouped By: Team
-                          </div>
-                          <div className="mt-1 text-sm text-slate-300">
-                            Region: {section.region} • {section.employees.length} merchandiser{section.employees.length === 1 ? "" : "s"}
+                  <div className="space-y-10">
+                    {generatedSections.map((rbGroup) => (
+                      <div key={rbGroup.key} className="space-y-7">
+                        {/* Region-Brand Group Header */}
+                        <div className="overflow-hidden rounded-2xl border border-cyan-500/20 bg-gradient-to-r from-cyan-950/30 via-slate-900/50 to-cyan-950/30">
+                          <div className="px-5 py-4 sm:px-6">
+                            <div className="text-2xl font-bold tracking-tight text-cyan-300 sm:text-3xl">
+                              {rbGroup.label}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
+                              <span>{rbGroup.totalEmployees} team member{rbGroup.totalEmployees === 1 ? "" : "s"}</span>
+                              <span>{rbGroup.stores.length} store{rbGroup.stores.length === 1 ? "" : "s"}</span>
+                              <span>Shift Date Range: {formatRangeLabel(generatedCriteria.startDate, generatedCriteria.endDate)}</span>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="space-y-0">
-                          {section.employees.map((employee) => {
-                            const inOutCount = employee.rows.filter((row) => row.status === "In/Out").length;
-                            const awolCount = employee.rows.filter((row) => row.status === "AWOL").length;
-                      const workedHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
-                            const payableHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
-                            const payAmount = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
-                            const overtimePayAmount = employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0);
-
-                            return (
-                              <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-4 py-5 first:border-t-0 sm:px-6 sm:py-6">
-                                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                                  <div>
-                                    <div className="text-lg font-semibold text-white">
-                                      {employee.employeeCode} - {employee.employeeName}
-                                    </div>
-                                    <div className="mt-1 text-sm text-slate-400">
-                                      {employee.role}
-                                      {employee.department ? ` • Dept: ${employee.department}` : ""}
-                                      {employee.team ? ` • Team: ${employee.team}` : ""}
-                                      {employee.costCenter ? ` • Cost Centre: ${employee.costCenter}` : ""}
-                                    </div>
+                        {/* Store Sections within this Region-Brand Group */}
+                        {rbGroup.stores.map((section) => (
+                          <section key={section.key} className="overflow-hidden rounded-[28px] border border-gray-300 bg-slate-950/45 shadow-[0_24px_60px_rgba(2,6,23,0.28)]">
+                            <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-4 py-5 text-white sm:px-6">
+                              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-600">
+                                {previewIsPayrollReport ? "Payroll Report" : "Attendance Report"}
+                              </div>
+                              <div className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">
+                                {section.teamLabel || (section.storeCode ? `${section.storeCode} - ${section.store}` : section.store)}
+                              </div>
+                              {(() => {
+                                const label = getStoreDeviceLabel(section.storeCode, section.store);
+                                if (!label) return null;
+                                const isPhysical = label.includes("Physical");
+                                return (
+                                  <div className={`mt-2 inline-flex w-fit text-xs font-semibold px-3 py-1 rounded-full ${isPhysical ? "bg-green-900/60 text-green-400 border border-green-700" : "bg-amber-900/60 text-amber-400 border border-amber-700"}`}>
+                                    {label}
                                   </div>
+                                );
+                              })()}
+                              <div className="mt-2 text-sm text-slate-200">
+                                Region: {section.region} • Grouped By: {rbGroup.label}
+                              </div>
+                              <div className="mt-1 text-sm text-slate-300">
+                                {section.employees.length} merchandiser{section.employees.length === 1 ? "" : "s"}
+                              </div>
+                            </div>
 
-                                  <div className={`grid gap-4 ${previewIsPayrollReport ? "sm:grid-cols-5" : "sm:grid-cols-3"}`}>
-                                    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                                      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">In/Out Days</div>
-                                      <div className="mt-2 text-xl font-bold text-gray-700">{inOutCount}</div>
-                                    </div>
-                                    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                                      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">AWOL Days</div>
-                                      <div className="mt-2 text-xl font-bold text-red-300">{awolCount}</div>
-                                    </div>
-                                    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                                      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Worked Hours</div>
-                                      <div className="mt-2 text-xl font-bold text-white">{formatWorkedHours(workedHours)}</div>
-                                    </div>
-                                    {previewIsPayrollReport && (
-                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                                        <div className="text-[11px] uppercase tracking-[0.2em] text-emerald-600">Pay Owed</div>
-                                        <div className="mt-2 text-xl font-bold text-emerald-700">{formatPayrollMoney(payAmount)}</div>
-                                      </div>
-                                    )}
-                                    {previewIsPayrollReport && (
-                                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                                        <div className="text-[11px] uppercase tracking-[0.2em] text-amber-600">Overtime Pay</div>
-                                        <div className="mt-2 text-xl font-bold text-amber-700">{formatPayrollMoney(overtimePayAmount)}</div>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {previewIsPayrollReport && (
-                                    <div className="mt-3 text-xs text-slate-400">
-                                      Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Sundays paid at 1.5x | Holiday planner public holidays paid at 2x | Overtime pay: {formatPayrollMoney(overtimePayAmount)}
-                                    </div>
-                                  )}
-                                </div>
+                            <div className="space-y-0">
+                              {section.employees.map((employee) => {
+                                const inOutCount = employee.rows.filter((row) => row.status === "In/Out").length;
+                                const awolCount = employee.rows.filter((row) => row.status === "AWOL").length;
+                          const workedHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
+                                const payableHours = employee.rows.reduce((sum, row) => sum + row.payableHours, 0);
+                                const payAmount = employee.rows.reduce((sum, row) => sum + row.payAmount, 0);
+                                const overtimePayAmount = employee.rows.reduce((sum, row) => sum + row.overtimePayAmount, 0);
 
-                                <div className="mt-4 grid gap-3 md:hidden">
-                                  {employee.rows.map((row) => (
-                                    <div key={`${employee.employeeCode}-${row.dateKey}-mobile`} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                          <div className="text-sm font-semibold text-white">{row.dateLabel}</div>
-                                          <div className="text-xs text-slate-400">{row.weekdayLabel} | {row.weekLabel}</div>
+                                return (
+                                  <div key={`${section.key}-${employee.employeeCode}`} className="border-t border-white/10 px-4 py-5 first:border-t-0 sm:px-6 sm:py-6">
+                                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                                      <div>
+                                        <div className="text-lg font-semibold text-white">
+                                          {employee.employeeCode} - {employee.employeeName}
                                         </div>
-                                        <Badge className={getStatusTone(row.status)}>{row.status}</Badge>
+                                        <div className="mt-1 text-sm text-slate-400">
+                                          {employee.role}
+                                          {employee.department ? ` • Dept: ${employee.department}` : ""}
+                                          {employee.team ? ` • Team: ${employee.team}` : ""}
+                                          {employee.costCenter ? ` • Cost Centre: ${employee.costCenter}` : ""}
+                                        </div>
                                       </div>
-                                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
-                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Roster: {row.scheduleLabel}</div>
-                                  <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(row.payableHours)}</div>
-                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">In: {row.firstClock || "-"}</div>
-                                        <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
-                                        {previewIsPayrollReport && (
-                                          <div className="rounded-lg bg-emerald-950/30 px-2 py-1.5 text-emerald-200">Pay: {formatPayrollMoney(row.payAmount)}</div>
-                                        )}
-                                        {previewIsPayrollReport && row.overtimePayAmount > 0 && (
-                                          <div className="rounded-lg bg-amber-950/30 px-2 py-1.5 text-amber-200">Overtime: {formatPayrollMoney(row.overtimePayAmount)}</div>
-                                        )}
-                                      </div>
-                                      <div className="mt-2 text-xs text-slate-400">Clocks ({row.clockCount}): {row.clockings.length > 0 ? row.clockings.join(" | ") : "No clocks"}</div>
-                                    </div>
-                                  ))}
-                                </div>
 
-                                <div className="section-tech-table mt-5 hidden md:block">
-                                  <table className="w-full min-w-[980px] border-collapse">
-                                    <thead className="bg-white/5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-                                      <tr>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Shift Date</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Day</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Week</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Roster</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-center">Worked Hrs</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-center">In</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-center">Out</th>
-                                        {previewIsPayrollReport && <th className="border-b border-slate-200 px-3 py-3 text-center">Pay</th>}
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Clocks</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-right">Status</th>
-                                        <th className="border-b border-slate-200 px-3 py-3 text-left">Notes</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="bg-transparent text-sm text-slate-200">
+                                      <div className={`grid gap-4 ${previewIsPayrollReport ? "sm:grid-cols-5" : "sm:grid-cols-3"}`}>
+                                        <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                                          <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">In/Out Days</div>
+                                          <div className="mt-2 text-xl font-bold text-gray-700">{inOutCount}</div>
+                                        </div>
+                                        <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                                          <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">AWOL Days</div>
+                                          <div className="mt-2 text-xl font-bold text-red-300">{awolCount}</div>
+                                        </div>
+                                        <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                                          <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Worked Hours</div>
+                                          <div className="mt-2 text-xl font-bold text-white">{formatWorkedHours(workedHours)}</div>
+                                        </div>
+                                        {previewIsPayrollReport && (
+                                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                            <div className="text-[11px] uppercase tracking-[0.2em] text-emerald-600">Pay Owed</div>
+                                            <div className="mt-2 text-xl font-bold text-emerald-700">{formatPayrollMoney(payAmount)}</div>
+                                          </div>
+                                        )}
+                                        {previewIsPayrollReport && (
+                                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                            <div className="text-[11px] uppercase tracking-[0.2em] text-amber-600">Overtime Pay</div>
+                                            <div className="mt-2 text-xl font-bold text-amber-700">{formatPayrollMoney(overtimePayAmount)}</div>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {previewIsPayrollReport && (
+                                        <div className="mt-3 text-xs text-slate-400">
+                                          Payroll hours: {formatWorkedHours(payableHours)} at {formatPayrollMoney(payrollSettings.hourlyRate)} per hour | Sundays paid at 1.5x | Holiday planner public holidays paid at 2x | Overtime pay: {formatPayrollMoney(overtimePayAmount)}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="mt-4 grid gap-3 md:hidden">
                                       {employee.rows.map((row) => (
-                                        <tr key={`${employee.employeeCode}-${row.dateKey}`} className="align-top">
-                                          <td className="border-b border-slate-200 px-3 py-3">
-                                            <div className="font-medium text-white">{row.dateLabel}</div>
-                                            {row.holidayTitle ? <div className="mt-1 text-xs text-rose-600">{row.holidayTitle}</div> : null}
-                                          </td>
-                                          <td className="border-b border-slate-200 px-3 py-3">{row.weekdayLabel}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3">{row.weekLabel}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3 font-medium text-slate-900">
-                                  <div>{row.scheduleLabel}</div>
-                                  {row.rosterVersionFrom ? (
-                                    <div className="mt-1 text-[11px] font-normal text-slate-500">From {row.rosterVersionFrom}</div>
-                                  ) : null}
-                                </td>
-                                  <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(row.payableHours)}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
-                                          {previewIsPayrollReport && <td className="border-b border-slate-200 px-3 py-3 text-center">{formatPayrollMoney(row.payAmount)}</td>}
-                                          <td className="border-b border-slate-200 px-3 py-3 text-xs text-slate-500">
-                                            {row.clockings.length > 0 ? row.clockings.join("  |  ") : "No clocks"}
-                                          </td>
-                                          <td className="border-b border-slate-200 px-3 py-3 text-right">
+                                        <div key={`${employee.employeeCode}-${row.dateKey}-mobile`} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                              <div className="text-sm font-semibold text-white">{row.dateLabel}</div>
+                                              <div className="text-xs text-slate-400">{row.weekdayLabel} | {row.weekLabel}</div>
+                                            </div>
                                             <Badge className={getStatusTone(row.status)}>{row.status}</Badge>
-                                          </td>
-                                          <td className="border-b border-slate-200 px-3 py-3"></td>
-                                        </tr>
+                                          </div>
+                                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
+                                            <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Roster: {row.scheduleLabel}</div>
+                                      <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Worked: {formatWorkedHours(row.payableHours)}</div>
+                                            <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">In: {row.firstClock || "-"}</div>
+                                            <div className="rounded-lg bg-slate-900/50 px-2 py-1.5">Out: {row.lastClock || "-"}</div>
+                                            {previewIsPayrollReport && (
+                                              <div className="rounded-lg bg-emerald-950/30 px-2 py-1.5 text-emerald-200">Pay: {formatPayrollMoney(row.payAmount)}</div>
+                                            )}
+                                            {previewIsPayrollReport && row.overtimePayAmount > 0 && (
+                                              <div className="rounded-lg bg-amber-950/30 px-2 py-1.5 text-amber-200">Overtime: {formatPayrollMoney(row.overtimePayAmount)}</div>
+                                            )}
+                                          </div>
+                                          <div className="mt-2 text-xs text-slate-400">Clocks ({row.clockCount}): {row.clockings.length > 0 ? row.clockings.join(" | ") : "No clocks"}</div>
+                                        </div>
                                       ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </section>
+                                    </div>
+
+                                    <div className="section-tech-table mt-5 hidden md:block">
+                                      <table className="w-full min-w-[980px] border-collapse">
+                                        <thead className="bg-white/5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+                                          <tr>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-left">Shift Date</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-left">Day</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-left">Week</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-left">Roster</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-center">Worked Hrs</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-center">In</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-center">Out</th>
+                                            {previewIsPayrollReport && <th className="border-b border-slate-200 px-3 py-3 text-center">Pay</th>}
+                                            <th className="border-b border-slate-200 px-3 py-3 text-left">Clocks</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-right">Status</th>
+                                            <th className="border-b border-slate-200 px-3 py-3 text-left">Notes</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="bg-transparent text-sm text-slate-200">
+                                          {employee.rows.map((row) => (
+                                            <tr key={`${employee.employeeCode}-${row.dateKey}`} className="align-top">
+                                              <td className="border-b border-slate-200 px-3 py-3">
+                                                <div className="font-medium text-white">{row.dateLabel}</div>
+                                                {row.holidayTitle ? <div className="mt-1 text-xs text-rose-600">{row.holidayTitle}</div> : null}
+                                              </td>
+                                              <td className="border-b border-slate-200 px-3 py-3">{row.weekdayLabel}</td>
+                                              <td className="border-b border-slate-200 px-3 py-3">{row.weekLabel}</td>
+                                              <td className="border-b border-slate-200 px-3 py-3 font-medium text-slate-900">
+                                      <div>{row.scheduleLabel}</div>
+                                      {row.rosterVersionFrom ? (
+                                        <div className="mt-1 text-[11px] font-normal text-slate-500">From {row.rosterVersionFrom}</div>
+                                      ) : null}
+                                    </td>
+                                  <td className="border-b border-slate-200 px-3 py-3 text-center">{formatWorkedHours(row.payableHours)}</td>
+                                              <td className="border-b border-slate-200 px-3 py-3 text-center">{row.firstClock || "-"}</td>
+                                              <td className="border-b border-slate-200 px-3 py-3 text-center">{row.lastClock || "-"}</td>
+                                              {previewIsPayrollReport && <td className="border-b border-slate-200 px-3 py-3 text-center">{formatPayrollMoney(row.payAmount)}</td>}
+                                              <td className="border-b border-slate-200 px-3 py-3 text-xs text-slate-500">
+                                                {row.clockings.length > 0 ? row.clockings.join("  |  ") : "No clocks"}
+                                              </td>
+                                              <td className="border-b border-slate-200 px-3 py-3 text-right">
+                                                <Badge className={getStatusTone(row.status)}>{row.status}</Badge>
+                                              </td>
+                                              <td className="border-b border-slate-200 px-3 py-3"></td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 )}
