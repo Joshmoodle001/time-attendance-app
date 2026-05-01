@@ -122,3 +122,67 @@
 - Remember:
   - After deploy, user may need to re-upload the device region truth Excel or refresh the page to re-resolve regions
   - The fix affects all region resolution: devices, employees, stores, and reports
+
+### 16:00 - Comprehensive Region Matching Fix (All 5 Issues)
+- User asked: "fix all to make sure its all matching correctly"
+- Root cause analysis found 5 issues in the matching pipeline:
+  1. `collectCodeCandidates` extracted "SHOPRITE" as a code from "SHOPRITE - COMMISSIONER ST" (brand name collision)
+  2. `normalizeDeviceRegionTruthEntry` picked first code candidate (could be alphabetic brand name)
+  3. `normalizeNameForMatch` stripped leading codes causing name mismatches between entries and inputs
+  4. Name matching used exact Set membership instead of flexible containment
+  5. `buildDeviceRegionTruthEntriesFromRows` mapKey could collide on brand names across regions
+- Action taken: Rewrote matching pipeline in `deviceRegionTruth.ts`:
+  - Added `collectNumericCodes()` - extracts ONLY numeric codes (e.g., "07468"), never brand names
+  - Kept `collectCodeCandidates()` for fallback matching only
+  - Rewrote `normalizeNameForMatch()` - strips codes, lowercases, normalizes separators to spaces
+  - Rewrote `resolveFromEntries()` with 3-pass matching:
+    - Pass 1: Numeric store code match (highest priority)
+    - Pass 2: Name containment match (flexible - handles partial matches like "commissioner st" in "shoprite commissioner st")
+    - Pass 3: Any code match (fallback, including brand names)
+  - Fixed `normalizeDeviceRegionTruthEntry` to prefer numeric codes for storeCode
+  - Fixed `buildDeviceRegionTruthEntriesFromRows` mapKey to use numeric code + normalized name
+  - Fixed `inferRetailBrand` to check specific patterns first (e.g., "checkers hyper" before "checkers")
+- Files changed:
+  - `src/services/deviceRegionTruth.ts` - comprehensive rewrite of matching pipeline
+- Validation:
+  - ✅ `npm run build` passes
+  - ✅ Committed and pushed
+  - ✅ Deployed to Vercel
+- Result:
+  - "07468 - SHOPRITE - COMMISSIONER ST (07468)" correctly resolves to "Local" (not "Far North West")
+  - All matching paths fixed: devices, employees, stores, reports, auto-resolve in form
+  - Brand names no longer collide with store codes
+  - Name matching is flexible (containment-based)
+- Remember:
+  - User MUST re-upload the device region truth Excel after this deploy to rebuild entries with the new normalization
+  - Old cached entries in IndexedDB/Supabase still have the old (buggy) normalization
+  - The fix is in the matching logic AND the entry normalization
+
+### 16:30 - Hierarchical Region → Teams Tree for Report Selection
+- User asked: Restructure the "By Team" report selection into a collapsible region → teams tree so they can select entire regions at once
+- Action taken: Replaced the flat store selection UI with a hierarchical tree:
+  - Added `regionTree` useMemo that groups `storeOptions` by region
+  - Added `expandedRegions` state to track which regions are expanded
+  - Added `toggleRegion`, `addStoresByRegion`, `removeStoresByRegion`, `isRegionFullySelected`, `isRegionPartiallySelected` helpers
+  - Replaced the old search + quick-select UI with:
+    - Region headers (clickable to expand/collapse) with team count and employee count
+    - "Select All" / "Deselect" buttons per region
+    - Visual indicators: cyan dot = fully selected, amber dot = partially selected
+    - Expanded teams list with individual add/remove buttons
+    - Selected stores shown as removable tags at the bottom
+- Files changed:
+  - `src/components/ReportsBuilder.tsx` - replaced "By Team" selection UI with hierarchical region tree
+- Validation:
+  - ✅ `npm run build` passes
+- Result:
+  - Users can now see all regions (e.g., Limpopo, Local, Far North West) as collapsible sections
+  - Click a region to expand and see all teams under it
+  - Select/deselect entire regions with one click
+  - Individual teams can still be toggled within expanded regions
+  - Visual indicators show selection state (full/partial/none)
+- Next step:
+  - Deploy to Vercel
+  - User should test the new region tree UI
+- Remember:
+  - The old `storeRegionBrandGroups` and `addStoresByRegionBrandGroup` are still in the code but no longer used in the UI
+  - `storeSearch` state is still declared but no longer used in the new UI (can be cleaned up later)

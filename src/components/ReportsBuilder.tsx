@@ -879,6 +879,7 @@ export default function ReportsBuilder({
   const [includeInactiveProfiles, setIncludeInactiveProfiles] = useState(false);
   const [storeSearch, setStoreSearch] = useState("");
   const [selectedStores, setSelectedStores] = useState<string[]>([]);
+  const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [selectedEmployeeCodes, setSelectedEmployeeCodes] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
@@ -1029,6 +1030,78 @@ export default function ReportsBuilder({
 
     return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [storeOptions]);
+
+  // Hierarchical region → teams tree for selection UI
+  const regionTree = useMemo(() => {
+    const regions = new Map<string, {
+      key: string;
+      label: string;
+      teams: StoreOption[];
+      totalEmployees: number;
+    }>();
+
+    storeOptions.forEach((option) => {
+      const region = option.region || "Unassigned";
+      const key = normalizeCompare(region);
+      if (!regions.has(key)) {
+        regions.set(key, {
+          key,
+          label: region.charAt(0).toUpperCase() + region.slice(1).toLowerCase(),
+          teams: [],
+          totalEmployees: 0,
+        });
+      }
+      const group = regions.get(key)!;
+      group.teams.push(option);
+      group.totalEmployees += option.employeeCount;
+    });
+
+    return Array.from(regions.values())
+      .map((r) => ({
+        ...r,
+        teams: [...r.teams].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [storeOptions]);
+
+  const toggleRegion = (regionKey: string) => {
+    setExpandedRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(regionKey)) next.delete(regionKey);
+      else next.add(regionKey);
+      return next;
+    });
+  };
+
+  const addStoresByRegion = (regionKey: string) => {
+    const region = regionTree.find((r) => r.key === regionKey);
+    if (!region) return;
+    const keys = region.teams.map((t) => t.key);
+    setSelectedStores((current) => {
+      const currentSet = new Set(current);
+      keys.forEach((key) => currentSet.add(key));
+      return Array.from(currentSet);
+    });
+  };
+
+  const removeStoresByRegion = (regionKey: string) => {
+    const region = regionTree.find((r) => r.key === regionKey);
+    if (!region) return;
+    const removeSet = new Set(region.teams.map((t) => t.key));
+    setSelectedStores((current) => current.filter((k) => !removeSet.has(k)));
+  };
+
+  const isRegionFullySelected = (regionKey: string) => {
+    const region = regionTree.find((r) => r.key === regionKey);
+    if (!region || region.teams.length === 0) return false;
+    return region.teams.every((t) => selectedStores.includes(t.key));
+  };
+
+  const isRegionPartiallySelected = (regionKey: string) => {
+    const region = regionTree.find((r) => r.key === regionKey);
+    if (!region || region.teams.length === 0) return false;
+    return region.teams.some((t) => selectedStores.includes(t.key)) && !isRegionFullySelected(regionKey);
+  };
 
   // Store search with partial matching - shows full store name + employee count
   const storeSearchResults = useMemo(() => {
@@ -2590,16 +2663,6 @@ export default function ReportsBuilder({
                 <div className="mt-4 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-slate-500">Quick select:</span>
-                    {storeRegionBrandGroups.map((group) => (
-                      <button
-                        key={group.label}
-                        type="button"
-                        onClick={() => addStoresByRegionBrandGroup(group.key)}
-                        className="rounded-full border border-cyan-500/30 bg-cyan-950/20 px-3 py-1 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-900/40"
-                      >
-                        {group.label} ({group.count})
-                      </button>
-                    ))}
                     <button
                       type="button"
                       onClick={addAllStores}
@@ -2617,51 +2680,119 @@ export default function ReportsBuilder({
                       </button>
                     )}
                   </div>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                    <Input
-                      value={storeSearch}
-                      onChange={(event) => setStoreSearch(event.target.value)}
-                      className="border-white/10 bg-[#0d1117] pl-9 text-white placeholder:text-slate-500"
-                        placeholder="Search team name or code..."
-                    />
+
+                  {/* Hierarchical Region → Teams Tree */}
+                  <div className="max-h-72 overflow-y-auto space-y-2 rounded-lg border border-white/10 p-3">
+                    {regionTree.map((region) => {
+                      const isExpanded = expandedRegions.has(region.key);
+                      const fullySelected = isRegionFullySelected(region.key);
+                      const partiallySelected = isRegionPartiallySelected(region.key);
+
+                      return (
+                        <div key={region.key}>
+                          {/* Region header - clickable to expand/collapse */}
+                          <button
+                            type="button"
+                            onClick={() => toggleRegion(region.key)}
+                            className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-left transition hover:bg-white/10"
+                          >
+                            <div className="flex items-center gap-2">
+                              <svg
+                                className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                              </svg>
+                              <span className="text-sm font-semibold text-white">{region.label}</span>
+                              <span className="text-xs text-slate-400">({region.teams.length} teams, {region.totalEmployees} employees)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {/* Region select/deselect buttons */}
+                              {!fullySelected ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addStoresByRegion(region.key);
+                                  }}
+                                  className="rounded-full border border-cyan-500/30 bg-cyan-950/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 transition hover:bg-cyan-900/40"
+                                >
+                                  Select All
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeStoresByRegion(region.key);
+                                  }}
+                                  className="rounded-full border border-red-500/30 bg-red-950/20 px-2 py-0.5 text-[10px] font-semibold text-red-300 transition hover:bg-red-900/40"
+                                >
+                                  Deselect
+                                </button>
+                              )}
+                              {fullySelected && (
+                                <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                              )}
+                              {partiallySelected && (
+                                <span className="h-2 w-2 rounded-full bg-amber-400" />
+                              )}
+                            </div>
+                          </button>
+
+                          {/* Expanded teams list */}
+                          {isExpanded && (
+                            <div className="ml-4 mt-1 space-y-1 border-l-2 border-white/10 pl-4">
+                              {region.teams.map((team) => {
+                                const isSelected = selectedStores.includes(team.key);
+                                return (
+                                  <button
+                                    key={team.key}
+                                    type="button"
+                                    onClick={() => (isSelected ? removeStore(team.key) : addStore(team.key))}
+                                    className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition ${
+                                      isSelected
+                                        ? "border border-cyan-500/30 bg-cyan-950/20"
+                                        : "border border-transparent hover:bg-white/5"
+                                    }`}
+                                  >
+                                    <div>
+                                      <div className="text-sm font-medium text-white">{team.displayName}</div>
+                                      <div className="text-xs text-slate-500">
+                                        {team.employeeCount} {team.employeeCount === 1 ? "employee" : "employees"}
+                                      </div>
+                                    </div>
+                                    {isSelected ? (
+                                      <span className="text-xs font-semibold text-cyan-400">✓</span>
+                                    ) : (
+                                      <span className="text-xs font-semibold text-slate-500">+ Add</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {storeSearchResults.length > 0 && (
-                    <div className="overflow-hidden rounded-lg border border-white/10">
-                      {storeSearchResults.map((result) => (
-                        <button key={result.key} type="button" onClick={() => addStore(result.key)} className="flex w-full items-center justify-between border-b border-white/5 px-4 py-3 text-left transition hover:bg-white/5 last:border-b-0">
-                          <div>
-                            <div className="text-sm font-medium text-white">{result.displayName}</div>
-                            <div className="text-xs text-slate-500">
-                              {result.employeeCount} {result.employeeCount === 1 ? "employee" : "employees"} ready for grouping
-                            </div>
-                          </div>
-                          <span className="text-xs font-semibold text-cyan-400">+ Add</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {storeSearch && storeSearchResults.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-white/10 px-4 py-3 text-center text-sm text-slate-500">
-                              No team with reportable employee profiles matched that search.
-                    </div>
-                  )}
-
-                  {selectedStoreOptions.length > 0 && (
-                    <div className="max-h-40 overflow-y-auto rounded-lg border border-white/10 p-2">
+                  {selectedStores.length > 0 && (
+                    <div className="max-h-32 overflow-y-auto rounded-lg border border-white/10 p-2">
                       <div className="flex flex-wrap gap-2">
-                      {selectedStoreOptions.map((store) => (
-                        <button
-                          key={store.key}
-                          type="button"
-                          onClick={() => removeStore(store.key)}
-                          className="rounded-full border border-cyan-500/30 bg-cyan-950/30 px-3 py-1 text-sm text-cyan-300 transition hover:bg-cyan-900/50"
-                        >
-                          {store.displayName} ×
-                        </button>
-                      ))}
+                        {selectedStoreOptions.map((store) => (
+                          <button
+                            key={store.key}
+                            type="button"
+                            onClick={() => removeStore(store.key)}
+                            className="rounded-full border border-cyan-500/30 bg-cyan-950/30 px-3 py-1 text-sm text-cyan-300 transition hover:bg-cyan-900/50"
+                          >
+                            {store.displayName} ×
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
