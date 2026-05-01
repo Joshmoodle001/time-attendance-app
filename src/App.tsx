@@ -3113,7 +3113,7 @@ export default function App({ initialSession = null }: AppProps) {
           const teamValue = String(entries.team || "");
           const teamScope = getTeamScopeInfo(teamValue, entries.store || entries.branch || "", entries.store_code || entries.storecode || "");
           const storeAssignment = parseStoreAssignment(entries);
-          const region = String(entries.region || storeAssignment.derivedRegion || parseRegionFromDepartment(String(entries.department || "")) || "");
+          const region = ""; // Region assigned separately via device region truth matching
           const normalizedStatus = normalizeEmployeeStatusValue(entries.status);
 
           return {
