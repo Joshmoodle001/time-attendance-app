@@ -68,3 +68,36 @@
   - Brand is inferred from store/team name via `inferRetailBrand()` (Checkers/Shoprite detection)
   - Region comes from device region truth mapping (overrides employee region at runtime)
   - Region-brand key = normalized "region brand" string (e.g. "limpopo checkers")
+
+## Session Log - 2026-05-01 (Afternoon)
+
+### 14:00 - Add Region Column to EmployeesHub + Auto-Resolve on Team Change
+- User asked: Continue with next steps from the region sync plan
+- Action taken: Added Region column to EmployeesHub table, mobile cards, edit form, and auto-resolve logic
+- Files changed:
+  - `src/components/EmployeesHub.tsx`:
+    - Added Region column header to desktop table (between Team and Custom 1)
+    - Added Region badge cell to desktop table body (purple badge styling)
+    - Added Region display to mobile employee cards
+    - Added Region input field to employee edit/add form
+    - Added `deviceRegionTruth` state + useEffect to load truth on mount
+    - Added `autoResolveRegion` callback that resolves region from device truth when team/store changes
+    - Updated Team and Store input onChange handlers to trigger auto-resolve
+    - Added `employee.region` to search fields for filtering
+    - Imported `resolveDeviceRegionForInput` from deviceRegionTruth service
+- Validation:
+  - ✅ `npm run build` passes (TypeScript + Vite)
+- Result:
+  - Region now visible in employee table (desktop + mobile)
+  - Region editable in employee add/edit form
+  - Region auto-populates when team or store is changed (if device region truth is loaded)
+  - Region is searchable in the employee search bar
+  - Region already syncs to Supabase on update (existing `updateEmployee` flow includes region field)
+- Next step:
+  - User should upload the device region truth Excel file to enable auto-resolve
+  - Verify region matching works with actual employee team/store data
+  - Consider adding region to emergency upload flow for bulk updates
+- Remember:
+  - Auto-resolve only works if device region truth has been uploaded and stored
+  - Region resolution uses `resolveDeviceRegionForInput()` which matches by store code and normalized name
+  - Employee region is also resolved at load time via `applyDeviceRegionsToEmployees()`

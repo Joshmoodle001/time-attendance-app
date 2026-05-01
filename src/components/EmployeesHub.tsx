@@ -27,7 +27,7 @@ import {
   type Employee,
   type EmployeeInput,
 } from "@/services/database";
-import { applyDeviceRegionsToEmployees, loadStoredDeviceRegionTruth } from "@/services/deviceRegionTruth";
+import { applyDeviceRegionsToEmployees, loadStoredDeviceRegionTruth, resolveDeviceRegionForInput } from "@/services/deviceRegionTruth";
 import {
   getEmployeeUpdateUploadLogs,
   type EmployeeUpdateReportItem,
@@ -153,6 +153,20 @@ export default function EmployeesHub({
   const [expandedStaffListLogDates, setExpandedStaffListLogDates] = useState<Set<string>>(new Set());
   const [showUploadHistory, setShowUploadHistory] = useState(false);
   const employeeRequestRef = useRef<{ fetchedAt: number; inFlight: boolean }>({ fetchedAt: 0, inFlight: false });
+  const [deviceRegionTruth, setDeviceRegionTruth] = useState<Awaited<ReturnType<typeof loadStoredDeviceRegionTruth>>>(null);
+
+  // Load device region truth once
+  useEffect(() => {
+    void loadStoredDeviceRegionTruth().then(setDeviceRegionTruth);
+  }, []);
+
+  // Auto-resolve region from device truth when team/store changes
+  const autoResolveRegion = useCallback((team: string, store: string, storeCode: string) => {
+    const resolved = resolveDeviceRegionForInput(deviceRegionTruth, { team, store, storeCode });
+    if (resolved?.region) {
+      setEmployeeFormData((prev) => ({ ...prev, region: resolved.region }));
+    }
+  }, [deviceRegionTruth]);
 
   // Form state
   const [employeeFormData, setEmployeeFormData] = useState<EmployeeInput>({
@@ -334,6 +348,7 @@ export default function EmployeesHub({
         employee.job_code,
         employee.job_title,
         employee.team,
+        employee.region,
         employee.custom_1,
         employee.custom_2,
         employee.nationality,
@@ -859,6 +874,10 @@ export default function EmployeesHub({
                         <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Role</div>
                         <div className="mt-1 text-slate-200">{employee.job_title || employee.department || "-"}</div>
                       </div>
+                      <div className="rounded-xl bg-slate-800/60 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Region</div>
+                        <div className="mt-1 text-slate-200">{employee.region || "-"}</div>
+                      </div>
                     </div>
 
                     <div className="mt-3 rounded-xl bg-slate-800/60 px-3 py-2">
@@ -928,6 +947,7 @@ export default function EmployeesHub({
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Job Code</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Job Title</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Team</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Region</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 1</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Custom 2</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-cyan-400">Nationality</th>
@@ -979,6 +999,15 @@ export default function EmployeesHub({
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.job_code || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.job_title || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.team || "-"}</td>
+                          <td className="px-4 py-3 text-sm">
+                            {employee.region ? (
+                              <Badge className="bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                {employee.region}
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_1 || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.custom_2 || "-"}</td>
                           <td className="px-4 py-3 text-sm text-slate-300">{employee.nationality || "-"}</td>
@@ -1221,7 +1250,11 @@ export default function EmployeesHub({
                   <label className="block text-sm font-medium mb-1">Store</label>
                   <Input
                     value={employeeFormData.store}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, store: e.target.value })}
+                    onChange={(e) => {
+                      const newStore = e.target.value;
+                      setEmployeeFormData((prev) => ({ ...prev, store: newStore }));
+                      autoResolveRegion(employeeFormData.team || "", newStore, employeeFormData.store_code || "");
+                    }}
                     placeholder="e.g., Checkers Amanzimtoti"
                   />
                 </div>
@@ -1269,8 +1302,20 @@ export default function EmployeesHub({
                   <label className="block text-sm font-medium mb-1">Team</label>
                   <Input
                     value={employeeFormData.team}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, team: e.target.value })}
+                    onChange={(e) => {
+                      const newTeam = e.target.value;
+                      setEmployeeFormData((prev) => ({ ...prev, team: newTeam }));
+                      autoResolveRegion(newTeam, employeeFormData.store || "", employeeFormData.store_code || "");
+                    }}
                     placeholder="e.g., 2482 - STRIKE TEAM"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Region</label>
+                  <Input
+                    value={employeeFormData.region}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, region: e.target.value })}
+                    placeholder="e.g., GAUTENG"
                   />
                 </div>
                 <div>
