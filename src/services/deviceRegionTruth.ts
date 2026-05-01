@@ -357,16 +357,6 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
     input.name
   );
 
-  // All codes (including brand names) for fallback
-  const allCodes = collectCodeCandidates(
-    input.team,
-    input.store,
-    input.storeName,
-    input.store_code,
-    input.storeCode,
-    input.name
-  );
-
   // Normalized names for matching
   const candidateNames = [
     normalizeNameForMatch(input.team),
@@ -407,16 +397,11 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
     }) || null;
   }
 
-  // Pass 3: Match by any code (including brand names - last resort fallback)
-  if (!matchedEntry && allCodes.size > 0) {
-    matchedEntry = entries.find((entry) => {
-      const entryCodes = collectCodeCandidates(entry.storeCode, entry.deviceLabel, entry.storeName);
-      for (const code of allCodes) {
-        if (entryCodes.has(code)) return true;
-      }
-      return false;
-    }) || null;
-  }
+  // Pass 3 removed — brand-name-only matches caused false assignments.
+  // If a store/device is not in the region truth document by numeric code or name,
+  // it should remain unassigned rather than getting a wrong region from a brand collision.
+  // Example: "PNP CORP - WATERFALL MALL (NC17)" was matching "Far North West" because
+  // "PNP" was extracted as a code and matched any entry containing "PNP".
 
   if (!matchedEntry) return null;
 
