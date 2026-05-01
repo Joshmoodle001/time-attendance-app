@@ -52,19 +52,30 @@ function stripTrailingBracketCode(value: string) {
   return value.replace(/\s*\(([^)]+)\)\s*$/, "").trim();
 }
 
-function normalizeNameForMatch(value: unknown) {
-  return normalizeScopeCompare(stripTrailingBracketCode(stripLeadingCode(normalizeScopeText(value))));
+// Extract ONLY numeric store codes (e.g., "07468"). Brand names like "SHOPRITE" are NOT codes.
+function collectNumericCodes(...values: unknown[]) {
+  const codes = new Set<string>();
+
+  values.forEach((value) => {
+    const text = normalizeScopeText(value);
+    if (!text) return;
+
+    // Leading numeric code: "07468 - ..."
+    const leading = text.match(/^(\d+)\s*-\s*/);
+    if (leading?.[1]) codes.add(leading[1]);
+
+    // Trailing numeric code in parentheses: "... (07468)"
+    const trailing = text.match(/\((\d+)\)\s*$/);
+    if (trailing?.[1]) codes.add(trailing[1]);
+
+    // Entire value is a numeric code
+    if (/^\d+$/.test(text)) codes.add(text);
+  });
+
+  return codes;
 }
 
-function toTitleCase(value: string) {
-  return value
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
+// Extract all code candidates (numeric + alphabetic) for fallback matching
 function collectCodeCandidates(...values: unknown[]) {
   const codes = new Set<string>();
 
@@ -86,13 +97,35 @@ function collectCodeCandidates(...values: unknown[]) {
   return codes;
 }
 
+// Normalize a value for name matching: strip codes, lowercase, collapse separators
+function normalizeNameForMatch(value: unknown) {
+  const text = normalizeScopeText(value);
+  if (!text) return "";
+  // Strip trailing bracket code first
+  const stripped = stripTrailingBracketCode(text);
+  // Strip leading code (numeric or alphabetic)
+  const cleaned = stripLeadingCode(stripped);
+  // Lowercase and normalize separators to spaces
+  return normalizeScopeCompare(cleaned).replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function toTitleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function inferRetailBrand(value: unknown) {
   const text = normalizeScopeCompare(value);
   if (!text) return "";
-  if (text.includes("checkers")) return "Checkers";
-  if (text.includes("shoprite")) return "Shoprite";
+  // Check more specific patterns first
   if (text.includes("checkers hyper")) return "Checkers";
   if (text.includes("shoprite hyper")) return "Shoprite";
+  if (text.includes("checkers")) return "Checkers";
+  if (text.includes("shoprite")) return "Shoprite";
 
   const cleaned = stripTrailingBracketCode(stripLeadingCode(normalizeScopeText(value)));
   const parts = cleaned.split(/\s*-\s*/).map((part) => part.trim()).filter(Boolean);
@@ -111,7 +144,13 @@ function normalizeDeviceRegionTruthEntry(
   const region = normalizeScopeText(entry.region).toUpperCase();
   if (!deviceLabel || !region) return null;
 
-  const storeCode = normalizeScopeText(entry.storeCode) || Array.from(collectCodeCandidates(deviceLabel))[0] || "";
+  const numericCandidates = collectNumericCodes(deviceLabel);
+  const allCandidates = collectCodeCandidates(deviceLabel);
+  // Prefer numeric store codes over alphabetic ones (brand names)
+  const storeCode = normalizeScopeText(entry.storeCode)
+    || Array.from(numericCandidates)[0]
+    || Array.from(allCandidates)[0]
+    || "";
   const storeName = normalizeScopeText(entry.storeName) || stripTrailingBracketCode(stripLeadingCode(deviceLabel)) || deviceLabel;
   const scope = getTeamScopeInfo(deviceLabel, storeName, storeCode);
   const brand = normalizeScopeText(entry.brand) || inferRetailBrand(storeName || scope.label);
@@ -307,7 +346,9 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
     input.storeName ?? input.store,
     input.storeCode ?? input.store_code
   );
-  const candidateCodes = collectCodeCandidates(
+
+  // Numeric codes only (real store codes like "07468")
+  const numericCodes = collectNumericCodes(
     input.team,
     input.store,
     input.storeName,
@@ -315,55 +356,66 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
     input.storeCode,
     input.name
   );
-  const candidateNames = new Set(
-    [
-      normalizeNameForMatch(input.team),
-      normalizeNameForMatch(input.store),
-      normalizeNameForMatch(input.storeName),
-      normalizeNameForMatch(input.name),
-      normalizeNameForMatch(scope.label),
-      normalizeNameForMatch(scope.name),
-    ].filter(Boolean)
+
+  // All codes (including brand names) for fallback
+  const allCodes = collectCodeCandidates(
+    input.team,
+    input.store,
+    input.storeName,
+    input.store_code,
+    input.storeCode,
+    input.name
   );
 
-  // Separate numeric codes (real store codes) from alphabetic codes (brand names)
-  const numericCodes = new Set(Array.from(candidateCodes).filter((c) => /^\d+$/.test(c)));
-  const alphaCodes = new Set(Array.from(candidateCodes).filter((c) => !/^\d+$/.test(c)));
+  // Normalized names for matching
+  const candidateNames = [
+    normalizeNameForMatch(input.team),
+    normalizeNameForMatch(input.store),
+    normalizeNameForMatch(input.storeName),
+    normalizeNameForMatch(input.name),
+    normalizeNameForMatch(scope.label),
+    normalizeNameForMatch(scope.name),
+  ].filter(Boolean);
 
-  // Pass 1: Match by numeric store code only (highest priority - avoids brand name collisions)
-  let matchedEntry =
-    numericCodes.size > 0
-      ? entries.find((entry) => {
-          const entryCodes = collectCodeCandidates(entry.storeCode, entry.deviceLabel, entry.storeName);
-          for (const code of numericCodes) {
-            if (entryCodes.has(code)) return true;
-          }
-          return false;
-        })
-      : null;
+  // Pass 1: Match by numeric store code (highest priority - avoids brand name collisions)
+  let matchedEntry: DeviceRegionTruthEntry | null = null;
 
-  // Pass 2: Match by normalized name
-  if (!matchedEntry && candidateNames.size > 0) {
+  if (numericCodes.size > 0) {
     matchedEntry = entries.find((entry) => {
-      const entryNames = new Set(
-        [normalizeNameForMatch(entry.deviceLabel), normalizeNameForMatch(entry.storeName), normalizeNameForMatch(entry.teamLabel)].filter(Boolean)
-      );
-      for (const name of candidateNames) {
-        if (entryNames.has(name)) return true;
+      const entryNumericCodes = collectNumericCodes(entry.storeCode, entry.deviceLabel, entry.storeName);
+      for (const code of numericCodes) {
+        if (entryNumericCodes.has(code)) return true;
       }
       return false;
-    });
+    }) || null;
   }
 
-  // Pass 3: Match by any code (including brand names - fallback)
-  if (!matchedEntry && candidateCodes.size > 0) {
+  // Pass 2: Match by name containment (flexible - handles partial matches)
+  if (!matchedEntry && candidateNames.length > 0) {
+    matchedEntry = entries.find((entry) => {
+      const entryDeviceName = normalizeNameForMatch(entry.deviceLabel);
+      const entryStoreName = normalizeNameForMatch(entry.storeName);
+      const entryTeamName = normalizeNameForMatch(entry.teamLabel);
+
+      for (const name of candidateNames) {
+        // Check containment in both directions
+        if (entryDeviceName.includes(name) || name.includes(entryDeviceName)) return true;
+        if (entryStoreName.includes(name) || name.includes(entryStoreName)) return true;
+        if (entryTeamName.includes(name) || name.includes(entryTeamName)) return true;
+      }
+      return false;
+    }) || null;
+  }
+
+  // Pass 3: Match by any code (including brand names - last resort fallback)
+  if (!matchedEntry && allCodes.size > 0) {
     matchedEntry = entries.find((entry) => {
       const entryCodes = collectCodeCandidates(entry.storeCode, entry.deviceLabel, entry.storeName);
-      for (const code of candidateCodes) {
+      for (const code of allCodes) {
         if (entryCodes.has(code)) return true;
       }
       return false;
-    });
+    }) || null;
   }
 
   if (!matchedEntry) return null;
@@ -457,7 +509,11 @@ export function buildDeviceRegionTruthEntriesFromRows(rows: Array<{ deviceLabel:
     });
     if (!entry) return;
 
-    const mapKey = `${entry.storeCode.toLowerCase()}__${normalizeNameForMatch(entry.storeName || entry.deviceLabel)}`;
+    // Use numeric store code + normalized device label as key to avoid brand name collisions
+    const numericCode = Array.from(collectNumericCodes(entry.deviceLabel))[0] || entry.storeCode;
+    const normalizedName = normalizeNameForMatch(entry.deviceLabel);
+    const mapKey = `${numericCode}__${normalizedName}`;
+
     if (!entries.has(mapKey)) {
       entries.set(mapKey, entry);
     }

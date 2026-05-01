@@ -101,3 +101,24 @@
   - Auto-resolve only works if device region truth has been uploaded and stored
   - Region resolution uses `resolveDeviceRegionForInput()` which matches by store code and normalized name
   - Employee region is also resolved at load time via `applyDeviceRegionsToEmployees()`
+
+### 15:30 - Fix Region Matching Bug: Brand Names Colliding with Store Codes
+- User reported: "07468 - SHOPRITE - COMMISSIONER ST (07468)" is listed under "Local" region in the Excel but shows as "Far North West" in the Devices table
+- Root cause: `resolveFromEntries()` in `deviceRegionTruth.ts` used `entries.find()` which returns the FIRST match. Entries are sorted alphabetically by region ("Far North West" before "Local"). The function `collectCodeCandidates` extracted "shoprite" as a code candidate from "SHOPRITE - COMMISSIONER ST" (matching the pattern `^([A-Za-z0-9]+)\s*-\s*`). This caused ANY Shoprite entry to match, and the first one alphabetically was a "Far North West" entry.
+- Action taken: Rewrote `resolveFromEntries()` with 3-pass matching:
+  1. Pass 1: Match by numeric store code only (e.g., "07468") - highest priority
+  2. Pass 2: Match by normalized name
+  3. Pass 3: Match by any code including brand names - fallback only
+- Files changed:
+  - `src/services/deviceRegionTruth.ts` - rewrote `resolveFromEntries()` with 3-pass matching
+- Validation:
+  - ✅ `npm run build` passes
+  - ✅ Committed and pushed
+  - ✅ Deployed to Vercel
+- Result:
+  - Numeric store codes (like "07468") now match before brand names (like "shoprite")
+  - "07468 - SHOPRITE - COMMISSIONER ST (07468)" will correctly resolve to "Local" region
+  - Same fix applies to employee region resolution and report grouping
+- Remember:
+  - After deploy, user may need to re-upload the device region truth Excel or refresh the page to re-resolve regions
+  - The fix affects all region resolution: devices, employees, stores, and reports
