@@ -424,10 +424,11 @@ export function applyDeviceRegionsToEmployees(employees: Employee[], data: Devic
 
   return employees.map((employee) => {
     const resolved = resolveFromEntries(data.entries, employee);
-    if (!resolved?.region) return employee;
+    // If matched in truth data → assign the correct region
+    // If NOT matched → clear the region (don't keep stale values from old uploads)
     return {
       ...employee,
-      region: resolved.region,
+      region: resolved?.region || "",
     };
   });
 }
@@ -443,9 +444,11 @@ export function applyDeviceRegionsToStores(stores: StoreInfo[], data: DeviceRegi
       storeCode: store.storeCode,
     });
 
+    // If matched in truth data → assign the correct region
+    // If NOT matched → clear the region (don't keep stale values)
     return {
       ...store,
-      region: resolved?.region || store.region,
+      region: resolved?.region || "",
     };
   });
 }
@@ -463,9 +466,11 @@ export function applyDeviceRegionsToDeviceRecords<T extends { storeCode?: string
       name: record.name,
     });
 
+    // If matched in truth data → assign the correct region
+    // If NOT matched → clear the region (don't keep stale values)
     return {
       ...record,
-      region: resolved?.region || record.region || "",
+      region: resolved?.region || "",
     };
   });
 }
