@@ -23,6 +23,7 @@ import {
   type DeviceRegionTruthData,
 } from "@/services/deviceRegionTruth";
 import { buildTeamAssignmentMatcher, getEmployeeScopeInfo, getTeamScopeInfo } from "@/services/teamScope";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import SuperAdminPanel from "@/components/SuperAdminPanel";
 import { motion } from "framer-motion";
 import type { WorkBook } from "xlsx";
@@ -521,6 +522,79 @@ async function writeDeviceCacheToIndexedDb(records: DeviceRecord[], importDate: 
       resolve(false);
     };
   });
+}
+
+// Supabase persistence for devices
+async function saveDevicesToSupabase(records: DeviceRecord[]): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    // Delete all existing devices, then insert new ones
+    const { error: deleteError } = await supabase.from("devices").delete().neq("id", "___none___");
+    if (deleteError) console.warn("Device cleanup warning:", deleteError.message);
+
+    const rows = records.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description || "",
+      store_code: r.storeCode || "",
+      store_name: r.storeName || "",
+      region: r.region || "",
+      device_type: r.deviceType,
+      reader_type: r.readerType || "",
+      status: r.status,
+      connected: r.connected || "",
+      has_time_and_attendance: r.hasTimeAndAttendance,
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Insert in batches to avoid payload limits
+    const batchSize = 100;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const { error } = await supabase.from("devices").insert(batch);
+      if (error) {
+        console.error("Device batch insert failed:", error.message);
+        return false;
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error("saveDevicesToSupabase failed:", error);
+    return false;
+  }
+}
+
+async function loadDevicesFromSupabase(): Promise<DeviceRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from("devices")
+      .select("*")
+      .order("store_name", { ascending: true });
+
+    if (error || !data) return null;
+
+    return data
+      .map((row: Record<string, unknown>) =>
+        normalizeDeviceRecordInput({
+          id: row.id as string,
+          name: row.name as string,
+          description: row.description as string,
+          storeCode: row.store_code as string,
+          storeName: row.store_name as string,
+          region: row.region as string,
+          deviceType: row.device_type as string,
+          readerType: row.reader_type as string,
+          status: row.status as "online" | "offline" | "warning",
+          connected: row.connected as string,
+          hasTimeAndAttendance: row.has_time_and_attendance as boolean,
+        })
+      )
+      .filter(Boolean) as DeviceRecord[];
+  } catch (error) {
+    console.error("loadDevicesFromSupabase failed:", error);
+    return null;
+  }
 }
 
 function readLegacyDeviceCacheFromLocalStorage(): DeviceCachePayload | null {
@@ -2351,31 +2425,42 @@ export default function App({ initialSession = null }: AppProps) {
         setDeviceRegionTruth(storedDeviceRegionTruth);
       }
 
-      const indexedDbDeviceCache = await readDeviceCacheFromIndexedDb();
+      // Try Supabase first for devices (cloud persistence)
+      const supabaseDevices = await loadDevicesFromSupabase();
       if (!alive) return;
 
-      if (indexedDbDeviceCache?.records.length) {
-        setDeviceRecords(indexedDbDeviceCache.records);
-      }
-      if (indexedDbDeviceCache?.importDate) {
-        setDeviceImportDate(indexedDbDeviceCache.importDate);
-      }
+      if (supabaseDevices?.length) {
+        setDeviceRecords(supabaseDevices);
+        // Also cache in IndexedDB for offline access
+        await writeDeviceCacheToIndexedDb(supabaseDevices, "");
+      } else {
+        // Fall back to IndexedDB/localStorage
+        const indexedDbDeviceCache = await readDeviceCacheFromIndexedDb();
+        if (!alive) return;
 
-      if (!indexedDbDeviceCache?.records.length) {
-        const legacyCache = readLegacyDeviceCacheFromLocalStorage();
-        if (legacyCache?.records.length) {
-          setDeviceRecords(legacyCache.records);
-          const migrated = await writeDeviceCacheToIndexedDb(legacyCache.records, legacyCache.importDate || "");
-          if (migrated && typeof window !== "undefined") {
-            try {
-              window.localStorage.removeItem(DEVICE_RECORDS_STORAGE_KEY);
-            } catch (error) {
-              console.error("Failed to clear legacy device cache after migration:", error);
+        if (indexedDbDeviceCache?.records.length) {
+          setDeviceRecords(indexedDbDeviceCache.records);
+        }
+        if (indexedDbDeviceCache?.importDate) {
+          setDeviceImportDate(indexedDbDeviceCache.importDate);
+        }
+
+        if (!indexedDbDeviceCache?.records.length) {
+          const legacyCache = readLegacyDeviceCacheFromLocalStorage();
+          if (legacyCache?.records.length) {
+            setDeviceRecords(legacyCache.records);
+            const migrated = await writeDeviceCacheToIndexedDb(legacyCache.records, legacyCache.importDate || "");
+            if (migrated && typeof window !== "undefined") {
+              try {
+                window.localStorage.removeItem(DEVICE_RECORDS_STORAGE_KEY);
+              } catch (error) {
+                console.error("Failed to clear legacy device cache after migration:", error);
+              }
             }
           }
-        }
-        if (legacyCache?.importDate) {
-          setDeviceImportDate(legacyCache.importDate);
+          if (legacyCache?.importDate) {
+            setDeviceImportDate(legacyCache.importDate);
+          }
         }
       }
 
@@ -4216,6 +4301,11 @@ export default function App({ initialSession = null }: AppProps) {
       const importStamp = new Date().toLocaleDateString();
       setDeviceRecords(parsed);
       setDeviceImportDate(importStamp);
+
+      // Save to Supabase (primary persistence)
+      const savedToSupabase = await saveDevicesToSupabase(parsed);
+
+      // Also save to IndexedDB as local cache
       const persistedToIndexedDb = await writeDeviceCacheToIndexedDb(parsed, importStamp);
       let usedLegacyFallback = false;
 
@@ -4238,8 +4328,10 @@ export default function App({ initialSession = null }: AppProps) {
         }
       }
 
-      if (persistedToIndexedDb || usedLegacyFallback) {
-        setSaveMessage(`Imported ${parsed.length} device records from ${file.name}`);
+      if (savedToSupabase) {
+        setSaveMessage(`Imported ${parsed.length} device records from ${file.name} (saved to cloud)`);
+      } else if (persistedToIndexedDb || usedLegacyFallback) {
+        setSaveMessage(`Imported ${parsed.length} device records from ${file.name} (saved locally only)`);
       } else {
         setSaveMessage(
           `Imported ${parsed.length} device records from ${file.name}, but browser storage is full so this upload is only kept for this session.`
@@ -4276,6 +4368,15 @@ export default function App({ initialSession = null }: AppProps) {
 
       await saveStoredDeviceRegionTruth(payload);
       setDeviceRegionTruth(payload);
+
+      // Re-save devices to Supabase with resolved regions
+      const resolvedDevices = applyDeviceRegionsToDeviceRecords(deviceRecords, payload);
+      if (resolvedDevices.length > 0) {
+        await saveDevicesToSupabase(resolvedDevices);
+        // Also update local cache
+        await writeDeviceCacheToIndexedDb(resolvedDevices, deviceImportDate || "");
+      }
+
       await loadEmployees({ force: true });
 
       if (session && (session.role === "rep" || session.role === "regional" || session.role === "divisional")) {

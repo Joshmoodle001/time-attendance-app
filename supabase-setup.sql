@@ -408,6 +408,31 @@ ALTER TABLE public.store_assignments ENABLE ROW LEVEL SECURITY;
 GRANT ALL ON public.store_assignments TO anon;
 GRANT ALL ON public.store_assignments TO authenticated;
 
+-- Devices table - persisted device registry with region assignments
+CREATE TABLE IF NOT EXISTS public.devices (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  store_code TEXT DEFAULT '',
+  store_name TEXT DEFAULT '',
+  region TEXT DEFAULT '',
+  device_type TEXT NOT NULL,
+  reader_type TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'warning',
+  connected TEXT DEFAULT '',
+  has_time_and_attendance BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON public.devices TO anon;
+GRANT ALL ON public.devices TO authenticated;
+
+CREATE INDEX IF NOT EXISTS idx_devices_store_code ON public.devices(store_code);
+CREATE INDEX IF NOT EXISTS idx_devices_region ON public.devices(region);
+CREATE INDEX IF NOT EXISTS idx_devices_status ON public.devices(status);
+
 -- =====================================================
 -- PUBLIC ACCESS POLICIES (for anon/authenticated roles)
 -- =====================================================
@@ -595,6 +620,26 @@ DROP POLICY IF EXISTS "Allow public update store_assignments" ON store_assignmen
 CREATE POLICY "Allow public read store_assignments" ON store_assignments FOR SELECT USING (true);
 CREATE POLICY "Allow public insert store_assignments" ON store_assignments FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update store_assignments" ON store_assignments FOR UPDATE USING (true);
+
+-- devices
+GRANT SELECT ON public.devices TO anon;
+GRANT INSERT ON public.devices TO anon;
+GRANT UPDATE ON public.devices TO anon;
+GRANT DELETE ON public.devices TO anon;
+GRANT SELECT ON public.devices TO authenticated;
+GRANT INSERT ON public.devices TO authenticated;
+GRANT UPDATE ON public.devices TO authenticated;
+GRANT DELETE ON public.devices TO authenticated;
+
+DROP POLICY IF EXISTS "Allow public read devices" ON devices;
+DROP POLICY IF EXISTS "Allow public insert devices" ON devices;
+DROP POLICY IF EXISTS "Allow public update devices" ON devices;
+DROP POLICY IF EXISTS "Allow public delete devices" ON devices;
+
+CREATE POLICY "Allow public read devices" ON devices FOR SELECT USING (true);
+CREATE POLICY "Allow public insert devices" ON devices FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update devices" ON devices FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete devices" ON devices FOR DELETE USING (true);
 
 -- =====================================================
 -- NEXT STEP
