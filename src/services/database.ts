@@ -1558,6 +1558,77 @@ export async function updateEmployee(id: string, updates: Partial<EmployeeInput>
   }
 }
 
+export async function updateEmployeeRegionsByCode(
+  updates: Array<{ employee_code: string; region: string }>
+): Promise<{ success: boolean; error?: string; count: number }> {
+  const normalizedUpdates = updates
+    .map((update) => ({
+      employee_code: normalizeEmployeeCode(update.employee_code),
+      region: String(update.region || '').trim(),
+    }))
+    .filter((update) => update.employee_code)
+
+  if (normalizedUpdates.length === 0) {
+    return { success: true, count: 0 }
+  }
+
+  const latestByCode = new Map<string, string>()
+  normalizedUpdates.forEach((update) => latestByCode.set(update.employee_code, update.region))
+
+  const now = new Date().toISOString()
+  const localEmployees = await loadStoredEmployees()
+  await saveStoredEmployees(
+    localEmployees.map((employee) => {
+      const normalizedCode = normalizeEmployeeCode(employee.employee_code)
+      if (!latestByCode.has(normalizedCode)) return employee
+      return {
+        ...employee,
+        region: latestByCode.get(normalizedCode) || '',
+        updated_at: now,
+      }
+    })
+  )
+
+  if (!isSupabaseConfigured) {
+    saveEmployeeSourceMode('local')
+    return { success: true, count: latestByCode.size }
+  }
+
+  try {
+    const groups = new Map<string, string[]>()
+    latestByCode.forEach((region, employeeCode) => {
+      const key = region || ''
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(employeeCode)
+    })
+
+    for (const [region, employeeCodes] of groups) {
+      for (let i = 0; i < employeeCodes.length; i += 250) {
+        const batch = employeeCodes.slice(i, i + 250)
+        const { error } = await supabase
+          .from('employees')
+          .update({ region, updated_at: now })
+          .in('employee_code', batch)
+
+        if (error) {
+          const message = getEmployeeStorageErrorMessage(error)
+          console.warn('Update employee regions warning:', message)
+          saveEmployeeSourceMode('local')
+          return { success: true, count: latestByCode.size, error: message }
+        }
+      }
+    }
+
+    saveEmployeeSourceMode('local')
+    return { success: true, count: latestByCode.size }
+  } catch (err) {
+    const message = getEmployeeStorageErrorMessage(err)
+    console.warn('Update employee regions warning:', message)
+    saveEmployeeSourceMode('local')
+    return { success: true, count: latestByCode.size, error: message }
+  }
+}
+
 export async function deleteEmployee(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     await saveStoredEmployees((await loadStoredEmployees()).filter((employee) => employee.id !== id))

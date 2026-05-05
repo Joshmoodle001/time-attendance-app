@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useCallback, useDeferredValue, useMemo, useRef, useState, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { uploadAttendanceFile } from "@/services/storage";
-import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployeesRemoteOverwrite, replaceEmployeesRemoteOverwrite, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
+import { saveAttendanceRecords, getAvailableDates, getAttendanceByDate, getAttendanceByDateRange, parseRegionStore, getEmployees, createEmployee, updateEmployee, deleteEmployee, importEmployeesRemoteOverwrite, replaceEmployeesRemoteOverwrite, updateEmployeeRegionsByCode, initializeEmployeeDatabase, normalizeEmployeeCode } from "@/services/database";
 import type { Employee, EmployeeInput } from "@/services/database";
 import { getConfig, saveConfig, testConnection, getSyncLogs, syncFromIpulse, clearSyncLogs, startAutoSync, stopAutoSync, IPULSE_SETUP_SQL } from "@/services/ipulse";
 import type { IpulseConfig, SyncLog } from "@/services/ipulse";
@@ -18,6 +18,7 @@ import {
   applyDeviceRegionsToDeviceRecords,
   applyDeviceRegionsToEmployees,
   buildDeviceRegionTruthEntriesFromRows,
+  clearStoredDeviceRegionTruth,
   loadStoredDeviceRegionTruth,
   saveStoredDeviceRegionTruth,
   type DeviceRegionTruthData,
@@ -438,6 +439,10 @@ function normalizeDeviceRecordInput(record: Partial<DeviceRecord> | null | undef
     connected: String(record.connected || "").trim(),
     hasTimeAndAttendance: Boolean(record.hasTimeAndAttendance),
   };
+}
+
+function normalizeStoreCodeLookup(value: unknown) {
+  return String(value || "").trim().toLowerCase().replace(/^0+(?=\d)/, "");
 }
 
 function openDeviceCacheDatabase(): Promise<IDBDatabase | null> {
@@ -1628,7 +1633,7 @@ export default function App({ initialSession = null }: AppProps) {
   const storeDeviceMap = useMemo<Map<string, StoreDeviceStatus>>(() => {
     const map = new Map<string, StoreDeviceStatus>();
     for (const d of effectiveDeviceRecords) {
-      const code = d.storeCode.toLowerCase().trim();
+      const code = normalizeStoreCodeLookup(d.storeCode);
       if (!code) continue;
       const isPhysical = isPhysicalDeviceType(d.deviceType);
       map.set(code, {
@@ -1661,7 +1666,7 @@ export default function App({ initialSession = null }: AppProps) {
 
   const hasPhysicalDeviceForStore = useCallback((storeCode: unknown, storeName?: unknown): boolean => {
     if (storeDeviceMap.size === 0 && storeDeviceNameMap.size === 0) return true;
-    const code = String(storeCode || "").toLowerCase().trim();
+    const code = normalizeStoreCodeLookup(storeCode);
     if (code) {
       const entry = storeDeviceMap.get(code);
       return entry?.hasDevice === true;
@@ -1675,7 +1680,7 @@ export default function App({ initialSession = null }: AppProps) {
   }, [storeDeviceMap, storeDeviceNameMap]);
 
   const storeHasDevice = useCallback((storeCode: string): boolean | null => {
-    const code = storeCode.toLowerCase().trim();
+    const code = normalizeStoreCodeLookup(storeCode);
     if (!code || storeDeviceMap.size === 0) return null;
     const entry = storeDeviceMap.get(code);
     return entry ? entry.hasDevice : null;
@@ -4248,7 +4253,14 @@ export default function App({ initialSession = null }: AppProps) {
   };
 
   const parseDeviceRegionWorkbook = (workbook: WorkBook, xlsx: XlsxRuntime) => {
-    const firstSheetName = workbook.SheetNames[0];
+    const firstSheetName =
+      workbook.SheetNames.find((sheetName) => {
+        const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName], { defval: "" });
+        return rows.some((row) => {
+          const keys = Object.keys(row).map((key) => key.trim().toLowerCase().replace(/[^a-z0-9]+/g, ""));
+          return keys.includes("devicename") && keys.includes("regions");
+        });
+      }) || workbook.SheetNames[0];
     if (!firstSheetName) return [];
     const sheet = workbook.Sheets[firstSheetName];
     const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
@@ -4276,7 +4288,7 @@ export default function App({ initialSession = null }: AppProps) {
         }, {});
 
         return {
-          deviceLabel: readValue(entries, ["devices", "device", "store", "team", "storeteam"]),
+          deviceLabel: readValue(entries, ["devicename", "device name", "devices", "device", "store", "team", "storeteam"]),
           region: readValue(entries, ["region", "regions"]),
         };
       })
@@ -4299,19 +4311,21 @@ export default function App({ initialSession = null }: AppProps) {
       }
 
       const importStamp = new Date().toLocaleDateString();
+      await clearStoredDeviceRegionTruth();
+      setDeviceRegionTruth(null);
       setDeviceRecords(parsed);
       setDeviceImportDate(importStamp);
 
       // Save to Supabase (primary persistence)
-      const savedToSupabase = await saveDevicesToSupabase(parsed);
+      const savedToSupabase = await saveDevicesToSupabase(parsed.map((record) => ({ ...record, region: "" })));
 
       // Also save to IndexedDB as local cache
-      const persistedToIndexedDb = await writeDeviceCacheToIndexedDb(parsed, importStamp);
+      const persistedToIndexedDb = await writeDeviceCacheToIndexedDb(parsed.map((record) => ({ ...record, region: "" })), importStamp);
       let usedLegacyFallback = false;
 
       if (!persistedToIndexedDb && typeof window !== "undefined") {
         try {
-          window.localStorage.setItem(DEVICE_RECORDS_STORAGE_KEY, JSON.stringify(parsed));
+          window.localStorage.setItem(DEVICE_RECORDS_STORAGE_KEY, JSON.stringify(parsed.map((record) => ({ ...record, region: "" }))));
           window.localStorage.setItem(DEVICE_IMPORT_DATE_STORAGE_KEY, importStamp);
           usedLegacyFallback = true;
         } catch (error) {
@@ -4377,6 +4391,16 @@ export default function App({ initialSession = null }: AppProps) {
         await writeDeviceCacheToIndexedDb(resolvedDevices, deviceImportDate || "");
       }
 
+      const resolvedEmployees = applyDeviceRegionsToEmployees(employees, payload);
+      setEmployees(resolvedEmployees);
+      setEmployeeLocations(deriveEmployeeLocationsFromProfiles(resolvedEmployees));
+      const employeeRegionResult = await updateEmployeeRegionsByCode(
+        resolvedEmployees.map((employee) => ({
+          employee_code: employee.employee_code,
+          region: employee.region || "",
+        }))
+      );
+
       await loadEmployees({ force: true });
 
       if (session && (session.role === "rep" || session.role === "regional" || session.role === "divisional")) {
@@ -4394,7 +4418,9 @@ export default function App({ initialSession = null }: AppProps) {
         setProfileAssignableUsers(users.filter((user) => user.active));
       }
 
-      setSaveMessage(`Imported ${entries.length} device-region truth rows from ${file.name}`);
+      setSaveMessage(
+        `Imported ${entries.length} device-region rows from ${file.name}. Regions were matched by store code and ${employeeRegionResult.count} employee profiles were refreshed${employeeRegionResult.error ? ` (cloud warning: ${employeeRegionResult.error})` : ""}.`
+      );
     } catch (error) {
       setSaveMessage(`Device-region upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }

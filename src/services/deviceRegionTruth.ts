@@ -55,6 +55,12 @@ function stripTrailingBracketCode(value: string) {
 // Extract ONLY numeric store codes (e.g., "07468"). Brand names like "SHOPRITE" are NOT codes.
 function collectNumericCodes(...values: unknown[]) {
   const codes = new Set<string>();
+  const addCode = (value: string) => {
+    const clean = value.trim();
+    if (!clean) return;
+    codes.add(clean);
+    codes.add(clean.replace(/^0+(?=\d)/, ""));
+  };
 
   values.forEach((value) => {
     const text = normalizeScopeText(value);
@@ -62,14 +68,14 @@ function collectNumericCodes(...values: unknown[]) {
 
     // Leading numeric code: "07468 - ..."
     const leading = text.match(/^(\d+)\s*-\s*/);
-    if (leading?.[1]) codes.add(leading[1]);
+    if (leading?.[1]) addCode(leading[1]);
 
     // Trailing numeric code in parentheses: "... (07468)"
     const trailing = text.match(/\((\d+)\)\s*$/);
-    if (trailing?.[1]) codes.add(trailing[1]);
+    if (trailing?.[1]) addCode(trailing[1]);
 
     // Entire value is a numeric code
-    if (/^\d+$/.test(text)) codes.add(text);
+    if (/^\d+$/.test(text)) addCode(text);
   });
 
   return codes;
@@ -350,6 +356,41 @@ export async function saveStoredDeviceRegionTruth(data: DeviceRegionTruthData) {
 
   if (!remoteSaved && !indexedSaved) {
     throw new Error("Device region truth could not be stored remotely or locally.");
+  }
+}
+
+export async function clearStoredDeviceRegionTruth() {
+  clearLocalData();
+
+  const database = await openIndexedDb();
+  if (database) {
+    await new Promise<void>((resolve) => {
+      const transaction = database.transaction(DB_STORE, "readwrite");
+      transaction.objectStore(DB_STORE).delete(DB_RECORD_ID);
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        resolve();
+      };
+    });
+  }
+
+  if (!isSupabaseConfigured) return;
+
+  try {
+    const { error } = await supabase
+      .from("shift_sync_settings")
+      .delete()
+      .eq("id", REMOTE_ROW_ID);
+
+    if (error) {
+      console.error("Device region truth: Failed to clear from Supabase", { error });
+    }
+  } catch (err) {
+    console.error("Device region truth: Exception clearing from Supabase", err);
   }
 }
 

@@ -219,6 +219,10 @@ function normalizeCompare(value: unknown) {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeStoreCodeLookup(value: unknown) {
+  return normalizeCompare(value).replace(/^0+(?=\d)/, "");
+}
+
 function normalizeHeaderKey(value: unknown) {
   return normalizeText(value)
     .toLowerCase()
@@ -267,7 +271,7 @@ function hasPhysicalDeviceForStoreInReports(
   storeName: unknown
 ) {
   if (!storeDeviceMap || storeDeviceMap.size === 0) return true;
-  const normalizedCode = normalizeCompare(storeCode);
+  const normalizedCode = normalizeStoreCodeLookup(storeCode);
   if (normalizedCode) {
     const byCode = storeDeviceMap.get(normalizedCode);
     return byCode?.hasDevice === true;
@@ -861,7 +865,7 @@ export default function ReportsBuilder({
   storeDeviceMap = new Map(),
 }: ReportsBuilderProps) {
   const getStoreDeviceLabel = (storeCode: string, storeName?: string): string => {
-    const code = (storeCode || "").toLowerCase().trim();
+    const code = normalizeStoreCodeLookup(storeCode);
     if (storeDeviceMap.size === 0) return "";
     const entry = code
       ? storeDeviceMap.get(code)
@@ -878,6 +882,8 @@ export default function ReportsBuilder({
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("store");
   const [includeInactiveProfiles, setIncludeInactiveProfiles] = useState(false);
   const [storeSearch, setStoreSearch] = useState("");
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("all");
   const [selectedStores, setSelectedStores] = useState<string[]>([]);
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
   const [employeeSearch, setEmployeeSearch] = useState("");
@@ -963,11 +969,32 @@ export default function ReportsBuilder({
     if (!startDate) setStartDate(defaultStart > defaultEnd ? defaultEnd : defaultStart);
   }, [availableDates, endDate, startDate]);
 
+  const departmentOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        employees
+          .map((employee) => normalizeText(employee.department))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [employees]);
+
+  const filteredDepartmentOptions = useMemo(() => {
+    const query = normalizeCompare(departmentSearch);
+    if (!query) return departmentOptions;
+    return departmentOptions.filter((department) => fieldsMatchSearch([department], query));
+  }, [departmentOptions, departmentSearch]);
+
+  const departmentScopedEmployees = useMemo(() => {
+    if (selectedDepartment === "all") return employees;
+    return employees.filter((employee) => normalizeText(employee.department) === selectedDepartment);
+  }, [employees, selectedDepartment]);
+
   // Store options with employee count from active employee profiles
   const storeOptions = useMemo<StoreOption[]>(() => {
     const values = new Map<string, StoreOption>();
 
-    employees.forEach((employee) => {
+    departmentScopedEmployees.forEach((employee) => {
       if (!isEmployeeIncludedInBuilder(employee, includeInactiveProfiles, storeDeviceMap)) return;
       const scope = getEmployeeScopeInfo(employee);
       if (!scope.key) return;
@@ -1012,7 +1039,7 @@ export default function ReportsBuilder({
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [employees, includeInactiveProfiles, storeDeviceMap]);
+  }, [departmentScopedEmployees, includeInactiveProfiles, storeDeviceMap]);
 
   const storeRegionBrandGroups = useMemo(() => {
     const groups = new Map<string, { key: string; label: string; count: number }>();
@@ -1148,6 +1175,7 @@ export default function ReportsBuilder({
   const employeeOptions = useMemo(
     () =>
       [...employees]
+        .filter((employee) => selectedDepartment === "all" || normalizeText(employee.department) === selectedDepartment)
         .filter((employee) => isEmployeeIncludedInBuilder(employee, includeInactiveProfiles, storeDeviceMap))
         .sort(
           (a, b) =>
@@ -1155,7 +1183,7 @@ export default function ReportsBuilder({
             normalizeText(a.last_name).localeCompare(normalizeText(b.last_name)) ||
             normalizeText(a.first_name).localeCompare(normalizeText(b.first_name))
         ),
-    [employees, includeInactiveProfiles, storeDeviceMap]
+    [employees, includeInactiveProfiles, selectedDepartment, storeDeviceMap]
   );
 
   const selectedStoreOptions = useMemo(
@@ -1194,6 +1222,11 @@ export default function ReportsBuilder({
       )
     );
   }, [employeeOptions, storeOptions]);
+
+  useEffect(() => {
+    if (selectedDepartment === "all" || departmentOptions.includes(selectedDepartment)) return;
+    setSelectedDepartment("all");
+  }, [departmentOptions, selectedDepartment]);
 
   const addStore = (storeKey: string) => {
     setSelectedStores((current) => (current.includes(storeKey) ? current : [...current, storeKey]));
@@ -2686,6 +2719,40 @@ export default function ReportsBuilder({
                   />
                   {includeInactiveProfiles ? "Including inactive / terminated" : "Only active profiles"}
                 </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Department Search</div>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                    <Input
+                      value={departmentSearch}
+                      onChange={(event) => setDepartmentSearch(event.target.value)}
+                      placeholder="Search departments"
+                      className="border-white/10 bg-[#0d1117] pl-9 text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Department</div>
+                  <select
+                    value={selectedDepartment}
+                    onChange={(event) => {
+                      setSelectedDepartment(event.target.value);
+                      setSelectedStores([]);
+                      setSelectedEmployeeCodes([]);
+                    }}
+                    className="flex h-10 w-full rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white"
+                  >
+                    <option value="all">All Departments</option>
+                    {filteredDepartmentOptions.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {selectionMode === "store" ? (
