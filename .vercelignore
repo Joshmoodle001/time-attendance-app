@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+*.xlsx
+*.ps1
+*.bat
+skills/
+.github.bak/
+docs/
+.env
