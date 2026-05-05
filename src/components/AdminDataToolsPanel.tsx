@@ -25,7 +25,7 @@ function formatBackupTime(value: string) {
 }
 
 export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsPanelProps) {
-  const dataToolsDisabled = true;
+  const dataToolsDisabled = false; // Re-enabled with Supabase reset
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [isResettingData, setIsResettingData] = useState(false);
   const [isRestoringData, setIsRestoringData] = useState(false);
