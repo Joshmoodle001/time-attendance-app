@@ -356,12 +356,6 @@ export async function saveStoredDeviceRegionTruth(data: DeviceRegionTruthData) {
 function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegionResolvable): DeviceRegionResolvedInfo | null {
   if (!entries.length) return null;
 
-  const scope = getTeamScopeInfo(
-    input.team ?? input.storeName ?? input.store,
-    input.storeName ?? input.store,
-    input.storeCode ?? input.store_code
-  );
-
   // Numeric codes only (real store codes like "07468")
   const numericCodes = collectNumericCodes(
     input.team,
@@ -372,62 +366,30 @@ function resolveFromEntries(entries: DeviceRegionTruthEntry[], input: DeviceRegi
     input.name
   );
 
-  // Normalized names for matching
-  const candidateNames = [
-    normalizeNameForMatch(input.team),
-    normalizeNameForMatch(input.store),
-    normalizeNameForMatch(input.storeName),
-    normalizeNameForMatch(input.name),
-    normalizeNameForMatch(scope.label),
-    normalizeNameForMatch(scope.name),
-  ].filter(Boolean);
-
-  // Pass 1: Match by numeric store code (highest priority - avoids brand name collisions)
-  let matchedEntry: DeviceRegionTruthEntry | null = null;
-
+  // Match ONLY by numeric store code - no name matching
   if (numericCodes.size > 0) {
-    matchedEntry = entries.find((entry) => {
+    const matchedEntry = entries.find((entry) => {
       const entryNumericCodes = collectNumericCodes(entry.storeCode, entry.deviceLabel, entry.storeName);
       for (const code of numericCodes) {
         if (entryNumericCodes.has(code)) return true;
       }
       return false;
     }) || null;
+
+    if (!matchedEntry) return null;
+
+    return {
+      region: matchedEntry.region,
+      brand: matchedEntry.brand || inferRetailBrand(matchedEntry.storeName || matchedEntry.teamLabel),
+      storeCode: matchedEntry.storeCode,
+      storeName: matchedEntry.storeName,
+      teamKey: matchedEntry.teamKey,
+      teamLabel: matchedEntry.teamLabel,
+    };
   }
 
-  // Pass 2: Match by name containment (flexible - handles partial matches)
-  if (!matchedEntry && candidateNames.length > 0) {
-    matchedEntry = entries.find((entry) => {
-      const entryDeviceName = normalizeNameForMatch(entry.deviceLabel);
-      const entryStoreName = normalizeNameForMatch(entry.storeName);
-      const entryTeamName = normalizeNameForMatch(entry.teamLabel);
-
-      for (const name of candidateNames) {
-        // Check containment in both directions
-        if (entryDeviceName.includes(name) || name.includes(entryDeviceName)) return true;
-        if (entryStoreName.includes(name) || name.includes(entryStoreName)) return true;
-        if (entryTeamName.includes(name) || name.includes(entryTeamName)) return true;
-      }
-      return false;
-    }) || null;
-  }
-
-  // Pass 3 removed — brand-name-only matches caused false assignments.
-  // If a store/device is not in the region truth document by numeric code or name,
-  // it should remain unassigned rather than getting a wrong region from a brand collision.
-  // Example: "PNP CORP - WATERFALL MALL (NC17)" was matching "Far North West" because
-  // "PNP" was extracted as a code and matched any entry containing "PNP".
-
-  if (!matchedEntry) return null;
-
-  return {
-    region: matchedEntry.region,
-    brand: matchedEntry.brand || inferRetailBrand(matchedEntry.storeName || matchedEntry.teamLabel),
-    storeCode: matchedEntry.storeCode,
-    storeName: matchedEntry.storeName,
-    teamKey: matchedEntry.teamKey,
-    teamLabel: matchedEntry.teamLabel,
-  };
+  // No numeric code found in input - cannot match
+  return null;
 }
 
 export function resolveDeviceRegionForInput(data: DeviceRegionTruthData | null | undefined, input: DeviceRegionResolvable) {
