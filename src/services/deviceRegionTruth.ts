@@ -259,7 +259,10 @@ function clearLocalData() {
 }
 
 async function loadRemoteData() {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured) {
+    console.warn("Device region truth: Supabase not configured, skipping remote load");
+    return null;
+  }
   try {
     const { data, error } = await supabase
       .from("shift_sync_settings")
@@ -267,15 +270,22 @@ async function loadRemoteData() {
       .eq("id", REMOTE_ROW_ID)
       .maybeSingle();
 
-    if (error) return null;
+    if (error) {
+      console.error("Device region truth: Failed to load from Supabase", { error });
+      return null;
+    }
     return normalizeDeviceRegionTruthData(data?.payload);
-  } catch {
+  } catch (err) {
+    console.error("Device region truth: Exception loading from Supabase", err);
     return null;
   }
 }
 
 async function saveRemoteData(data: DeviceRegionTruthData) {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured) {
+    console.warn("Device region truth: Supabase not configured, skipping remote save");
+    return false;
+  }
   try {
     const { error } = await supabase.from("shift_sync_settings").upsert(
       {
@@ -289,8 +299,13 @@ async function saveRemoteData(data: DeviceRegionTruthData) {
       { onConflict: "id" }
     );
 
-    return !error;
-  } catch {
+    if (error) {
+      console.error("Device region truth: Failed to save to Supabase", { error });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("Device region truth: Exception saving to Supabase", err);
     return false;
   }
 }
