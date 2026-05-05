@@ -35,3 +35,4 @@ release/
 skills/
 .github.bak/
 docs/
+.env*.local
