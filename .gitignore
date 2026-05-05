@@ -26,6 +26,12 @@ dist-ssr
 *.sln
 *.sw?
 
-.vercel
-
-.vercel
+.vercel/
+dist/
+release/
+*.xlsx
+*.ps1
+*.bat
+skills/
+.github.bak/
+docs/
