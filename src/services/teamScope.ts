@@ -33,18 +33,18 @@ export function getTeamScopeInfo(team: unknown, fallbackStore?: unknown, fallbac
       const canonicalLabel = normalizeScopeText(match[2]) || normalizedTeam;
       return {
         key: normalizeScopeCompare(canonicalLabel),
-        label: canonicalLabel,
+        label: normalizedTeam, // FULL name like "Checkers - 90 on Rivonia (16855)"
         code: normalizeScopeText(match[1]),
-        name: canonicalLabel,
+        name: normalizedTeam,
       };
     }
 
     const canonicalLabel = stripLeadingCode(normalizedTeam) || normalizedTeam;
     return {
       key: normalizeScopeCompare(canonicalLabel),
-      label: canonicalLabel,
+      label: normalizedTeam, // FULL team string
       code: normalizeScopeText(fallbackStoreCode),
-      name: canonicalLabel,
+      name: normalizedTeam,
     };
   }
 
@@ -54,9 +54,9 @@ export function getTeamScopeInfo(team: unknown, fallbackStore?: unknown, fallbac
   const label = stripLeadingCode(baseLabel) || baseLabel;
   return {
     key: normalizeScopeCompare(label),
-    label,
+    label: baseLabel, // FULL store string like "Checkers - 90 on Rivonia (16855)"
     code: storeCode,
-    name: store || label,
+    name: store || baseLabel,
   };
 }
 
