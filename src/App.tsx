@@ -74,16 +74,8 @@ import {
 } from "recharts";
 
 const sidebarItems = [
-  { key: "overview", label: "Overview", icon: Layers3 },
-  { key: "employees", label: "Employees", icon: Users },
-  { key: "reports", label: "Reports", icon: Table2 },
+  { key: "coversheet", label: "Coversheet", icon: Table2 },
   { key: "shifts", label: "Shifts", icon: LayoutGrid },
-  { key: "leave", label: "Leave", icon: FileSpreadsheet },
-  { key: "clockData", label: "Clock Data", icon: Clock },
-  { key: "calendar", label: "Calendar", icon: Calendar },
-  { key: "roster", label: "Roster", icon: Table2 },
-  { key: "communications", label: "Comms Hub", icon: Globe },
-  { key: "devices", label: "Devices", icon: Server },
   { key: "admin", label: "Admin", icon: Settings },
 ] as const;
 
@@ -147,6 +139,8 @@ const DEVICES_STORAGE_KEY = "devices-v1";
 const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
 const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
 const CLOCK_REFRESH_TTL_MS = 30 * 1000;
+const ADMIN_PASSCODE_STORAGE_KEY = "pfm-admin-passcode-unlock-v1";
+const ADMIN_PASSCODE_FALLBACK = "PFM@dmin2026!";
 
 type XlsxRuntime = typeof import("xlsx");
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
@@ -257,6 +251,10 @@ function parseDateValue(value: string) {
   const [year, month, day] = String(value || "").split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day);
+}
+
+function canUseSessionStorage() {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
 }
 
 function formatClockTime(date: Date) {
@@ -1398,7 +1396,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [selectedStore, setSelectedStore] = useState("all");
-  const [activeNav, setActiveNav] = useState<(typeof sidebarItems)[number]["key"]>("overview");
+  const [activeNav, setActiveNav] = useState<string>("coversheet");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [attendanceImportDate, setAttendanceImportDate] = useState("");
   const [deviceImportTimestamp, setDeviceImportTimestamp] = useState(() => {
@@ -1412,6 +1410,12 @@ export default function App() {
     [deviceImportTimestamp],
   );
   const [saveMessage, setSaveMessage] = useState("");
+  const [adminPasscode, setAdminPasscode] = useState("");
+  const [adminPasscodeError, setAdminPasscodeError] = useState("");
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(() => {
+    if (!canUseSessionStorage()) return false;
+    return window.sessionStorage.getItem(ADMIN_PASSCODE_STORAGE_KEY) === "unlocked";
+  });
   const [trialResetReady, setTrialResetReady] = useState(false);
   const [activeRangeDays, setActiveRangeDays] = useState(7);
   const [trendView, setTrendView] = useState("all");
@@ -1500,7 +1504,7 @@ export default function App() {
     leaveApplicationsForRange: Awaited<ReturnType<typeof getLeaveApplications>>;
     fetchedAt: number;
   } | null>(null);
-  const activeNavRef = useRef<(typeof sidebarItems)[number]["key"]>(activeNav);
+  const activeNavRef = useRef<string>(activeNav);
   const overviewTrendRequestRef = useRef(0);
   const [isUpdatingEmployeesFromStaffList, setIsUpdatingEmployeesFromStaffList] = useState(false);
   const [staffListUploadProgress, setStaffListUploadProgress] = useState(0);
@@ -4736,524 +4740,294 @@ export default function App() {
     );
   };
 
-  const renderAdmin = () => {
-    return (
+  const renderAdminSyncSection = () => (
     <div className="space-y-6">
-      {/* Admin Tabs */}
-      <Card className="rounded-2xl">
-        <CardContent className="p-1">
-          <div className="flex gap-1">
-            <button
-              onClick={() => setActiveAdminTab("attendance")}
-              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeAdminTab === "attendance"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <FileSpreadsheet className="w-4 h-4" />
-                Attendance
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveAdminTab("api")}
-              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeAdminTab === "api"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Plug className="w-4 h-4" />
-                API Configuration
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveAdminTab("sync")}
-              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeAdminTab === "sync"
-                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                  : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4" />
-                Sync Settings
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveAdminTab("logs")}
-              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeAdminTab === "logs"
-                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                  : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Clock className="w-4 h-4" />
-                Sync Logs
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveAdminTab("data")}
-              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeAdminTab === "data"
-                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                  : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Database className="w-4 h-4" />
-                Data Tools
-              </div>
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {activeAdminTab === "attendance" && renderAttendance()}
-
-      {/* API Configuration Tab */}
-      {activeAdminTab === "api" && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <PlugZap className="w-5 h-5" />
-                iPulse API Settings
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Configure connection to iPulse Systems API
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <RefreshCw className="w-5 h-5" />
+              Sync Configuration
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              Configure automatic sync settings
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700">
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-300">API URL</label>
-                <div className="relative">
-                  <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    placeholder="https://api.ipulse-systems.com"
-                    value={ipulseFormData.api_url}
-                    onChange={(e) => setIpulseFormData({ ...ipulseFormData, api_url: e.target.value })}
-                    className="pl-9 bg-slate-800 border-slate-600 text-white"
-                  />
-                </div>
+                <div className="font-medium text-white">Auto Sync</div>
+                <div className="text-sm text-slate-400">Automatically sync data at intervals</div>
               </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ipulseFormData.auto_sync_enabled}
+                  onChange={(e) => setIpulseFormData({ ...ipulseFormData, auto_sync_enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1 text-slate-300">API Key</label>
-                <div className="relative">
-                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    type="password"
-                    placeholder="Enter your API key"
-                    value={ipulseFormData.api_key}
-                    onChange={(e) => setIpulseFormData({ ...ipulseFormData, api_key: e.target.value })}
-                    className="pl-9 bg-slate-800 border-slate-600 text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 text-slate-300">API Secret</label>
-                <div className="relative">
-                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    type="password"
-                    placeholder="Enter your API secret"
-                    value={ipulseFormData.api_secret}
-                    onChange={(e) => setIpulseFormData({ ...ipulseFormData, api_secret: e.target.value })}
-                    className="pl-9 bg-slate-800 border-slate-600 text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={handleTestConnection}
-                  disabled={isTestingConnection || !ipulseFormData.api_url}
-                  className="flex-1"
-                >
-                  {isTestingConnection ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      Testing...
-                    </>
-                  ) : (
-                    <>
-                      <Plug className="w-4 h-4 mr-2" />
-                      Test Connection
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={handleSaveIpulseConfig}
-                  disabled={isSavingIpulseConfig}
-                  className="flex-1"
-                >
-                  {isSavingIpulseConfig ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Settings
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {connectionTestResult && (
-                <div className={`p-3 rounded-lg ${
-                  connectionTestResult.success
-                    ? "bg-green-50 text-green-700 border border-green-200"
-                    : "bg-red-50 text-red-700 border border-red-200"
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {connectionTestResult.success ? (
-                      <CheckCircle className="w-4 h-4" />
-                    ) : (
-                      <XCircle className="w-4 h-4" />
-                    )}
-                    <span className="font-medium">
-                      {connectionTestResult.success ? "Connection Successful" : "Connection Failed"}
-                    </span>
-                  </div>
-                  {connectionTestResult.error && (
-                    <p className="text-sm mt-1">{connectionTestResult.error}</p>
-                  )}
-                  {connectionTestResult.response_time && (
-                    <p className="text-sm mt-1">Response time: {connectionTestResult.response_time}ms</p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="w-5 h-5" />
-                Database Setup
-              </CardTitle>
-              <CardDescription>
-                Required database tables for iPulse integration
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600 mb-4">
-                Run the following SQL in your Supabase SQL Editor to create the required tables:
-              </p>
-              <div className="bg-slate-900 text-slate-300 p-4 rounded-lg text-xs font-mono overflow-x-auto">
-                <pre className="whitespace-pre-wrap">{IPULSE_SETUP_SQL}</pre>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Sync Settings Tab */}
-      {activeAdminTab === "sync" && (
-        <div className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <RefreshCw className="w-5 h-5" />
-                Sync Configuration
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Configure automatic sync settings
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                <div>
-                  <div className="font-medium text-white">Auto Sync</div>
-                  <div className="text-sm text-slate-400">Automatically sync data at intervals</div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={ipulseFormData.auto_sync_enabled}
-                    onChange={(e) => setIpulseFormData({ ...ipulseFormData, auto_sync_enabled: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 text-slate-300">
-                  Sync Interval (minutes)
-                </label>
-                <select
-                  value={ipulseFormData.sync_interval_minutes}
-                  onChange={(e) => setIpulseFormData({ ...ipulseFormData, sync_interval_minutes: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2 border border-slate-600 bg-slate-800 rounded-lg text-sm text-white"
-                  disabled={!ipulseFormData.auto_sync_enabled}
-                >
-                  <option value={15}>Every 15 minutes</option>
-                  <option value={30}>Every 30 minutes</option>
-                  <option value={60}>Every hour</option>
-                  <option value={120}>Every 2 hours</option>
-                  <option value={240}>Every 4 hours</option>
-                  <option value={480}>Every 8 hours</option>
-                </select>
-              </div>
-
-              <div className="pt-4">
-                <Button
-                  onClick={handleSaveIpulseConfig}
-                  disabled={isSavingIpulseConfig}
-                  className="w-full"
-                >
-                  {isSavingIpulseConfig ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Sync Settings
-                    </>
-                  )}
-                </Button>
-              </div>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <Play className="w-5 h-5" />
-                Manual Sync
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Trigger an immediate sync with iPulse API
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-white">Last Sync</span>
-                  {ipulseConfig?.last_sync_status === 'success' && (
-                    <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      <CheckCircle className="w-3 h-3 mr-1" /> Success
-                    </Badge>
-                  )}
-                  {ipulseConfig?.last_sync_status === 'error' && (
-                    <Badge className="bg-red-500/20 text-red-400 border border-red-500/30">
-                      <XCircle className="w-3 h-3 mr-1" /> Error
-                    </Badge>
-                  )}
-                  {ipulseConfig?.last_sync_status === 'partial' && (
-                    <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                      <AlertCircle className="w-3 h-3 mr-1" /> Partial
-                    </Badge>
-                  )}
-                  {!ipulseConfig?.last_sync_status && (
-                    <Badge className="bg-slate-500/20 text-slate-400 border border-slate-500/30">Never</Badge>
-                  )}
-                </div>
-                <div className="text-sm text-slate-400">
-                  {ipulseConfig?.last_sync_at
-                    ? new Date(ipulseConfig.last_sync_at).toLocaleString()
-                    : "No sync performed yet"}
-                </div>
-                {ipulseConfig?.last_error && (
-                  <div className="text-sm text-red-400 mt-1">{ipulseConfig.last_error}</div>
-                )}
-              </div>
-
-              <Button
-                onClick={handleManualSync}
-                disabled={isSyncing || !ipulseConfig?.api_url}
-                className="w-full"
-                size="lg"
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-300">
+                Sync Interval (minutes)
+              </label>
+              <select
+                value={ipulseFormData.sync_interval_minutes}
+                onChange={(e) => setIpulseFormData({ ...ipulseFormData, sync_interval_minutes: parseInt(e.target.value) })}
+                className="w-full px-3 py-2 border border-slate-600 bg-slate-800 rounded-lg text-sm text-white"
+                disabled={!ipulseFormData.auto_sync_enabled}
               >
-                {isSyncing ? (
+                <option value={15}>Every 15 minutes</option>
+                <option value={30}>Every 30 minutes</option>
+                <option value={60}>Every hour</option>
+                <option value={120}>Every 2 hours</option>
+                <option value={240}>Every 4 hours</option>
+                <option value={480}>Every 8 hours</option>
+              </select>
+            </div>
+
+            <div className="pt-4">
+              <Button
+                onClick={handleSaveIpulseConfig}
+                disabled={isSavingIpulseConfig}
+                className="w-full"
+              >
+                {isSavingIpulseConfig ? (
                   <>
-                    <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                    Syncing...
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
                   </>
                 ) : (
                   <>
-                    <RefreshCw className="w-5 h-5 mr-2" />
-                    Sync Now
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Sync Settings
                   </>
                 )}
               </Button>
-
-              <p className="text-xs text-slate-400 text-center">
-                {ipulseConfig?.api_url
-                  ? "Click to sync employees and attendance from iPulse"
-                  : "Configure API settings first to enable sync"}
-              </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Suspense fallback={
-            <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
-              <CardContent className="tech-loader p-8 text-center text-slate-300">
-                <div className="orb-loader mx-auto mb-4 w-fit">
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <div className="font-medium text-white">Loading sync settings</div>
-                <div className="mt-1 text-xs text-slate-400">Connecting live sheet orchestration and schedules...</div>
-              </CardContent>
-            </Card>
-          }>
-            <ShiftSyncAdminPanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Sync Logs Tab */}
-      {activeAdminTab === "logs" && (
-        <Card className="rounded-2xl">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="w-5 h-5" />
-                  Sync History
-                </CardTitle>
-                <CardDescription>
-                  Recent sync operations and their results
-                </CardDescription>
-              </div>
-              {syncLogs.length > 0 && (
-                <Button variant="outline" size="sm" onClick={handleClearLogs}>
-                  <Trash className="w-4 h-4 mr-2" />
-                  Clear Logs
-                </Button>
-              )}
             </div>
-          </CardHeader>
-          <CardContent>
-            {syncLogs.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No sync logs yet</p>
-                <p className="text-sm">Sync history will appear here after your first sync</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {syncLogs.map((log) => (
-                  <div key={log.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          log.sync_type === 'manual' ? 'bg-blue-100 text-blue-700' :
-                          log.sync_type === 'full' ? 'bg-purple-100 text-purple-700' :
-                          'bg-slate-100 text-slate-700'
-                        }`}>
-                          {log.sync_type}
-                        </span>
-                        <span className="text-sm text-slate-500">
-                          {new Date(log.started_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {log.status === 'success' && (
-                          <Badge className="bg-green-100 text-green-700">
-                            <CheckCircle className="w-3 h-3 mr-1" /> Success
-                          </Badge>
-                        )}
-                        {log.status === 'error' && (
-                          <Badge className="bg-red-100 text-red-700">
-                            <XCircle className="w-3 h-3 mr-1" /> Error
-                          </Badge>
-                        )}
-                        {log.status === 'partial' && (
-                          <Badge className="bg-yellow-100 text-yellow-700">
-                            <AlertCircle className="w-3 h-3 mr-1" /> Partial
-                          </Badge>
-                        )}
-                        {log.status === 'started' && (
-                          <Badge className="bg-blue-100 text-blue-700">
-                            <RefreshCw className="w-3 h-3 mr-1" /> Started
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <span className="text-slate-500">Employees:</span>
-                        <span className="ml-2 font-medium">{log.employees_synced}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Attendance:</span>
-                        <span className="ml-2 font-medium">{log.attendance_synced}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Duration:</span>
-                        <span className="ml-2 font-medium">
-                          {log.duration_seconds ? `${log.duration_seconds.toFixed(1)}s` : '-'}
-                        </span>
-                      </div>
-                    </div>
-                    {log.errors.length > 0 && (
-                      <div className="mt-2 text-sm text-red-600">
-                        <div className="font-medium">Errors:</div>
-                        {log.errors.slice(0, 3).map((err, i) => (
-                          <div key={i} className="text-red-500">{err}</div>
-                        ))}
-                        {log.errors.length > 3 && (
-                          <div className="text-slate-500">...and {log.errors.length - 3} more errors</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
           </CardContent>
         </Card>
-      )}
 
-      {activeAdminTab === "data" && (
-        <Suspense fallback={
-          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
-            <CardContent className="tech-loader p-8 text-center text-slate-300">
-              <div className="orb-loader mx-auto mb-4 w-fit">
-                <span />
-                <span />
-                <span />
+        <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Play className="w-5 h-5" />
+              Manual Sync
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              Trigger an immediate sync with iPulse API
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-white">Last Sync</span>
+                {ipulseConfig?.last_sync_status === 'success' && (
+                  <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <CheckCircle className="w-3 h-3 mr-1" /> Success
+                  </Badge>
+                )}
+                {ipulseConfig?.last_sync_status === 'error' && (
+                  <Badge className="bg-red-500/20 text-red-400 border border-red-500/30">
+                    <XCircle className="w-3 h-3 mr-1" /> Error
+                  </Badge>
+                )}
+                {ipulseConfig?.last_sync_status === 'partial' && (
+                  <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    <AlertCircle className="w-3 h-3 mr-1" /> Partial
+                  </Badge>
+                )}
+                {!ipulseConfig?.last_sync_status && (
+                  <Badge className="bg-slate-500/20 text-slate-400 border border-slate-500/30">Never</Badge>
+                )}
               </div>
-              <div className="font-medium text-white">Loading data tools</div>
-              <div className="mt-1 text-xs text-slate-400">Preparing backup, restore, and reset controls...</div>
-            </CardContent>
-          </Card>
-        }>
-          <AdminDataToolsPanel onStatusMessage={setSaveMessage} />
-        </Suspense>
-      )}
+              <div className="text-sm text-slate-400">
+                {ipulseConfig?.last_sync_at
+                  ? new Date(ipulseConfig.last_sync_at).toLocaleString()
+                  : "No sync performed yet"}
+              </div>
+              {ipulseConfig?.last_error && (
+                <div className="text-sm text-red-400 mt-1">{ipulseConfig.last_error}</div>
+              )}
+            </div>
+
+            <Button
+              onClick={handleManualSync}
+              disabled={isSyncing || !ipulseConfig?.api_url}
+              className="w-full"
+              size="lg"
+            >
+              {isSyncing ? (
+                <>
+                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-5 h-5 mr-2" />
+                  Sync Now
+                </>
+              )}
+            </Button>
+
+            <p className="text-xs text-slate-400 text-center">
+              {ipulseConfig?.api_url
+                ? "Click to sync employees and attendance from iPulse"
+                : "Configure API settings first to enable sync"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Suspense fallback={
+        <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
+          <CardContent className="tech-loader p-8 text-center text-slate-300">
+            <div className="orb-loader mx-auto mb-4 w-fit">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="font-medium text-white">Loading sync settings</div>
+            <div className="mt-1 text-xs text-slate-400">Connecting live sheet orchestration and schedules...</div>
+          </CardContent>
+        </Card>
+      }>
+        <ShiftSyncAdminPanel />
+      </Suspense>
     </div>
+  );
+
+  const renderAdmin = () => {
+    const resolvedAdminPasscode = String(import.meta.env.VITE_ADMIN_PASSCODE || ADMIN_PASSCODE_FALLBACK).trim();
+
+    const unlockAdmin = () => {
+      if (adminPasscode.trim() !== resolvedAdminPasscode) {
+        setAdminPasscodeError("Incorrect admin passcode.");
+        return;
+      }
+
+      setAdminPasscodeError("");
+      setAdminPasscode("");
+      setIsAdminUnlocked(true);
+      if (canUseSessionStorage()) {
+        window.sessionStorage.setItem(ADMIN_PASSCODE_STORAGE_KEY, "unlocked");
+      }
+    };
+
+    const lockAdmin = () => {
+      setIsAdminUnlocked(false);
+      setAdminPasscode("");
+      setAdminPasscodeError("");
+      if (canUseSessionStorage()) {
+        window.sessionStorage.removeItem(ADMIN_PASSCODE_STORAGE_KEY);
+      }
+    };
+
+    if (!isAdminUnlocked) {
+      return (
+        <Card className="rounded-2xl border-slate-700 bg-slate-900/60 text-white">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Key className="h-5 w-5 text-cyan-400" />
+              Admin Access
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              Enter the admin passcode to open sync settings and sheet orchestration.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300">Admin passcode</label>
+              <Input
+                type="password"
+                value={adminPasscode}
+                onChange={(event) => {
+                  setAdminPasscode(event.target.value);
+                  if (adminPasscodeError) setAdminPasscodeError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    unlockAdmin();
+                  }
+                }}
+                placeholder="Enter passcode"
+                className="bg-slate-800 border-slate-600 text-white"
+              />
+            </div>
+            {adminPasscodeError && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                {adminPasscodeError}
+              </div>
+            )}
+            <div className="flex justify-end">
+              <Button onClick={unlockAdmin}>
+                Unlock Admin
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-900/50 px-5 py-4">
+          <div>
+            <div className="text-sm font-semibold text-white">Admin Sync Console</div>
+            <div className="text-xs text-slate-400">iPulse sync settings, manual sync, and shift sheet orchestration.</div>
+          </div>
+          <Button variant="outline" onClick={lockAdmin}>
+            Lock Admin
+          </Button>
+        </div>
+
+        <Card className="rounded-2xl">
+          <CardContent className="p-1">
+            <div className="flex gap-1">
+              <button
+                onClick={() => setActiveAdminTab("attendance")}
+                className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
+                  activeAdminTab === "attendance"
+                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                    : "text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <Upload className="w-4 h-4" />
+                  Coversheet Upload
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveAdminTab("sync")}
+                className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
+                  activeAdminTab === "sync"
+                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                    : "text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  Sync Sheets
+                </div>
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {activeAdminTab === "attendance" && renderAttendance()}
+        {activeAdminTab === "sync" && renderAdminSyncSection()}
+      </div>
     );
   };
 
   const renderMainSection = () => {
     if (activeNav === "shifts") return <ShiftBuilder />;
-    if (activeNav === "calendar") return <CalendarBuilder />;
-    if (activeNav === "roster") return <RosterBuilder />;
-    if (activeNav === "leave") return <LeaveHub employees={employees} />;
-    if (activeNav === "clockData") return renderClockData();
-    if (activeNav === "communications") return renderCommunications();
-    if (activeNav === "employees") return renderEmployees();
     if (activeNav === "admin") return renderAdmin();
-    if (activeNav === "reports") return renderReports();
-    if (activeNav === "devices") return renderDevices();
-    return renderOverview();
+    return renderAttendance();
   };
 
   const renderSectionFallback = () => (
@@ -5272,7 +5046,7 @@ export default function App() {
     </Card>
   );
 
-  const handleNavClick = (key: typeof sidebarItems[number]["key"]) => {
+  const handleNavClick = (key: string) => {
     startTransition(() => {
       setActiveNav(key);
     });
@@ -5382,20 +5156,12 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-3xl font-bold text-white">
-                    {sidebarItems.find(i => i.key === activeNav)?.label || "Overview"}
+                    {sidebarItems.find(i => i.key === activeNav)?.label || "Coversheet"}
                   </h1>
                   <p className="mt-2 text-slate-400 text-sm">
-                    {activeNav === "overview" && "Real-time attendance monitoring with trends"}
+                    {activeNav === "coversheet" && "Generate coversheet output from the current roster and applied leave data"}
                     {activeNav === "shifts" && "Build and update workbook-based shift rosters"}
-                    {activeNav === "calendar" && "Create calendar events across multiple dates and export month or year PDFs"}
-                    {activeNav === "roster" && "Generate yearly roster output by marrying shifts with calendar weeks and holidays"}
-                    {activeNav === "leave" && "Upload merchandiser leave workbooks, apply them to roster output, and track which rows matched"}
-                    {activeNav === "clockData" && "Read-only biometric clock events linked to employee profiles by employee code"}
-                    {activeNav === "communications" && "Manage recipients, report automations, and the reporting organogram"}
-                    {activeNav === "employees" && "Manage employee profiles and records"}
-                    {activeNav === "admin" && "Configure iPulse API and sync settings"}
-                    {activeNav === "reports" && "Build custom reports from criteria and save reusable report templates"}
-                    {activeNav === "devices" && "Monitor device connectivity"}
+                    {activeNav === "admin" && "Configure sync settings and manage sheet orchestration"}
                   </p>
                 </div>
                 <div className="hidden md:flex items-center gap-3">
@@ -5413,16 +5179,11 @@ export default function App() {
               </div>
             )}
 
-            <Suspense fallback={renderSectionFallback()}>
-              <motion.div
-                key={activeNav}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, ease: "easeOut" }}
-                className="slide-up"
-              >
-                {renderMainSection()}
-              </motion.div>
+            <Suspense
+              key={activeNav}
+              fallback={renderSectionFallback()}
+            >
+              {renderMainSection()}
             </Suspense>
           </div>
         </main>
