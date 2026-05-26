@@ -89,6 +89,7 @@ const LeaveHub = lazy(() => import("@/components/LeaveHub"));
 const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"));
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
+const CoversheetHub = lazy(() => import("@/components/CoversheetHub"));
 
 const ATTENDANCE_STATUS_CONFIG = [
   { key: "atWork", name: "At Work", color: "#22c55e" },
@@ -140,7 +141,7 @@ const OVERVIEW_REFRESH_TTL_MS = 30 * 1000;
 const EMPLOYEE_REFRESH_TTL_MS = 30 * 1000;
 const CLOCK_REFRESH_TTL_MS = 30 * 1000;
 const ADMIN_PASSCODE_STORAGE_KEY = "pfm-admin-passcode-unlock-v1";
-const ADMIN_PASSCODE_FALLBACK = "PFM@dmin2026!";
+const ADMIN_PASSCODE_FALLBACK = "2026";
 
 type XlsxRuntime = typeof import("xlsx");
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
@@ -2383,7 +2384,7 @@ export default function App() {
   const [isSavingIpulseConfig, setIsSavingIpulseConfig] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; error?: string; response_time?: number } | null>(null);
-  const [activeAdminTab, setActiveAdminTab] = useState<"attendance" | "api" | "sync" | "logs" | "data">("attendance");
+  const [activeAdminTab, setActiveAdminTab] = useState<"coversheet" | "sync">("coversheet");
 
   // Load iPulse config
   const loadIpulseConfig = async () => {
@@ -4989,9 +4990,9 @@ export default function App() {
           <CardContent className="p-1">
             <div className="flex gap-1">
               <button
-                onClick={() => setActiveAdminTab("attendance")}
+                onClick={() => setActiveAdminTab("coversheet")}
                 className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                  activeAdminTab === "attendance"
+                  activeAdminTab === "coversheet"
                     ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
                     : "text-slate-300 hover:bg-slate-800"
                 }`}
@@ -5018,7 +5019,7 @@ export default function App() {
           </CardContent>
         </Card>
 
-        {activeAdminTab === "attendance" && renderAttendance()}
+        {activeAdminTab === "coversheet" && <CoversheetHub mode="admin" />}
         {activeAdminTab === "sync" && renderAdminSyncSection()}
       </div>
     );
@@ -5027,7 +5028,7 @@ export default function App() {
   const renderMainSection = () => {
     if (activeNav === "shifts") return <ShiftBuilder />;
     if (activeNav === "admin") return renderAdmin();
-    return renderAttendance();
+    return <CoversheetHub mode="view" />;
   };
 
   const renderSectionFallback = () => (
@@ -5159,7 +5160,7 @@ export default function App() {
                     {sidebarItems.find(i => i.key === activeNav)?.label || "Coversheet"}
                   </h1>
                   <p className="mt-2 text-slate-400 text-sm">
-                    {activeNav === "coversheet" && "Generate coversheet output from the current roster and applied leave data"}
+                    {activeNav === "coversheet" && "View grouped route coversheets with terminated, maternity, and hold statuses"}
                     {activeNav === "shifts" && "Build and update workbook-based shift rosters"}
                     {activeNav === "admin" && "Configure sync settings and manage sheet orchestration"}
                   </p>
