@@ -43,16 +43,6 @@ type CellPosition = {
 };
 
 type EditableField = "employee_name" | "department" | "hr" | "employee_code" | "time_label" | "extra" | ShiftDayKey;
-type ShiftSearchResult = {
-  id: string;
-  type: "store" | "employee";
-  sheetName: string;
-  title: string;
-  subtitle: string;
-  rowKey?: string;
-  matchScore: number;
-};
-
 const DAY_COLUMNS: Array<{ key: ShiftDayKey; label: string }> = [
   { key: "monday", label: "Monday" },
   { key: "tuesday", label: "Tuesday" },
@@ -233,10 +223,9 @@ function updateRowField(
   return next;
 }
 
-function getGroupRows(roster: ShiftRoster | null) {
-  if (!roster) return [];
+function getGroupRowsFromRows(rows: ShiftRow[]) {
   const groups = new Map<string, ShiftRow[]>();
-  roster.rows.forEach((row) => {
+  rows.forEach((row) => {
     if (!groups.has(row.group_key)) groups.set(row.group_key, []);
     groups.get(row.group_key)!.push(row);
   });
@@ -327,6 +316,11 @@ function moveGroup(roster: ShiftRoster, rowKey: string, direction: -1 | 1) {
 
 function parseClipboardMatrix(text: string) {
   return text.replace(/\r\n/g, "\n").split("\n").map((line) => line.split("\t"));
+}
+
+function getGroupRows(roster: ShiftRoster | null) {
+  if (!roster) return [];
+  return getGroupRowsFromRows(roster.rows);
 }
 
 function getMatchScore(haystack: string, query: string) {
@@ -453,60 +447,49 @@ export default function ShiftBuilder() {
     };
   }, [showFullscreen]);
 
-  const orderedRows = useMemo(
-    () => (selectedRoster ? [...selectedRoster.rows].sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index) : []),
-    [selectedRoster]
-  );
-
-  const rowGroups = useMemo(() => getGroupRows(selectedRoster), [selectedRoster]);
-  const shiftSearchResults = useMemo(() => {
+  const filteredRosters = useMemo(() => {
     const query = normalizeText(shiftSearch).toLowerCase();
-    if (!query) return [];
+    if (!query) return rosters;
 
-    const results: ShiftSearchResult[] = [];
-
-    rosters.forEach((roster) => {
+    return rosters.filter((roster) => {
       const storeLabel = `${roster.store_name} ${roster.sheet_name} ${roster.store_code}`;
-      const storeMatchScore = getMatchScore(storeLabel, query);
-      if (storeMatchScore > 0) {
-        results.push({
-          id: `store-${roster.sheet_name}`,
-          type: "store",
-          sheetName: roster.sheet_name,
-          title: roster.store_name || roster.sheet_name,
-          subtitle: roster.store_code ? `Store code ${roster.store_code}` : "Shift roster",
-          matchScore: storeMatchScore,
-        });
-      }
-
-      roster.rows.forEach((row) => {
+      if (getMatchScore(storeLabel, query) > 0) return true;
+      return roster.rows.some((row) => {
         const haystack = `${row.employee_name} ${row.employee_code} ${row.department} ${row.week_label} ${roster.store_name}`;
-        const employeeMatchScore = getMatchScore(haystack, query);
-        if (employeeMatchScore > 0) {
-          results.push({
-            id: `employee-${roster.sheet_name}-${row.row_key}`,
-            type: "employee",
-            sheetName: roster.sheet_name,
-            rowKey: row.row_key,
-            title: row.employee_name || row.employee_code || "Unnamed merchandiser",
-            matchScore: employeeMatchScore,
-            subtitle: `${row.employee_code || "No code"} • ${row.week_label} • ${roster.store_name || roster.sheet_name}`,
-          });
-        }
+        return getMatchScore(haystack, query) > 0;
       });
     });
-
-    return results
-      .sort((left, right) => {
-        if (left.type !== right.type) return left.type === "store" ? -1 : 1;
-        if (left.matchScore !== right.matchScore) return right.matchScore - left.matchScore;
-        return left.title.localeCompare(right.title);
-      })
-      .slice(0, 12);
   }, [rosters, shiftSearch]);
+
+  useEffect(() => {
+    if (!filteredRosters.length) return;
+    if (filteredRosters.some((roster) => roster.sheet_name === selectedSheet)) return;
+    setSelectedSheet(filteredRosters[0].sheet_name);
+  }, [filteredRosters, selectedSheet]);
+
+  const filteredRows = useMemo(() => {
+    if (!selectedRoster) return [];
+    const query = normalizeText(shiftSearch).toLowerCase();
+    if (!query) return [...selectedRoster.rows].sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index);
+
+    const storeLabel = `${selectedRoster.store_name} ${selectedRoster.sheet_name} ${selectedRoster.store_code}`;
+    if (getMatchScore(storeLabel, query) > 0) {
+      return [...selectedRoster.rows].sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index);
+    }
+
+    return selectedRoster.rows
+      .filter((row) => {
+        const haystack = `${row.employee_name} ${row.employee_code} ${row.department} ${row.week_label} ${selectedRoster.store_name}`;
+        return getMatchScore(haystack, query) > 0;
+      })
+      .sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index);
+  }, [selectedRoster, shiftSearch]);
+
+  const orderedRows = useMemo(() => filteredRows, [filteredRows]);
+  const rowGroups = useMemo(() => getGroupRowsFromRows(orderedRows), [orderedRows]);
   const selectedRow = useMemo(
-    () => (selectedRoster && selectedCell ? selectedRoster.rows.find((row) => row.row_key === selectedCell.rowKey) || null : selectedRoster?.rows[0] || null),
-    [selectedRoster, selectedCell]
+    () => (selectedRoster && selectedCell ? orderedRows.find((row) => row.row_key === selectedCell.rowKey) || null : orderedRows[0] || null),
+    [selectedRoster, selectedCell, orderedRows]
   );
   const detailedRows = useMemo(
     () =>
@@ -884,17 +867,6 @@ export default function ShiftBuilder() {
     setStatusMessage("Shift-only PDF exported.");
   };
 
-  const handleShiftSearchGo = (result: { sheetName: string; rowKey?: string }) => {
-    setSelectedSheet(result.sheetName);
-    if (result.rowKey) {
-      setSelectedCell({ rowKey: result.rowKey, field: "employee_name" });
-      window.setTimeout(() => {
-        const target = tableWrapRef.current?.querySelector<HTMLElement>(`[data-shift-row-key="${result.rowKey}"]`);
-        target?.scrollIntoView({ block: "center", inline: "nearest" });
-      }, 80);
-    }
-  };
-
   return (
     <div className="min-w-0 space-y-4" onKeyDown={handleKeyDown} tabIndex={0}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -956,32 +928,9 @@ export default function ShiftBuilder() {
               className="pl-9 bg-slate-800 border-slate-600 text-white"
             />
           </div>
-          {shiftSearchResults.length > 0 && (
-            <div className="mt-2 grid gap-2 sm:grid-cols-1 lg:grid-cols-2">
-              {shiftSearchResults.map((result) => (
-                <button
-                  key={result.id}
-                  type="button"
-                  onClick={() => handleShiftSearchGo(result)}
-                  className="flex min-w-0 flex-col items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:bg-slate-100 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 w-full">
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                      {result.type === "store" ? "Store match" : "Employee match"}
-                    </div>
-                    <div className="break-words text-sm font-medium text-slate-900">{result.title}</div>
-                    <div className="break-words text-xs text-slate-500">{result.subtitle}</div>
-                  </div>
-                  <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-orange-700">
-                    Go
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         <div className="flex flex-wrap gap-2 md:flex-nowrap md:overflow-x-auto">
-          {rosters.map((roster) => {
+          {filteredRosters.map((roster) => {
             const active = roster.sheet_name === selectedRoster?.sheet_name;
             return (
               <button

@@ -385,7 +385,6 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
   const [message, setMessage] = useState("");
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
 
   useEffect(() => {
@@ -468,21 +467,11 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
     };
   }, [mergedStores]);
 
-  const filteredSuggestions = useMemo(() => {
-    const query = cleanText(deferredSearch).toLowerCase();
-    if (!query || selectedStoreId) return [];
-    return mergedStores
-      .filter((store) => `${store.storeCode} ${store.storeName}`.toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [deferredSearch, mergedStores, selectedStoreId]);
-
   const visibleStores = useMemo(() => {
     const query = cleanText(deferredSearch).toLowerCase();
-    const narrowed = selectedStoreId ? mergedStores.filter((store) => store.id === selectedStoreId) : mergedStores;
+    if (!query) return mergedStores;
 
-    if (!query) return narrowed;
-
-    return narrowed.filter((store) => {
+    return mergedStores.filter((store) => {
       if (`${store.storeCode} ${store.storeName}`.toLowerCase().includes(query)) return true;
       return store.employees.some((employee) =>
         [employee.employeeCode, employee.employeeName, employee.phone, employee.email, employee.statuses.join(" ")]
@@ -491,7 +480,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
           .includes(query)
       );
     });
-  }, [deferredSearch, mergedStores, selectedStoreId]);
+  }, [deferredSearch, mergedStores]);
 
   const handleUpload = async (file: File) => {
     setMessage("");
@@ -517,7 +506,6 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
       await saveCoversheetUpload(nextUpload);
       setUpload(nextUpload);
       setExpandedStores(new Set());
-      setSelectedStoreId(null);
       setSearch("");
       setMessage(`Imported ${employeeCount} employee row(s) across ${stores.length} store(s), ${phoneCount} phone(s), and ${emailCount} email(s).`);
     } catch (error) {
@@ -526,11 +514,6 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
       setUploading(false);
     }
   };
-
-  useEffect(() => {
-    if (!selectedStoreId || visibleStores.some((store) => store.id === selectedStoreId)) return;
-    setSelectedStoreId(null);
-  }, [visibleStores, selectedStoreId]);
 
   const headerDescription =
     mode === "view"
@@ -636,46 +619,11 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                if (selectedStoreId) setSelectedStoreId(null);
-              }}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search stores, employee names, codes, phone, or email..."
               className="pl-10"
             />
           </div>
-
-          {selectedStoreId && (
-            <div className="flex items-center gap-2">
-              <Badge className="border-cyan-500/40 bg-cyan-500/20 text-cyan-300">Store selected</Badge>
-              <Button variant="outline" size="sm" onClick={() => {
-                setSelectedStoreId(null);
-                setSearch("");
-              }}>
-                Clear selection
-              </Button>
-            </div>
-          )}
-
-          {!selectedStoreId && filteredSuggestions.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {filteredSuggestions.map((store) => (
-                <Button
-                  key={store.id}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setSelectedStoreId(store.id);
-                    setExpandedStores(new Set([store.id]));
-                    setSearch(`${store.storeCode ? `${store.storeCode} - ` : ""}${store.storeName}`);
-                  }}
-                >
-                  {store.storeCode ? `${store.storeCode} - ` : ""}
-                  {store.storeName}
-                </Button>
-              ))}
-            </div>
-          )}
 
           <div className="text-xs text-slate-400">Showing {visibleStores.length} of {mergedStores.length} store(s)</div>
         </CardContent>
