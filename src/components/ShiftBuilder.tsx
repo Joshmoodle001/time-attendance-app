@@ -1297,41 +1297,32 @@ export default function ShiftBuilder() {
         >
           <div className="flex h-full flex-col">
             <div
-              className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 bg-slate-950/95 px-4 py-4 transition-all duration-300 sm:px-6 ${
-                fullscreenControlsVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0 pointer-events-none"
+              className={`fixed right-4 top-4 z-10 flex flex-wrap items-center justify-end gap-2 transition-all duration-300 sm:right-6 sm:top-6 ${
+                fullscreenControlsVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0 pointer-events-none"
               }`}
             >
-              <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Shift Full Screen View</div>
-                <h3 className="truncate text-lg font-semibold text-white sm:text-2xl">
-                  {selectedRoster.store_name || selectedRoster.sheet_name}
-                </h3>
-                <div className="mt-1 text-sm text-slate-400">
-                  {selectedRoster.rows.length} rows • {rowGroups.length} groups • touch screen to show controls
-                </div>
-              </div>
-              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-                <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExportPdf}>
+              <div className="flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/85 p-2 shadow-2xl backdrop-blur">
+                <Button variant="outline" className="sm:flex-none" onClick={handleExportPdf}>
                   <Download className="mr-2 h-4 w-4" />
                   Download PDF
                 </Button>
-                <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowFullscreen(false)}>
+                <Button variant="outline" className="sm:flex-none" onClick={() => setShowFullscreen(false)}>
                   <X className="mr-2 h-4 w-4" />
                   Exit
                 </Button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+            <div className="flex-1 overflow-y-auto px-4 py-16 sm:px-6 sm:py-20">
               <div className="mx-auto max-w-7xl">
-                <div className="mx-auto max-w-6xl rounded-[28px] bg-white p-4 shadow-2xl sm:p-6">
-                  <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-5">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                      {selectedRoster.store_code ? `Store ${selectedRoster.store_code}` : "Shift Roster"}
-                    </div>
-                    <h3 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">
+                <div className="mx-auto max-w-6xl bg-white p-4 shadow-2xl sm:p-8">
+                  <div className="mb-5">
+                    <h3 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
                       {selectedRoster.store_name || selectedRoster.sheet_name}
                     </h3>
+                    <div className="mt-2 text-sm text-slate-500">
+                      {selectedRoster.rows.length} rows • {rowGroups.length} groups
+                    </div>
                   </div>
 
                   <div className="grid gap-3 lg:hidden">
@@ -1360,7 +1351,7 @@ export default function ShiftBuilder() {
                   ))}
                 </div>
 
-                  <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white lg:block">
+                  <div className="hidden overflow-x-auto bg-white lg:block">
                   <table className="min-w-[1180px] w-full border-collapse text-sm">
                     <thead>
                       <tr className="bg-slate-100">
