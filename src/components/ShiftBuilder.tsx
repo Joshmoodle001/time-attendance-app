@@ -8,12 +8,14 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Expand,
   FileText,
   Plus,
   RefreshCw,
   Search,
   Trash2,
   Upload,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -41,6 +43,15 @@ type CellPosition = {
 };
 
 type EditableField = "employee_name" | "department" | "hr" | "employee_code" | "time_label" | "extra" | ShiftDayKey;
+type ShiftSearchResult = {
+  id: string;
+  type: "store" | "employee";
+  sheetName: string;
+  title: string;
+  subtitle: string;
+  rowKey?: string;
+  matchScore: number;
+};
 
 const DAY_COLUMNS: Array<{ key: ShiftDayKey; label: string }> = [
   { key: "monday", label: "Monday" },
@@ -318,6 +329,18 @@ function parseClipboardMatrix(text: string) {
   return text.replace(/\r\n/g, "\n").split("\n").map((line) => line.split("\t"));
 }
 
+function getMatchScore(haystack: string, query: string) {
+  if (!query) return 0;
+  const lowerHaystack = haystack.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  if (lowerHaystack === lowerQuery) return 400;
+  if (lowerHaystack.startsWith(lowerQuery)) return 300;
+  const tokenMatch = lowerHaystack.split(/\s+/).some((token) => token.startsWith(lowerQuery));
+  if (tokenMatch) return 200;
+  if (lowerHaystack.includes(lowerQuery)) return 100;
+  return 0;
+}
+
 export default function ShiftBuilder() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
@@ -327,6 +350,7 @@ export default function ShiftBuilder() {
   const [selectedCell, setSelectedCell] = useState<CellPosition | null>(null);
   const [editingCell, setEditingCell] = useState<CellPosition | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Load a workbook to build shifts.");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -405,6 +429,15 @@ export default function ShiftBuilder() {
     }
   }, [rosters]);
 
+  useEffect(() => {
+    if (!showFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showFullscreen]);
+
   const orderedRows = useMemo(
     () => (selectedRoster ? [...selectedRoster.rows].sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index) : []),
     [selectedRoster]
@@ -415,43 +448,46 @@ export default function ShiftBuilder() {
     const query = normalizeText(shiftSearch).toLowerCase();
     if (!query) return [];
 
-    const results: Array<{
-      id: string;
-      type: "store" | "employee";
-      sheetName: string;
-      title: string;
-      subtitle: string;
-      rowKey?: string;
-    }> = [];
+    const results: ShiftSearchResult[] = [];
 
     rosters.forEach((roster) => {
-      const storeLabel = `${roster.store_name} ${roster.sheet_name} ${roster.store_code}`.toLowerCase();
-      if (storeLabel.includes(query)) {
+      const storeLabel = `${roster.store_name} ${roster.sheet_name} ${roster.store_code}`;
+      const storeMatchScore = getMatchScore(storeLabel, query);
+      if (storeMatchScore > 0) {
         results.push({
           id: `store-${roster.sheet_name}`,
           type: "store",
           sheetName: roster.sheet_name,
           title: roster.store_name || roster.sheet_name,
           subtitle: roster.store_code ? `Store code ${roster.store_code}` : "Shift roster",
+          matchScore: storeMatchScore,
         });
       }
 
       roster.rows.forEach((row) => {
-        const haystack = `${row.employee_name} ${row.employee_code} ${row.department} ${row.week_label} ${roster.store_name}`.toLowerCase();
-        if (haystack.includes(query)) {
+        const haystack = `${row.employee_name} ${row.employee_code} ${row.department} ${row.week_label} ${roster.store_name}`;
+        const employeeMatchScore = getMatchScore(haystack, query);
+        if (employeeMatchScore > 0) {
           results.push({
             id: `employee-${roster.sheet_name}-${row.row_key}`,
             type: "employee",
             sheetName: roster.sheet_name,
             rowKey: row.row_key,
             title: row.employee_name || row.employee_code || "Unnamed merchandiser",
+            matchScore: employeeMatchScore,
             subtitle: `${row.employee_code || "No code"} • ${row.week_label} • ${roster.store_name || roster.sheet_name}`,
           });
         }
       });
     });
 
-    return results.slice(0, 10);
+    return results
+      .sort((left, right) => {
+        if (left.type !== right.type) return left.type === "store" ? -1 : 1;
+        if (left.matchScore !== right.matchScore) return right.matchScore - left.matchScore;
+        return left.title.localeCompare(right.title);
+      })
+      .slice(0, 12);
   }, [rosters, shiftSearch]);
   const selectedRow = useMemo(
     () => (selectedRoster && selectedCell ? selectedRoster.rows.find((row) => row.row_key === selectedCell.rowKey) || null : selectedRoster?.rows[0] || null),
@@ -868,6 +904,10 @@ export default function ShiftBuilder() {
             <FileText className="mr-2 h-4 w-4" />
             Export PDF
           </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowFullscreen(true)} disabled={!selectedRoster}>
+            <Expand className="mr-2 h-4 w-4" />
+            Full screen
+          </Button>
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleDownloadJson} disabled={!selectedRoster}>
             <Download className="mr-2 h-4 w-4" />
             Download JSON
@@ -893,15 +933,18 @@ export default function ShiftBuilder() {
             />
           </div>
           {shiftSearchResults.length > 0 && (
-            <div className="mt-2 grid gap-2 lg:grid-cols-2">
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
               {shiftSearchResults.map((result) => (
                 <button
                   key={result.id}
                   type="button"
                   onClick={() => handleShiftSearchGo(result)}
-                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100"
                 >
                   <div className="min-w-0">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
+                      {result.type === "store" ? "Store match" : "Employee match"}
+                    </div>
                     <div className="truncate text-sm font-medium text-slate-900">{result.title}</div>
                     <div className="truncate text-xs text-slate-500">{result.subtitle}</div>
                   </div>
@@ -943,6 +986,10 @@ export default function ShiftBuilder() {
                 <Button variant="outline" size="sm" onClick={() => setShowDetails((current) => !current)} disabled={!selectedRoster}>
                   {showDetails ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                   {showDetails ? "Collapse" : "Expand"}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowFullscreen(true)} disabled={!selectedRoster}>
+                  <Expand className="mr-2 h-4 w-4" />
+                  Full screen view
                 </Button>
               </div>
               <CardDescription className="text-slate-500">
@@ -1189,6 +1236,120 @@ export default function ShiftBuilder() {
           )}
         </CardContent>
       </Card>
+
+      {showFullscreen && selectedRoster && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm">
+          <div className="flex h-full flex-col">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 bg-slate-950/95 px-4 py-4 sm:px-6">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Shift Full Screen View</div>
+                <h3 className="truncate text-lg font-semibold text-white sm:text-2xl">
+                  {selectedRoster.store_name || selectedRoster.sheet_name}
+                </h3>
+                <div className="mt-1 text-sm text-slate-400">
+                  {selectedRoster.rows.length} rows • {rowGroups.length} groups • optimized for tablet and mobile review
+                </div>
+              </div>
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExportPdf}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download PDF
+                </Button>
+                <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowFullscreen(false)}>
+                  <X className="mr-2 h-4 w-4" />
+                  Exit
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+              <div className="mx-auto max-w-7xl space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Store</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{selectedRoster.store_name || selectedRoster.sheet_name}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Store Code</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{selectedRoster.store_code || "-"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Rows</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{selectedRoster.rows.length}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Groups</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{rowGroups.length}</div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 lg:hidden">
+                  {orderedRows.map((row) => (
+                    <div key={`${row.row_key}-fullscreen-mobile`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-base font-semibold text-white">{row.employee_name || "Blank"}</div>
+                          <div className="mt-1 text-sm text-slate-400">
+                            {row.employee_code || "No code"} • {row.week_label}
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-sm font-semibold text-cyan-300">
+                          {formatHours(getWeekTotal(row))}h
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        {DAY_COLUMNS.map((day) => (
+                          <div key={`${row.row_key}-${day.key}-fs-mobile`} className="rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2">
+                            <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{day.label}</div>
+                            <div className="mt-1 font-medium text-slate-100">{getCellValue(row, day.key) || "-"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="hidden overflow-x-auto rounded-2xl border border-slate-800 bg-white lg:block">
+                  <table className="min-w-[1180px] w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-100">
+                        <th className="border border-slate-200 px-3 py-3 text-left">Week</th>
+                        <th className="border border-slate-200 px-3 py-3 text-left">Employee</th>
+                        <th className="border border-slate-200 px-3 py-3 text-left">Department</th>
+                        <th className="border border-slate-200 px-3 py-3 text-left">Code</th>
+                        <th className="border border-slate-200 px-3 py-3 text-left">Time</th>
+                        {DAY_COLUMNS.map((day) => (
+                          <th key={`${day.key}-fullscreen-header`} className="border border-slate-200 px-3 py-3 text-center">
+                            {day.label}
+                          </th>
+                        ))}
+                        <th className="border border-slate-200 px-3 py-3 text-center">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderedRows.map((row) => (
+                        <tr key={`${row.row_key}-fullscreen-desktop`} className="bg-white">
+                          <td className="border border-slate-200 px-3 py-2">{row.week_label}</td>
+                          <td className="border border-slate-200 px-3 py-2 font-medium">{row.employee_name || "Blank"}</td>
+                          <td className="border border-slate-200 px-3 py-2">{row.department || "-"}</td>
+                          <td className="border border-slate-200 px-3 py-2">{row.employee_code || "-"}</td>
+                          <td className="border border-slate-200 px-3 py-2">{row.time_label || "-"}</td>
+                          {DAY_COLUMNS.map((day) => (
+                            <td key={`${row.row_key}-${day.key}-fullscreen-desktop`} className="border border-slate-200 px-3 py-2 text-center">
+                              {getCellValue(row, day.key) || "-"}
+                            </td>
+                          ))}
+                          <td className="border border-slate-200 px-3 py-2 text-center font-semibold">{formatHours(getWeekTotal(row))}h</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDetails && selectedRow && (
         <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
