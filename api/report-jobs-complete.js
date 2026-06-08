@@ -45,13 +45,26 @@ export default async function handler(req, res) {
 
     const success = Boolean(req.body?.success);
 
+    // Debug: log the structure of the incoming payload
+    console.log("[report-jobs-complete] Received completion for jobId:", jobId, {
+      success,
+      hasResult: !!req.body?.result,
+      hasReportPayload: !!req.body?.reportPayload,
+      rpType: typeof req.body?.reportPayload,
+      rpKeys: req.body?.reportPayload ? Object.keys(req.body.reportPayload) : [],
+      hasCriteria: !!req.body?.reportPayload?.criteria,
+      templateKey: req.body?.reportPayload?.criteria?.templateKey,
+    });
+
     // Build result payload — guard against null/empty reportPayload
     let resultPayload = null;
     if (success) {
       if (req.body?.result) {
         resultPayload = req.body.result;
+        console.log("[report-jobs-complete] Using req.body.result");
       } else if (req.body?.reportPayload) {
         resultPayload = { reportPayload: req.body.reportPayload };
+        console.log("[report-jobs-complete] Wrapping reportPayload, criteria present:", !!req.body.reportPayload?.criteria);
       }
     }
 

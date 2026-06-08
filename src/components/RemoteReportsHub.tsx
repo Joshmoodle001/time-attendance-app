@@ -445,6 +445,18 @@ export default function RemoteReportsHub() {
         if (!job) return;
 
         if (job.status === "complete" && job.result) {
+          console.log("[Polling] Job result:", {
+            resultKeys: Object.keys(job.result),
+            hasPdfBase64: !!job.result?.pdfBase64,
+            hasReportPayload: !!job.result?.reportPayload,
+            rpKeys: job.result?.reportPayload ? Object.keys(job.result.reportPayload) : [],
+            rpType: typeof job.result?.reportPayload,
+            hasCriteria: !!job.result?.reportPayload?.criteria,
+            criteriaKeys: job.result?.reportPayload?.criteria ? Object.keys(job.result.reportPayload.criteria) : [],
+            criteriaType: typeof job.result?.reportPayload?.criteria,
+            templateKey: job.result?.reportPayload?.criteria?.templateKey,
+          });
+
           if (job.result?.pdfBase64) {
             setPdfResult(job.result as RemotePdfResult);
             setReportPayload(null);
@@ -454,11 +466,11 @@ export default function RemoteReportsHub() {
             setPdfResult(null);
             setStatusMessage("Report generated successfully. You can now export the PDF from this browser session.");
           } else if (job.result?.reportPayload) {
-            // reportPayload exists but is missing criteria — log and skip
-            console.warn("Report payload missing criteria field:", job.result.reportPayload);
+            console.warn("[Polling] Report payload missing criteria. Full payload:", job.result.reportPayload);
             setPdfResult(null);
             setReportPayload(null);
-            setStatusMessage("Report completed, but the data is incomplete. Try generating a new report.");
+            const rpKeys = Object.keys(job.result.reportPayload).join(", ");
+            setStatusMessage(`Report completed, but the data is incomplete (payload keys: ${rpKeys || "none"}). Check browser console for details.`);
           } else {
             setPdfResult(null);
             setReportPayload(null);
