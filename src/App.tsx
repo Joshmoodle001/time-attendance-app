@@ -8,7 +8,7 @@ import { getClockEvents, getClockStats, initializeClockDatabase, type BiometricC
 import { saveEmployeeUpdateUploadLog, type EmployeeUpdateReportItem, type EmployeeUpdateUploadLog } from "@/services/employeeUpdateLogs";
 import { getCombinedCalendarEvents, getWeekCycleLabel, loadCalendarEvents } from "@/services/calendar";
 import { expandLeaveDateRange, getLeaveApplications, getLeaveUploads } from "@/services/leave";
-import { getShiftRosters, materializeShiftRostersForDate } from "@/services/shifts";
+import { getShiftRosters } from "@/services/shifts";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 import { performOneTimeTrialReset } from "@/services/trialReset";
 import { findRegionMasterRowByRep, getStoreGrouping, resolveRegionForStore } from "@/services/regionMaster";
@@ -76,7 +76,6 @@ import {
 const sidebarItems = [
   { key: "coversheet", label: "Coversheet", icon: Table2 },
   { key: "shifts", label: "Shifts", icon: LayoutGrid },
-  { key: "reports", label: "Reports", icon: FileSpreadsheet },
   { key: "admin", label: "Admin", icon: Settings },
 ] as const;
 
@@ -91,7 +90,6 @@ const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
 const CoversheetHub = lazy(() => import("@/components/CoversheetHub"));
-const RemoteReportsHub = lazy(() => import("@/components/RemoteReportsHub"));
 
 const ATTENDANCE_STATUS_CONFIG = [
   { key: "atWork", name: "At Work", color: "#22c55e" },
@@ -240,8 +238,6 @@ type OverviewModuleSnapshot = {
   ipulseAutoSyncEnabled: boolean;
   ipulseLastSyncStatus: string;
   ipulseLastSyncAt: string;
-  lastShiftSyncAt: string;
-  lastShiftSyncStatus: string;
   syncLogCount: number;
   syncErrorsOpen: number;
 };
@@ -925,14 +921,79 @@ function buildRosterStatusLookupsForRange(
   endDate: Date
 ) {
   const lookupsByDate = new Map<string, Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>>();
+  
+  // Index roster rows by week label and day position
+  const weekDayRosters = new Map<string, Map<number, { roster: typeof shiftRosters[0]; row: typeof shiftRosters[0]['rows'][0] }[]>>();
+  
+  for (let r = 0; r < shiftRosters.length; r++) {
+    const roster = shiftRosters[r];
+    // Get week_label from first row (all rows in a roster have same week)
+    const weekLabel = roster.rows[0]?.week_label?.trim().toUpperCase() || "";
+    if (!weekLabel) continue;
+    
+    if (!weekDayRosters.has(weekLabel)) {
+      weekDayRosters.set(weekLabel, new Map());
+    }
+    const dayMap = weekDayRosters.get(weekLabel)!;
+    
+    for (let rowIdx = 0; rowIdx < roster.rows.length; rowIdx++) {
+      const row = roster.rows[rowIdx];
+      const employeeCode = normalizeEmployeeCode(row.employee_code);
+      if (!employeeCode) continue;
+      
+      // Check each day column (0=monday, 6=sunday)
+      for (let dayPos = 0; dayPos < 7; dayPos++) {
+        const dayKey = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][dayPos] as keyof typeof row;
+        const rawValue = String(row[dayKey] || "").trim();
+        if (!rawValue) continue;
+        
+        if (!dayMap.has(dayPos)) {
+          dayMap.set(dayPos, []);
+        }
+        dayMap.get(dayPos)!.push({ roster, row });
+      }
+    }
+  }
 
   const cursor = new Date(startDate);
   while (cursor <= endDate) {
     const dateKey = formatDateValue(cursor);
-    lookupsByDate.set(dateKey, buildRosterStatusLookup(shiftRosters, dateKey));
+    const weekLabel = getWeekCycleLabel(cursor).toUpperCase();
+    
+    const dayMap = weekDayRosters.get(weekLabel);
+    if (dayMap) {
+      const dayPos = (cursor.getDay() + 6) % 7; // Convert JS day (0=Sun) to our day (0=Mon)
+      const dayRosters = dayMap.get(dayPos) || [];
+      
+      const lookup = new Map<string, { scheduled: boolean; dayOff: boolean; leave: boolean; store: string; storeCode: string }>();
+      
+      for (let i = 0; i < dayRosters.length; i++) {
+        const { roster, row } = dayRosters[i];
+        const employeeCode = normalizeEmployeeCode(row.employee_code);
+        const dayKey = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][dayPos] as keyof typeof row;
+        const rawValue = String(row[dayKey] || "").trim().toUpperCase();
+        
+        const isDayOff = rawValue === "OFF" || rawValue === "OFF DAY";
+        const isLeave = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/.test(rawValue);
+        const scheduled = !isDayOff && !isLeave;
+        
+        if (!lookup.has(employeeCode)) {
+          lookup.set(employeeCode, {
+            scheduled,
+            dayOff: isDayOff,
+            leave: isLeave,
+            store: roster.store_name || "",
+            storeCode: roster.store_code || "",
+          });
+        }
+      }
+      
+      lookupsByDate.set(dateKey, lookup);
+    }
+    
     cursor.setDate(cursor.getDate() + 1);
   }
-
+  
   return lookupsByDate;
 }
 
@@ -946,10 +1007,9 @@ function buildRosterStatusLookup(
 
   const weekLabel = getWeekCycleLabel(selectedDate).toUpperCase();
   const dayKey = getOverviewDayKey(selectedDate);
-  const effectiveRosters = materializeShiftRostersForDate(shiftRosters, dateValue);
 
-  for (let i = 0; i < effectiveRosters.length; i++) {
-    const roster = effectiveRosters[i];
+  for (let i = 0; i < shiftRosters.length; i++) {
+    const roster = shiftRosters[i];
     for (let j = 0; j < roster.rows.length; j++) {
       const row = roster.rows[j];
       if (String(row.week_label || "").trim().toUpperCase() !== weekLabel) continue;
@@ -1399,8 +1459,6 @@ export default function App() {
     ipulseAutoSyncEnabled: false,
     ipulseLastSyncStatus: "",
     ipulseLastSyncAt: "",
-    lastShiftSyncAt: "",
-    lastShiftSyncStatus: "",
     syncLogCount: 0,
     syncErrorsOpen: 0,
   });
@@ -1682,8 +1740,6 @@ export default function App() {
         ipulseAutoSyncEnabled: Boolean(latestConfig?.auto_sync_enabled),
         ipulseLastSyncStatus: latestConfig?.last_sync_status || "",
         ipulseLastSyncAt: latestConfig?.last_sync_at || "",
-        lastShiftSyncAt: shiftSyncSettings.lastUniversalSyncedAt || shiftSyncSettings.lastLiveSyncedAt || "",
-        lastShiftSyncStatus: shiftSyncSettings.lastUniversalStatus || shiftSyncSettings.lastLiveStatus || "",
         syncLogCount: latestSyncLogs.length,
         syncErrorsOpen: latestSyncLogs.filter((log) => log.status === "error" || log.status === "partial").length,
       });
@@ -4971,7 +5027,6 @@ export default function App() {
 
   const renderMainSection = () => {
     if (activeNav === "shifts") return <ShiftBuilder />;
-    if (activeNav === "reports") return <RemoteReportsHub />;
     if (activeNav === "admin") return renderAdmin();
     return <CoversheetHub mode="view" />;
   };
@@ -5107,7 +5162,6 @@ export default function App() {
                   <p className="mt-2 text-slate-400 text-sm">
                     {activeNav === "coversheet" && "View grouped route coversheets with terminated, maternity, and hold statuses"}
                     {activeNav === "shifts" && "Build and update workbook-based shift rosters"}
-                    {activeNav === "reports" && "Request desktop-generated attendance and AWOL PDFs from the local Electron report server"}
                     {activeNav === "admin" && "Configure sync settings and manage sheet orchestration"}
                   </p>
                 </div>
@@ -5115,14 +5169,6 @@ export default function App() {
                   <div className="px-4 py-2 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 text-sm">
                     <span className="text-cyan-400 font-semibold">{overviewModuleSnapshot.activeEmployees}</span>
                     <span className="ml-1">Active</span>
-                  </div>
-                  <div className="px-4 py-2 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 text-sm">
-                    <div className="font-medium text-slate-200">Last shifts sync</div>
-                    <div className="text-xs text-slate-400">
-                      {overviewModuleSnapshot.lastShiftSyncAt
-                        ? new Date(overviewModuleSnapshot.lastShiftSyncAt).toLocaleString()
-                        : "Not synced yet"}
-                    </div>
                   </div>
                 </div>
               </div>

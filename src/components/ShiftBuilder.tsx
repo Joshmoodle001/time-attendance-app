@@ -16,6 +16,8 @@ import {
   Trash2,
   Upload,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -335,7 +337,6 @@ function getMatchScore(haystack: string, query: string) {
 
 export default function ShiftBuilder() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const shiftSearchRef = useRef<HTMLInputElement | null>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const fullscreenControlsTimerRef = useRef<number | null>(null);
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
@@ -347,6 +348,7 @@ export default function ShiftBuilder() {
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(true);
   const [statusMessage, setStatusMessage] = useState("Load a workbook to build shifts.");
+  const [zoomLevel, setZoomLevel] = useState(1);
   const [isSyncing, setIsSyncing] = useState(false);
   const isInitialLoadRef = useRef(true);
   const prevSelectedSheetRef = useRef<string>("");
@@ -758,6 +760,25 @@ export default function ShiftBuilder() {
     await applyToSelectedRoster((roster) => moveGroup(roster, selectedCell.rowKey, direction), "Reordered shift group.");
   };
 
+  const handleDownloadJson = () => {
+    if (!selectedRoster) return;
+    const blob = new Blob([JSON.stringify(selectedRoster, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${selectedRoster.sheet_name}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel((current) => Math.max(0.7, Number((current - 0.1).toFixed(2))));
+  };
+
+  const handleZoomIn = () => {
+    setZoomLevel((current) => Math.min(1.4, Number((current + 0.1).toFixed(2))));
+  };
+
   const revealFullscreenControls = () => {
     setFullscreenControlsVisible(true);
     if (!window.matchMedia("(pointer: coarse)").matches) return;
@@ -765,13 +786,6 @@ export default function ShiftBuilder() {
     fullscreenControlsTimerRef.current = window.setTimeout(() => {
       setFullscreenControlsVisible(false);
     }, 2200);
-  };
-
-  const bringShiftSearchIntoView = () => {
-    if (typeof window === "undefined") return;
-    window.setTimeout(() => {
-      shiftSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 180);
   };
 
   const handleExportPdf = () => {
@@ -862,24 +876,39 @@ export default function ShiftBuilder() {
             Single click selects a cell, double click edits it, and Ctrl+C / Ctrl+V work like a spreadsheet.
           </p>
         </div>
-        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap">
-          <Button variant="outline" className="w-full xl:w-auto" onClick={() => fileInputRef.current?.click()}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleZoomOut} disabled={zoomLevel <= 0.7}>
+            <ZoomOut className="mr-2 h-4 w-4" />
+            Zoom out
+          </Button>
+          <Button variant="outline" className="min-w-[92px] flex-1 sm:flex-none" onClick={() => setZoomLevel(1)}>
+            {Math.round(zoomLevel * 100)}%
+          </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleZoomIn} disabled={zoomLevel >= 1.4}>
+            <ZoomIn className="mr-2 h-4 w-4" />
+            Zoom in
+          </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => fileInputRef.current?.click()}>
             <Upload className="mr-2 h-4 w-4" />
             Upload workbook
           </Button>
-          <Button variant="outline" className="w-full xl:w-auto" onClick={handleSyncFromSheets} disabled={isSyncing}>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleSyncFromSheets} disabled={isSyncing}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
             {isSyncing ? "Syncing..." : "Sync Sheets"}
           </Button>
-          <Button variant="outline" className="w-full xl:w-auto" onClick={handleExportPdf} disabled={!selectedRoster}>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExportPdf} disabled={!selectedRoster}>
             <FileText className="mr-2 h-4 w-4" />
             Export PDF
           </Button>
-          <Button variant="outline" className="w-full xl:w-auto" onClick={() => setShowFullscreen(true)} disabled={!selectedRoster}>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowFullscreen(true)} disabled={!selectedRoster}>
             <Expand className="mr-2 h-4 w-4" />
             Full screen
           </Button>
-          <Button variant="outline" className="hidden sm:flex sm:flex-none" onClick={handleCopy} disabled={!selectedCell}>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleDownloadJson} disabled={!selectedRoster}>
+            <Download className="mr-2 h-4 w-4" />
+            Download JSON
+          </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleCopy} disabled={!selectedCell}>
             <Copy className="mr-2 h-4 w-4" />
             Copy cell
           </Button>
@@ -893,23 +922,21 @@ export default function ShiftBuilder() {
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
-              ref={shiftSearchRef}
               value={shiftSearch}
               onChange={(event) => setShiftSearch(event.target.value)}
-              onFocus={bringShiftSearchIntoView}
               placeholder="Search shifts by store, employee name, or employee code..."
               className="pl-9 bg-slate-800 border-slate-600 text-white"
             />
           </div>
         </div>
-        <div className="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="flex flex-wrap gap-2 md:flex-nowrap md:overflow-x-auto">
           {filteredRosters.map((roster) => {
             const active = roster.sheet_name === selectedRoster?.sheet_name;
             return (
               <button
                 key={roster.sheet_name}
                 onClick={() => setSelectedSheet(roster.sheet_name)}
-                className={`min-w-0 w-full max-w-full break-words rounded-xl border px-4 py-3 text-left text-sm font-medium transition ${
+                className={`min-w-0 max-w-full break-words rounded-xl border px-4 py-2 text-sm font-medium transition md:whitespace-nowrap ${
                   active ? "border-orange-300 bg-orange-50 text-orange-800" : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
                 }`}
               >
@@ -942,20 +969,20 @@ export default function ShiftBuilder() {
                 {selectedRoster ? `${selectedRoster.rows.length} shift rows | ${rowGroups.length} groups` : "Upload a workbook to start"}
               </CardDescription>
             </div>
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap">
-              <Button variant="outline" className="w-full xl:w-auto" onClick={handleAddGroup} disabled={!selectedRoster}>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleAddGroup} disabled={!selectedRoster}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add row group
               </Button>
-              <Button variant="outline" className="w-full xl:w-auto" onClick={() => void handleMove(-1)} disabled={!selectedCell}>
+              <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(-1)} disabled={!selectedCell}>
                 <ArrowUp className="mr-2 h-4 w-4" />
                 Move up
               </Button>
-              <Button variant="outline" className="w-full xl:w-auto" onClick={() => void handleMove(1)} disabled={!selectedCell}>
+              <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => void handleMove(1)} disabled={!selectedCell}>
                 <ArrowDown className="mr-2 h-4 w-4" />
                 Move down
               </Button>
-              <Button variant="outline" className="w-full xl:w-auto" onClick={handleRemoveGroup} disabled={!selectedCell}>
+              <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleRemoveGroup} disabled={!selectedCell}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Remove group
               </Button>
@@ -983,7 +1010,7 @@ export default function ShiftBuilder() {
                         {formatHours(getWeekTotal(row))}h
                       </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="mt-3 grid grid-cols-2 gap-2">
                       {DAY_COLUMNS.map((day) => (
                         <div key={`${row.row_key}-${day.key}-mobile-main-day`} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                           <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">{day.label}</div>
@@ -996,6 +1023,7 @@ export default function ShiftBuilder() {
               </div>
 
               <div ref={tableWrapRef} className="hidden w-full max-w-full overflow-x-auto overscroll-x-contain md:block">
+                <div style={{ zoom: zoomLevel } as React.CSSProperties}>
                   <table className="w-full min-w-[1240px] border-collapse table-fixed xl:min-w-[1320px]">
                   <colgroup>
                     <col className="w-[96px]" />
@@ -1202,6 +1230,7 @@ export default function ShiftBuilder() {
                   })}
                   </tbody>
                 </table>
+                </div>
               </div>
             </>
           )}
@@ -1259,7 +1288,7 @@ export default function ShiftBuilder() {
                           {formatHours(getWeekTotal(row))}h
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                         {DAY_COLUMNS.map((day) => (
                           <div key={`${row.row_key}-${day.key}-fs-mobile`} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                             <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{day.label}</div>
@@ -1329,7 +1358,7 @@ export default function ShiftBuilder() {
             </CardDescription>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="grid gap-3 md:hidden">
+            <div className="grid gap-3 md:hidden" style={{ zoom: zoomLevel } as React.CSSProperties}>
               {detailedRows.map((item) => (
                 <div key={`${item.row.row_key}-hours-mobile`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -1341,7 +1370,7 @@ export default function ShiftBuilder() {
                     </div>
                     <div className="text-sm font-semibold text-slate-900">{formatHours(item.weekTotal)}h</div>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2">
                     {item.dailyHours.map((day) => (
                       <div key={`${item.row.row_key}-${day.key}-mobile`} className="rounded-lg bg-white px-3 py-2 text-sm">
                         <div className="text-xs uppercase tracking-wide text-slate-400">{day.label}</div>
@@ -1354,6 +1383,7 @@ export default function ShiftBuilder() {
             </div>
 
             <div className="hidden w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 overscroll-x-contain md:block">
+              <div style={{ zoom: zoomLevel } as React.CSSProperties}>
               <table className="w-full min-w-[980px] border-collapse text-sm lg:min-w-[1180px]">
                 <thead>
                   <tr className="bg-slate-50">
@@ -1384,6 +1414,7 @@ export default function ShiftBuilder() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">

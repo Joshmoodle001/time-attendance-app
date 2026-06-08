@@ -59,11 +59,11 @@ export const DEFAULT_SHIFT_SYNC_SECTIONS: ShiftSyncSection[] = [
 ];
 
 export const DEFAULT_SHIFT_SYNC_SETTINGS: ShiftSyncSettings = {
-  autoSyncEnabled: true,
+  autoSyncEnabled: false,
   backupIntervalMinutes: 60,
   scheduledRunTimes: [],
   lastUniversalSyncedAt: "",
-  lastUniversalStatus: "Hourly background sync is ready.",
+  lastUniversalStatus: "Hourly background sync is off.",
   liveSyncEnabled: false,
   lastLiveSyncedAt: "",
   lastLiveStatus: "Live sheet listening is off until a live Google Sheet link is connected.",
@@ -73,17 +73,6 @@ export const DEFAULT_SHIFT_SYNC_SETTINGS: ShiftSyncSettings = {
 
 export function hasConfiguredShiftSyncLinks(settings?: Pick<ShiftSyncSettings, "sections"> | null) {
   return Boolean(settings?.sections?.some((section) => normalizeText(section.url)));
-}
-
-function applyAutoSyncBootstrap(settings: ShiftSyncSettings) {
-  if (!settings.autoSyncEnabled && !settings.lastUniversalSyncedAt && hasConfiguredShiftSyncLinks(settings)) {
-    return {
-      ...settings,
-      autoSyncEnabled: true,
-      lastUniversalStatus: "Hourly background sync is ready.",
-    };
-  }
-  return settings;
 }
 
 function createLiveWebhookKey() {
@@ -168,19 +157,19 @@ function loadLocalShiftSyncSettings() {
 
   try {
     const raw = window.localStorage.getItem(SHIFT_SYNC_STORAGE_KEY);
-    if (raw) return applyAutoSyncBootstrap(normalizeSettings(JSON.parse(raw)));
+    if (raw) return normalizeSettings(JSON.parse(raw));
 
     const legacyRaw = window.localStorage.getItem(LEGACY_SHIFT_SYNC_STORAGE_KEY);
     if (legacyRaw) {
-      return applyAutoSyncBootstrap(normalizeSettings({
+      return normalizeSettings({
         sections: JSON.parse(legacyRaw),
-      }));
+      });
     }
 
-    return applyAutoSyncBootstrap(DEFAULT_SHIFT_SYNC_SETTINGS);
+    return DEFAULT_SHIFT_SYNC_SETTINGS;
   } catch (error) {
     console.error("Could not load shift sync settings:", error);
-    return applyAutoSyncBootstrap(DEFAULT_SHIFT_SYNC_SETTINGS);
+    return DEFAULT_SHIFT_SYNC_SETTINGS;
   }
 }
 
@@ -238,7 +227,7 @@ export async function loadShiftSyncSettings() {
       return localSettings;
     }
 
-    const remoteSettings = applyAutoSyncBootstrap(normalizeSettings({
+    const remoteSettings = normalizeSettings({
       autoSyncEnabled: data.auto_sync_enabled,
       backupIntervalMinutes: data.payload?.backupIntervalMinutes,
       scheduledRunTimes: data.payload?.scheduledRunTimes,
@@ -249,9 +238,9 @@ export async function loadShiftSyncSettings() {
       lastLiveStatus: data.payload?.lastLiveStatus,
       liveWebhookKey: data.payload?.liveWebhookKey,
       sections: data.payload?.sections,
-    }));
+    });
 
-    const mergedSettings = applyAutoSyncBootstrap(normalizeSettings({
+    const mergedSettings = normalizeSettings({
       autoSyncEnabled: remoteSettings.autoSyncEnabled || localSettings.autoSyncEnabled,
       backupIntervalMinutes: remoteSettings.backupIntervalMinutes || localSettings.backupIntervalMinutes,
       scheduledRunTimes:
@@ -278,7 +267,7 @@ export async function loadShiftSyncSettings() {
           lastStatus: pickPreferredText(remoteSection?.lastStatus, localSection?.lastStatus, section.lastStatus),
         };
       }),
-    }));
+    });
 
     saveLocalShiftSyncSettings(mergedSettings);
     return mergedSettings;

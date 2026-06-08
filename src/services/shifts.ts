@@ -46,21 +46,6 @@ export type ShiftRow = {
   logs: ShiftLog[];
 };
 
-export type ShiftImportSummary = {
-  imported_rows: number;
-  updated_rows: number;
-  preserved_rows: number;
-};
-
-export type ShiftRosterSnapshot = {
-  effective_date: string;
-  captured_at: string;
-  source_file_name: string;
-  custom_columns: string[];
-  rows: ShiftRow[];
-  import_summary: ShiftImportSummary;
-};
-
 export type ShiftRoster = {
   id: string;
   sheet_name: string;
@@ -70,8 +55,11 @@ export type ShiftRoster = {
   custom_columns: string[];
   rows: ShiftRow[];
   updated_at: string;
-  import_summary: ShiftImportSummary;
-  history?: ShiftRosterSnapshot[];
+  import_summary: {
+    imported_rows: number;
+    updated_rows: number;
+    preserved_rows: number;
+  };
 };
 
 type RemoteShiftRosterRecord = {
@@ -84,8 +72,11 @@ type RemoteShiftRosterRecord = {
   payload: {
     custom_columns?: string[];
     rows?: ShiftRow[];
-    import_summary?: Partial<ShiftImportSummary>;
-    history?: ShiftRosterSnapshot[];
+    import_summary?: {
+      imported_rows?: number;
+      updated_rows?: number;
+      preserved_rows?: number;
+    };
   } | null;
 };
 
@@ -128,7 +119,7 @@ function loadLocalShiftRosters(): ShiftRoster[] {
     const raw = window.localStorage.getItem(SHIFT_ROSTER_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ShiftRoster[];
-    return Array.isArray(parsed) ? parsed.map((roster) => materializeRosterWithHistory(roster)) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
     console.error("Load local shift rosters error:", error);
     return [];
@@ -213,159 +204,6 @@ function normalizeText(value: unknown) {
 
 function normalizeKey(value: string) {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-}
-
-function formatEffectiveDate(value?: string) {
-  const source = normalizeText(value) || new Date().toISOString();
-  return source.slice(0, 10);
-}
-
-function normalizeImportSummary(summary?: Partial<ShiftImportSummary> | null): ShiftImportSummary {
-  return {
-    imported_rows: Number(summary?.imported_rows || 0),
-    updated_rows: Number(summary?.updated_rows || 0),
-    preserved_rows: Number(summary?.preserved_rows || 0),
-  };
-}
-
-function buildSnapshotSignature(snapshot: Pick<ShiftRosterSnapshot, "source_file_name" | "custom_columns" | "rows">) {
-  return JSON.stringify({
-    source_file_name: normalizeText(snapshot.source_file_name),
-    custom_columns: [...(snapshot.custom_columns || [])].sort(),
-    rows: snapshot.rows || [],
-  });
-}
-
-function createRosterSnapshot(
-  roster: Pick<ShiftRoster, "source_file_name" | "custom_columns" | "rows" | "updated_at" | "import_summary">,
-  effectiveDate?: string
-): ShiftRosterSnapshot {
-  return {
-    effective_date: formatEffectiveDate(effectiveDate || roster.updated_at),
-    captured_at: roster.updated_at || new Date().toISOString(),
-    source_file_name: normalizeText(roster.source_file_name),
-    custom_columns: [...(roster.custom_columns || [])].sort(),
-    rows: Array.isArray(roster.rows) ? roster.rows : [],
-    import_summary: normalizeImportSummary(roster.import_summary),
-  };
-}
-
-function normalizeRosterHistory(roster: ShiftRoster): ShiftRosterSnapshot[] {
-  const baseSnapshot = createRosterSnapshot(roster, roster.updated_at);
-  const incomingHistory = Array.isArray(roster.history) ? roster.history : [];
-  const normalized = incomingHistory
-    .map((snapshot) => ({
-      effective_date: formatEffectiveDate(snapshot?.effective_date || snapshot?.captured_at || roster.updated_at),
-      captured_at: normalizeText(snapshot?.captured_at) || roster.updated_at || new Date().toISOString(),
-      source_file_name: normalizeText(snapshot?.source_file_name) || normalizeText(roster.source_file_name),
-      custom_columns: Array.isArray(snapshot?.custom_columns) ? [...snapshot.custom_columns].sort() : [...roster.custom_columns].sort(),
-      rows: Array.isArray(snapshot?.rows) ? snapshot.rows : [],
-      import_summary: normalizeImportSummary(snapshot?.import_summary),
-    }))
-    .filter((snapshot) => snapshot.rows.length > 0);
-
-  normalized.push(baseSnapshot);
-
-  const deduped = new Map<string, ShiftRosterSnapshot>();
-  normalized.forEach((snapshot) => {
-    const key = `${snapshot.effective_date}__${buildSnapshotSignature(snapshot)}`;
-    const prior = deduped.get(key);
-    if (!prior || prior.captured_at < snapshot.captured_at) {
-      deduped.set(key, snapshot);
-    }
-  });
-
-  return Array.from(deduped.values()).sort((a, b) => {
-    const byDate = a.effective_date.localeCompare(b.effective_date);
-    if (byDate !== 0) return byDate;
-    return a.captured_at.localeCompare(b.captured_at);
-  });
-}
-
-function materializeRosterWithHistory(roster: ShiftRoster): ShiftRoster {
-  const history = normalizeRosterHistory(roster);
-  const latest = history[history.length - 1] || createRosterSnapshot(roster, roster.updated_at);
-  return {
-    ...roster,
-    source_file_name: latest.source_file_name,
-    custom_columns: latest.custom_columns,
-    rows: latest.rows,
-    updated_at: latest.captured_at,
-    import_summary: latest.import_summary,
-    history,
-  };
-}
-
-function buildRosterHistoryUpdate(existing: ShiftRoster | null | undefined, incoming: ShiftRoster): ShiftRoster {
-  const normalizedIncoming = materializeRosterWithHistory({
-    ...incoming,
-    updated_at: incoming.updated_at || new Date().toISOString(),
-  });
-
-  if (!existing) {
-    return normalizedIncoming;
-  }
-
-  const normalizedExisting = materializeRosterWithHistory(existing);
-  const nextHistory = [...(normalizedExisting.history || [])];
-  const nextSnapshot = createRosterSnapshot(normalizedIncoming, normalizedIncoming.updated_at);
-  const latestSnapshot = nextHistory[nextHistory.length - 1];
-  const latestSignature = latestSnapshot ? buildSnapshotSignature(latestSnapshot) : "";
-  const nextSignature = buildSnapshotSignature(nextSnapshot);
-
-  if (!latestSnapshot) {
-    nextHistory.push(nextSnapshot);
-  } else if (latestSnapshot.effective_date === nextSnapshot.effective_date) {
-    nextHistory[nextHistory.length - 1] = {
-      ...latestSnapshot,
-      ...nextSnapshot,
-    };
-  } else if (latestSignature !== nextSignature) {
-    nextHistory.push(nextSnapshot);
-  } else {
-    nextHistory[nextHistory.length - 1] = {
-      ...latestSnapshot,
-      captured_at: nextSnapshot.captured_at,
-      source_file_name: nextSnapshot.source_file_name,
-      custom_columns: nextSnapshot.custom_columns,
-      import_summary: nextSnapshot.import_summary,
-    };
-  }
-
-  return materializeRosterWithHistory({
-    ...normalizedExisting,
-    ...normalizedIncoming,
-    updated_at: nextSnapshot.captured_at,
-    history: nextHistory,
-  });
-}
-
-export function resolveShiftRosterForDate(roster: ShiftRoster, dateValue: string | Date) {
-  const dateKey = typeof dateValue === "string" ? formatEffectiveDate(dateValue) : formatEffectiveDate(dateValue.toISOString());
-  const normalized = materializeRosterWithHistory(roster);
-  const history = normalized.history || [];
-  let resolved = history[0] || createRosterSnapshot(normalized, normalized.updated_at);
-  for (let index = 0; index < history.length; index += 1) {
-    const snapshot = history[index];
-    if (snapshot.effective_date <= dateKey) {
-      resolved = snapshot;
-      continue;
-    }
-    break;
-  }
-
-  return {
-    ...normalized,
-    source_file_name: resolved.source_file_name,
-    custom_columns: resolved.custom_columns,
-    rows: resolved.rows,
-    updated_at: resolved.captured_at,
-    import_summary: resolved.import_summary,
-  };
-}
-
-export function materializeShiftRostersForDate(rosters: ShiftRoster[], dateValue: string | Date) {
-  return rosters.map((roster) => resolveShiftRosterForDate(roster, dateValue));
 }
 
 function isBlankRow(values: unknown[]) {
@@ -765,7 +603,7 @@ export function parseShiftWorkbook(buffer: ArrayBuffer, sourceFileName: string):
 
 export function mergeShiftRosters(existing: ShiftRoster | null | undefined, incoming: ShiftRoster): ShiftRoster {
   if (!existing) {
-    return materializeRosterWithHistory(incoming);
+    return incoming;
   }
 
   const manualRows = existing.rows.filter((row) => row.group_key.includes("_blank_"));
@@ -790,7 +628,7 @@ export function mergeShiftRosters(existing: ShiftRoster | null | undefined, inco
 
   mergedRows.sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index);
 
-  return materializeRosterWithHistory({
+  return {
     ...existing,
     sheet_name: incoming.sheet_name,
     store_name: incoming.store_name,
@@ -804,7 +642,7 @@ export function mergeShiftRosters(existing: ShiftRoster | null | undefined, inco
       updated_rows: updatedRows,
       preserved_rows: mergedRows.length - incoming.rows.length,
     },
-  });
+  };
 }
 
 export async function initializeShiftDatabase(): Promise<boolean> {
@@ -843,7 +681,7 @@ export async function getShiftRosters(): Promise<ShiftRoster[]> {
 
     const remoteRosters = ((data || []) as RemoteShiftRosterRecord[]).map((item) => {
       const payload = item.payload || {};
-      return materializeRosterWithHistory({
+      return {
         id: item.id,
         sheet_name: item.sheet_name,
         store_name: item.store_name,
@@ -852,9 +690,12 @@ export async function getShiftRosters(): Promise<ShiftRoster[]> {
         custom_columns: payload.custom_columns || [],
         rows: payload.rows || [],
         updated_at: item.updated_at,
-        import_summary: normalizeImportSummary(payload.import_summary),
-        history: payload.history || [],
-      } as ShiftRoster);
+        import_summary: payload.import_summary || {
+          imported_rows: 0,
+          updated_rows: 0,
+          preserved_rows: 0,
+        },
+      } as ShiftRoster;
     });
 
     if (remoteRosters.length > 0) {
@@ -875,14 +716,12 @@ export async function getShiftRosters(): Promise<ShiftRoster[]> {
 
 export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success: boolean; error?: string }> {
   const localRosters = loadLocalShiftRosters();
-  const existingLocal = localRosters.find((item) => item.sheet_name === roster.sheet_name);
-  const mergedRoster = buildRosterHistoryUpdate(existingLocal, {
-    ...roster,
-    updated_at: new Date().toISOString(),
-  });
   const mergedLocal = [
     ...localRosters.filter((item) => item.sheet_name !== roster.sheet_name),
-    mergedRoster,
+    {
+      ...roster,
+      updated_at: new Date().toISOString(),
+    },
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
   saveLocalShiftRosters(mergedLocal);
@@ -894,17 +733,16 @@ export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success:
   try {
     const { error } = await supabase.from("shift_rosters").upsert(
       {
-        sheet_name: mergedRoster.sheet_name,
-        store_name: mergedRoster.store_name,
-        store_code: mergedRoster.store_code,
-        source_file_name: mergedRoster.source_file_name,
+        sheet_name: roster.sheet_name,
+        store_name: roster.store_name,
+        store_code: roster.store_code,
+        source_file_name: roster.source_file_name,
         payload: {
-          custom_columns: mergedRoster.custom_columns,
-          rows: mergedRoster.rows,
-          import_summary: mergedRoster.import_summary,
-          history: mergedRoster.history || [],
+          custom_columns: roster.custom_columns,
+          rows: roster.rows,
+          import_summary: roster.import_summary,
         },
-        updated_at: mergedRoster.updated_at,
+        updated_at: new Date().toISOString(),
       },
       { onConflict: "sheet_name" }
     );
