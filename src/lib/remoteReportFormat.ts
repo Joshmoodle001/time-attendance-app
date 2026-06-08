@@ -1,4 +1,4 @@
-import type { RemoteAttendanceDayRow, RemoteEmployeeReport, RemoteReportPayload } from "@/types/desktopReportBridge";
+import type { RemoteAttendanceDayRow, RemoteEmployeeReport, RemoteReportPayload, RemoteStoreSection } from "@/types/desktopReportBridge";
 
 type JsPdfConstructor = (typeof import("jspdf"))["default"];
 type AutoTableFn = (typeof import("jspdf-autotable"))["default"];
@@ -89,6 +89,56 @@ export function getStatusTone(status: string) {
   return "bg-blue-100 text-blue-700";
 }
 
+type RemoteStoreSectionLike = Record<string, unknown> & {
+  key?: string;
+  store?: string;
+  storeCode?: string;
+  storeType?: string;
+  region?: string;
+  label?: string;
+  brand?: string;
+  totalEmployees?: number;
+  employees?: RemoteEmployeeReport[];
+  stores?: Array<{
+    key?: string;
+    teamLabel?: string;
+    store?: string;
+    storeCode?: string;
+    region?: string;
+    brand?: string;
+    employees?: RemoteEmployeeReport[];
+  }>;
+};
+
+function normalizeText(value: unknown) {
+  return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
+}
+
+export function normalizeReportSections(sections: RemoteStoreSectionLike[]): RemoteStoreSection[] {
+  return sections
+    .map((raw) => {
+      const firstStore = Array.isArray(raw.stores) && raw.stores.length > 0 ? raw.stores[0] : null;
+      const employees = Array.isArray(raw.employees) && raw.employees.length > 0
+        ? raw.employees
+        : firstStore?.employees ?? [];
+
+      const store = normalizeText(raw.store || firstStore?.store || raw.label || raw.key || "");
+      const storeCode = normalizeText(raw.storeCode || firstStore?.storeCode || "");
+      const region = normalizeText(raw.region || firstStore?.region || "");
+      const storeType = raw.storeType === "physical" ? "physical" as const : "logical" as const;
+
+      return {
+        key: normalizeText(raw.key || ""),
+        store,
+        storeCode,
+        storeType,
+        region,
+        employees,
+      };
+    })
+    .filter((section) => section.employees.length > 0);
+}
+
 export async function buildRemoteReportPdf(payload: RemoteReportPayload) {
   if (!payload?.criteria) {
     throw new Error("The report payload is missing required criteria. The desktop report server may have returned incomplete data.");
@@ -123,8 +173,13 @@ export async function buildRemoteReportPdf(payload: RemoteReportPayload) {
       margin: { left: 24, right: 24 },
     });
   } else {
+    const sections = normalizeReportSections(payload.sections);
+    if (sections.length === 0) {
+      throw new Error("No sections with employee data were found in the report payload.");
+    }
+
     let currentY = 70;
-    payload.sections.forEach((section, sectionIndex) => {
+    sections.forEach((section, sectionIndex) => {
       if (sectionIndex > 0) {
         doc.addPage();
         currentY = 34;
@@ -209,9 +264,10 @@ export async function exportRemoteReportPdf(payload: RemoteReportPayload) {
 }
 
 export function buildAttendanceSummary(payload: RemoteReportPayload) {
+  const sections = normalizeReportSections(payload.sections);
   return {
-    sectionCount: payload.sections.length,
-    employeeCount: payload.sections.reduce((total, section) => total + section.employees.length, 0),
+    sectionCount: sections.length,
+    employeeCount: sections.reduce((total, section) => total + section.employees.length, 0),
   };
 }
 

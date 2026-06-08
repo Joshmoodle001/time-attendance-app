@@ -11,7 +11,7 @@ import {
   type Employee,
 } from "@/services/database";
 import { getStoreGrouping } from "@/services/regionMaster";
-import { buildRemoteReportPdf } from "@/lib/remoteReportFormat";
+import { buildRemoteReportPdf, normalizeReportSections } from "@/lib/remoteReportFormat";
 import type { RemoteReportPayload } from "@/types/desktopReportBridge";
 
 type ReportTemplateKey = "attendance_report" | "awol_report";
@@ -449,14 +449,36 @@ export default function RemoteReportsHub() {
             setPdfResult(job.result as RemotePdfResult);
             setReportPayload(null);
             setStatusMessage("Report generated successfully. You can now download it from this browser session.");
-          } else if (job.result?.reportPayload?.criteria) {
-            setReportPayload(job.result.reportPayload as RemoteReportPayload);
-            setPdfResult(null);
-            setStatusMessage("Report generated successfully. You can now export the PDF from this browser session.");
           } else {
-            setPdfResult(null);
-            setReportPayload(null);
-            setStatusMessage("Report completed, but no usable result payload was returned.");
+            const rp = job.result?.reportPayload;
+            const hasSections = Array.isArray(rp?.sections) && rp.sections.length > 0;
+            const hasAwolRows = Array.isArray(rp?.awolRows) && rp.awolRows.length > 0;
+            const hasPayload = rp && (hasSections || hasAwolRows);
+
+            if (hasPayload) {
+              const safePayload = {
+                ...rp,
+                generatedAt: rp.generatedAt || job.completedAt || new Date().toISOString(),
+                criteria: rp.criteria || {
+                  templateKey: job.request?.templateKey || "attendance_report",
+                  startDate: job.request?.startDate || "",
+                  endDate: job.request?.endDate || "",
+                  selectionMode: job.request?.selectionMode || "store",
+                  includeInactiveProfiles: job.request?.includeInactiveProfiles ?? false,
+                  selectedStores: job.request?.selectedStores || [],
+                  employeeCodes: job.request?.employeeCodes || [],
+                  awolThresholdDays: job.request?.awolThresholdDays,
+                },
+                sections: hasSections ? normalizeReportSections(rp.sections) : [],
+              };
+              setReportPayload(safePayload as RemoteReportPayload);
+              setPdfResult(null);
+              setStatusMessage("Report generated successfully. You can now export the PDF from this browser session.");
+            } else {
+              setPdfResult(null);
+              setReportPayload(null);
+              setStatusMessage("Report completed, but no usable result payload was returned.");
+            }
           }
           setActiveJobId("");
           setIsGenerating(false);

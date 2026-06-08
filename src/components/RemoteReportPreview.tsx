@@ -9,6 +9,7 @@ import {
   formatLongDate,
   formatRangeLabel,
   getStatusTone,
+  normalizeReportSections,
 } from "@/lib/remoteReportFormat";
 
 type RemoteReportPreviewProps = {
@@ -110,7 +111,7 @@ export default function RemoteReportPreview({ payload }: RemoteReportPreviewProp
       </div>
 
       <div className="space-y-7">
-        {payload.sections.map((section) => (
+        {normalizeReportSections(payload.sections).map((section) => (
           <section key={section.key} className="overflow-hidden rounded-[28px] border border-gray-300 bg-slate-950/45 shadow-[0_24px_60px_rgba(2,6,23,0.28)]">
             <div className="border-b border-white/10 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 px-6 py-5 text-white">
               <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Attendance Report</div>
