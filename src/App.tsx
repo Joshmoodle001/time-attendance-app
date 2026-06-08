@@ -4971,7 +4971,7 @@ export default function App() {
 
   const renderMainSection = () => {
     if (activeNav === "shifts") return <ShiftBuilder />;
-    if (activeNav === "reports") return <RemoteReportsHub />;
+    if (activeNav === "reports") return renderReports();
     if (activeNav === "admin") return renderAdmin();
     return <CoversheetHub mode="view" />;
   };
