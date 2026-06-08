@@ -68,28 +68,28 @@ function StatusBanner({ banner }: { banner: Banner | null }) {
 function FuturisticBackdrop() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.22),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,0.24),transparent_30%),linear-gradient(180deg,#020617_0%,#0f172a_45%,#020617_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,123,255,0.20),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(0,200,255,0.18),transparent_30%),linear-gradient(180deg,#020817_0%,#061A3D_45%,#020817_100%)]" />
       <div
         className="absolute inset-0 opacity-20"
         style={{
           backgroundImage:
-            "linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)",
+            "linear-gradient(rgba(0,200,255,0.10) 1px, transparent 1px), linear-gradient(90deg, rgba(0,200,255,0.10) 1px, transparent 1px)",
           backgroundSize: "90px 90px",
           maskImage: "radial-gradient(circle at center, black 30%, transparent 85%)",
         }}
       />
       <motion.div
-        className="absolute left-[-10%] top-[8%] h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl"
+        className="absolute left-[-10%] top-[8%] h-72 w-72 rounded-full bg-[#007BFF]/20 blur-3xl"
         animate={{ x: [0, 40, -20, 0], y: [0, 20, -15, 0] }}
         transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
       />
       <motion.div
-        className="absolute bottom-[2%] right-[-8%] h-80 w-80 rounded-full bg-fuchsia-500/20 blur-3xl"
+        className="absolute bottom-[2%] right-[-8%] h-80 w-80 rounded-full bg-[#00C8FF]/18 blur-3xl"
         animate={{ x: [0, -35, 18, 0], y: [0, -25, 10, 0] }}
         transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
       />
       <motion.div
-        className="absolute left-[42%] top-[18%] h-64 w-64 rounded-full bg-violet-500/10 blur-3xl"
+        className="absolute left-[42%] top-[18%] h-64 w-64 rounded-full bg-[#39FF45]/08 blur-3xl"
         animate={{ scale: [1, 1.2, 0.95, 1], opacity: [0.45, 0.75, 0.4, 0.45] }}
         transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -106,9 +106,9 @@ function FuturisticBackdrop() {
           }}
         >
           <div className="mb-2 flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.9)]" />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-300">
-              Artifact
+            <span className="h-2.5 w-2.5 rounded-full bg-[#00C8FF] shadow-[0_0_18px_rgba(0,200,255,0.9)]" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#00C8FF]">
+              BioSync
             </span>
           </div>
           <div className="text-sm font-semibold">{artifact.title}</div>
@@ -137,23 +137,24 @@ function WelcomeScreen({
           className="w-full max-w-3xl rounded-[32px] border border-white/10 bg-slate-950/55 p-8 text-white shadow-[0_30px_120px_rgba(2,6,23,0.75)] backdrop-blur-2xl md:p-10"
         >
           <div className="mb-8 flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-[0_0_40px_rgba(34,211,238,0.35)]">
+            <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-[#007BFF] to-[#00C8FF] shadow-[0_0_40px_rgba(0,123,255,0.35)]">
               <TimerReset className="h-7 w-7 text-white" />
             </div>
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.34em] text-cyan-300">
-                Access Granted
+              <div className="text-[11px] font-bold uppercase tracking-[0.34em] text-[#00C8FF]">
+                PFM BioSync
               </div>
               <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                Welcome to the Attendance Command Center
+                Time &amp; Attendance
               </h1>
+              <div className="mt-1 text-xs text-slate-500">Powered by EE</div>
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             {[
-              "Live attendance intelligence",
-              "Shift, leave, and roster orchestration",
+              "Biometric identity verification",
+              "Shift, leave, and roster management",
               "Admin tools, reports, and sync control",
             ].map((item, index) => (
               <motion.div
@@ -163,19 +164,19 @@ function WelcomeScreen({
                 transition={{ delay: 0.1 + index * 0.08 }}
                 className="rounded-2xl border border-white/10 bg-white/5 p-4"
               >
-                <div className="mb-3 h-1.5 w-16 rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" />
+                <div className="mb-3 h-1.5 w-16 rounded-full bg-gradient-to-r from-[#007BFF] to-[#FFB800]" />
                 <div className="text-sm text-slate-200">{item}</div>
               </motion.div>
             ))}
           </div>
 
-          <div className="mt-8 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm text-cyan-100">
+          <div className="mt-8 rounded-2xl border border-[#00C8FF]/20 bg-[#007BFF]/10 p-4 text-sm text-slate-200">
             Signed in as <span className="font-semibold">{session.username}</span>. Your session is stored locally on this device.
           </div>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button size="lg" className="button-glow cyber-button" onClick={onContinue}>
-              Open command center
+              Open BioSync
               <ChevronRight className="ml-2 h-4 w-4" />
             </Button>
             <div className="text-sm text-slate-400">Futuristic login and local reset controls are now active.</div>
@@ -314,30 +315,31 @@ export default function AuthApp() {
               className="hidden rounded-[32px] border border-white/10 bg-slate-950/35 p-8 shadow-[0_30px_120px_rgba(2,6,23,0.65)] backdrop-blur-2xl xl:block"
             >
               <div className="mb-8 flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-[0_0_40px_rgba(34,211,238,0.35)]">
+                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-[#007BFF] to-[#00C8FF] shadow-[0_0_40px_rgba(0,123,255,0.35)]">
                   <TimerReset className="h-7 w-7 text-white" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.34em] text-cyan-300">
-                    PFM Operations
+                  <div className="text-[11px] font-bold uppercase tracking-[0.34em] text-[#00C8FF]">
+                    PFM BioSync
                   </div>
-                  <h1 className="text-4xl font-bold tracking-tight">Futuristic Attendance Access</h1>
+                  <h1 className="text-4xl font-bold tracking-tight">Time &amp; Attendance</h1>
+                  <div className="mt-1 text-xs text-slate-500">Powered by EE</div>
                 </div>
               </div>
 
               <p className="max-w-xl text-base leading-7 text-slate-300">
-                Step into a secured control layer built to match the live workforce dashboard. Sign in to open the command center, review the welcome screen, and manage the platform with a futuristic glass-panel experience.
+                Secure biometric time and attendance for field teams. Clock in, verify identity, manage shifts, and track attendance with a field-ready system.
               </p>
 
               <div className="mt-10 grid gap-4 md:grid-cols-2">
                 {[
-                  { title: "Theme aligned", detail: "Built around the existing cyan, violet, and glassmorphism language." },
+                  { title: "Biometric verification", detail: "Fingerprint-grade identity confirmation for field teams and operational staff." },
                   { title: "Local secure session", detail: "The dashboard stays locked until the super admin signs in." },
                   { title: "Reset control", detail: "Update or restore the super admin password directly from the login portal." },
-                  { title: "Welcome layer", detail: "A dedicated arrival screen appears immediately after successful sign-in." },
+                  { title: "Field operations ready", detail: "Built for supervisors, reps, and payroll teams managing attendance across locations." },
                 ].map((item) => (
                   <div key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="mb-2 flex items-center gap-2 text-cyan-300">
+                    <div className="mb-2 flex items-center gap-2 text-[#00C8FF]">
                       <CheckCircle2 className="h-4 w-4" />
                       <span className="text-sm font-semibold">{item.title}</span>
                     </div>
@@ -355,12 +357,12 @@ export default function AuthApp() {
             >
               <div className="mb-6 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-[0_0_35px_rgba(34,211,238,0.35)]">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#007BFF] to-[#00C8FF] shadow-[0_0_35px_rgba(0,123,255,0.35)]">
                     <Lock className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-300">
-                      Secure Portal
+                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#00C8FF]">
+                      PFM BioSync
                     </div>
                     <div className="text-2xl font-bold">Sign in</div>
                   </div>

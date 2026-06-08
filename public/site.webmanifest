@@ -1,17 +1,17 @@
 {
-  "name": "Time Attendance",
-  "short_name": "Attendance",
-  "description": "Employee time tracking, attendance, leave and shift management",
+  "name": "PFM BioSync",
+  "short_name": "BioSync",
+  "description": "Biometric time and attendance for field teams, powered by EE.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a12",
-  "theme_color": "#7e14ff",
+  "background_color": "#020817",
+  "theme_color": "#007BFF",
   "orientation": "any",
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "/logo.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

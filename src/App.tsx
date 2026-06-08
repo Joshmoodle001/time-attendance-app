@@ -5005,12 +5005,12 @@ export default function App() {
         <aside className="sidebar-gradient hidden w-72 shrink-0 border-r border-slate-200/10 p-4 md:block md:min-h-screen">
           <div className="mb-8">
             <div className="mb-5 flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg shadow-cyan-500/20" style={{ background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)' }}>
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg shadow-[#007BFF]/20" style={{ background: 'linear-gradient(135deg, #007BFF, #00C8FF)' }}>
                 <TimerReset className="h-6 w-6 text-white" />
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-[0.25em] text-cyan-400 font-bold">Attendance</div>
-                <div className="text-lg font-bold text-gradient">Backend System</div>
+                <div className="text-[10px] uppercase tracking-[0.25em] text-[#00C8FF] font-bold">PFM BioSync</div>
+                <div className="text-lg font-bold text-gradient">Time &amp; Attendance</div>
               </div>
             </div>
           </div>
@@ -5025,11 +5025,11 @@ export default function App() {
                   onClick={() => handleNavClick(item.key)}
                   className={`nav-item group relative flex w-full items-center gap-3.5 rounded-xl px-4 py-3.5 text-left transition-all duration-300 ${
                     isActive
-                      ? "bg-gradient-to-r from-cyan-500/20 to-purple-500/20 text-white font-medium border border-cyan-500/20"
-                      : "text-slate-400 hover:from-cyan-500/10 hover:to-purple-500/10 hover:text-white"
+                      ? "bg-gradient-to-r from-[#007BFF]/20 to-[#00C8FF]/20 text-white font-medium border border-[#007BFF]/20"
+                      : "text-slate-400 hover:from-[#007BFF]/10 hover:to-[#00C8FF]/10 hover:text-white"
                   }`}
                 >
-                  <Icon className={`h-5 w-5 ${isActive ? "text-cyan-400" : "text-slate-500 group-hover:text-cyan-400"} transition-colors`} />
+                  <Icon className={`h-5 w-5 ${isActive ? "text-[#00C8FF]" : "text-slate-500 group-hover:text-[#00C8FF]"} transition-colors`} />
                   <span className="text-sm font-medium">{item.label}</span>
                 </button>
               );
@@ -5040,12 +5040,12 @@ export default function App() {
         <div className="header-gradient sticky top-0 z-50 border-b border-slate-200/10 px-4 py-3 md:hidden backdrop-blur-md">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-cyan-500/20" style={{ background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)' }}>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-[#007BFF]/20" style={{ background: 'linear-gradient(135deg, #007BFF, #00C8FF)' }}>
                 <TimerReset className="h-5 w-5 text-white" />
               </div>
               <div>
-                <div className="text-[9px] uppercase tracking-[0.2em] text-cyan-400 font-bold">Attendance</div>
-                <div className="text-sm font-bold text-white">Backend</div>
+                <div className="text-[9px] uppercase tracking-[0.2em] text-[#00C8FF] font-bold">PFM BioSync</div>
+                <div className="text-sm font-bold text-white">Time &amp; Attendance</div>
               </div>
             </div>
             <button
