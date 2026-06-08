@@ -16,6 +16,14 @@ type RemoteReportPreviewProps = {
 };
 
 export default function RemoteReportPreview({ payload }: RemoteReportPreviewProps) {
+  if (!payload?.criteria?.templateKey) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-4 text-center text-amber-300">
+        Report data is incomplete and cannot be previewed.
+      </div>
+    );
+  }
+
   if (payload.criteria.templateKey === "awol_report") {
     return (
       <div className="space-y-4">
