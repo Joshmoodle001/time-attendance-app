@@ -90,6 +90,10 @@ export function getStatusTone(status: string) {
 }
 
 export async function buildRemoteReportPdf(payload: RemoteReportPayload) {
+  if (!payload?.criteria) {
+    throw new Error("The report payload is missing required criteria. The desktop report server may have returned incomplete data.");
+  }
+
   const { jsPDF, autoTable } = await loadPdfRuntime();
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const title = payload.criteria.templateKey === "awol_report" ? "AWOL Report" : "Attendance Report";

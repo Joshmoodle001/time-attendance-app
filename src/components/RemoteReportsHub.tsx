@@ -449,7 +449,7 @@ export default function RemoteReportsHub() {
             setPdfResult(job.result as RemotePdfResult);
             setReportPayload(null);
             setStatusMessage("Report generated successfully. You can now download it from this browser session.");
-          } else if (job.result?.reportPayload) {
+          } else if (job.result?.reportPayload?.criteria) {
             setReportPayload(job.result.reportPayload as RemoteReportPayload);
             setPdfResult(null);
             setStatusMessage("Report generated successfully. You can now export the PDF from this browser session.");

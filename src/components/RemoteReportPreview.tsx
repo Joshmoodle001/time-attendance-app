@@ -16,6 +16,14 @@ type RemoteReportPreviewProps = {
 };
 
 export default function RemoteReportPreview({ payload }: RemoteReportPreviewProps) {
+  if (!payload?.criteria) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-6 text-center">
+        <p className="text-amber-200">Report criteria are missing from the completed job. The desktop report server may have returned incomplete data.</p>
+      </div>
+    );
+  }
+
   if (payload.criteria.templateKey === "awol_report") {
     return (
       <div className="space-y-4">
