@@ -39,6 +39,7 @@ export default async function handler(req, res) {
 
       await uploadJson(client, getJobPath(jobId), job);
       await upsertJobIndexEntry(client, job);
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       res.status(200).json({ success: true, jobId, status: "queued" });
       return;
     }
@@ -57,6 +58,7 @@ export default async function handler(req, res) {
         return;
       }
 
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       res.status(200).json({ job });
       return;
     }

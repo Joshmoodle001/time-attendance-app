@@ -15,6 +15,7 @@ export default async function handler(req, res) {
   try {
     await ensureBucket(client);
     const status = await getServerStatus(client);
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.status(200).json(status);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Server status lookup failed." });

@@ -101,6 +101,7 @@ export default async function handler(req, res) {
     await uploadJson(client, getJobPath(processingJob.jobId), processingJob);
     await upsertJobIndexEntry(client, processingJob);
 
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.status(200).json({
       job: {
         jobId: processingJob.jobId,
