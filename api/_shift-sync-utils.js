@@ -37,11 +37,11 @@ const DEFAULT_SHIFT_SYNC_SECTIONS = [
 ];
 
 const DEFAULT_SHIFT_SYNC_SETTINGS = {
-  autoSyncEnabled: false,
+  autoSyncEnabled: true,
   backupIntervalMinutes: 60,
   scheduledRunTimes: [],
   lastUniversalSyncedAt: "",
-  lastUniversalStatus: "Hourly background sync is off.",
+  lastUniversalStatus: "Hourly background sync is ready.",
   liveSyncEnabled: false,
   lastLiveSyncedAt: "",
   lastLiveStatus: "Live sheet listening is off until a live Google Sheet link is connected.",
@@ -51,6 +51,17 @@ const DEFAULT_SHIFT_SYNC_SETTINGS = {
 
 function hasConfiguredSectionLinks(settings) {
   return Boolean(settings?.sections?.some((section) => normalizeText(section.url)));
+}
+
+function applyAutoSyncBootstrap(settings) {
+  if (!settings.autoSyncEnabled && !settings.lastUniversalSyncedAt && hasConfiguredSectionLinks(settings)) {
+    return {
+      ...settings,
+      autoSyncEnabled: true,
+      lastUniversalStatus: "Hourly background sync is ready.",
+    };
+  }
+  return settings;
 }
 
 function createLiveWebhookKey() {
@@ -65,6 +76,128 @@ function normalizeText(value) {
 
 function normalizeKey(value) {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function formatEffectiveDate(value) {
+  const source = normalizeText(value) || new Date().toISOString();
+  return source.slice(0, 10);
+}
+
+function normalizeImportSummary(summary) {
+  return {
+    imported_rows: Number(summary?.imported_rows || 0),
+    updated_rows: Number(summary?.updated_rows || 0),
+    preserved_rows: Number(summary?.preserved_rows || 0),
+  };
+}
+
+function buildSnapshotSignature(snapshot) {
+  return JSON.stringify({
+    source_file_name: normalizeText(snapshot.source_file_name),
+    custom_columns: [...(snapshot.custom_columns || [])].sort(),
+    rows: snapshot.rows || [],
+  });
+}
+
+function createRosterSnapshot(roster, effectiveDate) {
+  return {
+    effective_date: formatEffectiveDate(effectiveDate || roster.updated_at),
+    captured_at: roster.updated_at || new Date().toISOString(),
+    source_file_name: normalizeText(roster.source_file_name),
+    custom_columns: [...(roster.custom_columns || [])].sort(),
+    rows: Array.isArray(roster.rows) ? roster.rows : [],
+    import_summary: normalizeImportSummary(roster.import_summary),
+  };
+}
+
+function normalizeRosterHistory(roster) {
+  const baseSnapshot = createRosterSnapshot(roster, roster.updated_at);
+  const incomingHistory = Array.isArray(roster.history) ? roster.history : [];
+  const normalized = incomingHistory
+    .map((snapshot) => ({
+      effective_date: formatEffectiveDate(snapshot?.effective_date || snapshot?.captured_at || roster.updated_at),
+      captured_at: normalizeText(snapshot?.captured_at) || roster.updated_at || new Date().toISOString(),
+      source_file_name: normalizeText(snapshot?.source_file_name) || normalizeText(roster.source_file_name),
+      custom_columns: Array.isArray(snapshot?.custom_columns) ? [...snapshot.custom_columns].sort() : [...(roster.custom_columns || [])].sort(),
+      rows: Array.isArray(snapshot?.rows) ? snapshot.rows : [],
+      import_summary: normalizeImportSummary(snapshot?.import_summary),
+    }))
+    .filter((snapshot) => snapshot.rows.length > 0);
+
+  normalized.push(baseSnapshot);
+
+  const deduped = new Map();
+  normalized.forEach((snapshot) => {
+    const key = `${snapshot.effective_date}__${buildSnapshotSignature(snapshot)}`;
+    const prior = deduped.get(key);
+    if (!prior || prior.captured_at < snapshot.captured_at) {
+      deduped.set(key, snapshot);
+    }
+  });
+
+  return Array.from(deduped.values()).sort((a, b) => {
+    const byDate = a.effective_date.localeCompare(b.effective_date);
+    if (byDate !== 0) return byDate;
+    return a.captured_at.localeCompare(b.captured_at);
+  });
+}
+
+function materializeRosterWithHistory(roster) {
+  const history = normalizeRosterHistory(roster);
+  const latest = history[history.length - 1] || createRosterSnapshot(roster, roster.updated_at);
+  return {
+    ...roster,
+    source_file_name: latest.source_file_name,
+    custom_columns: latest.custom_columns,
+    rows: latest.rows,
+    updated_at: latest.captured_at,
+    import_summary: latest.import_summary,
+    history,
+  };
+}
+
+function buildRosterHistoryUpdate(existing, incoming) {
+  const normalizedIncoming = materializeRosterWithHistory({
+    ...incoming,
+    updated_at: incoming.updated_at || new Date().toISOString(),
+  });
+
+  if (!existing) {
+    return normalizedIncoming;
+  }
+
+  const normalizedExisting = materializeRosterWithHistory(existing);
+  const nextHistory = [...(normalizedExisting.history || [])];
+  const nextSnapshot = createRosterSnapshot(normalizedIncoming, normalizedIncoming.updated_at);
+  const latestSnapshot = nextHistory[nextHistory.length - 1];
+  const latestSignature = latestSnapshot ? buildSnapshotSignature(latestSnapshot) : "";
+  const nextSignature = buildSnapshotSignature(nextSnapshot);
+
+  if (!latestSnapshot) {
+    nextHistory.push(nextSnapshot);
+  } else if (latestSnapshot.effective_date === nextSnapshot.effective_date) {
+    nextHistory[nextHistory.length - 1] = {
+      ...latestSnapshot,
+      ...nextSnapshot,
+    };
+  } else if (latestSignature !== nextSignature) {
+    nextHistory.push(nextSnapshot);
+  } else {
+    nextHistory[nextHistory.length - 1] = {
+      ...latestSnapshot,
+      captured_at: nextSnapshot.captured_at,
+      source_file_name: nextSnapshot.source_file_name,
+      custom_columns: nextSnapshot.custom_columns,
+      import_summary: nextSnapshot.import_summary,
+    };
+  }
+
+  return materializeRosterWithHistory({
+    ...normalizedExisting,
+    ...normalizedIncoming,
+    updated_at: nextSnapshot.captured_at,
+    history: nextHistory,
+  });
 }
 
 function randomId() {
@@ -140,7 +273,7 @@ export async function loadRemoteShiftSyncSettings() {
   try {
     const data = await restFetch("shift_sync_settings?id=eq.global&select=*", { method: "GET" });
     if (!Array.isArray(data) || !data[0]) return DEFAULT_SHIFT_SYNC_SETTINGS;
-    return normalizeSettings({
+    return applyAutoSyncBootstrap(normalizeSettings({
       autoSyncEnabled: data[0].auto_sync_enabled,
       backupIntervalMinutes: data[0].payload?.backupIntervalMinutes,
       scheduledRunTimes: data[0].payload?.scheduledRunTimes,
@@ -151,7 +284,7 @@ export async function loadRemoteShiftSyncSettings() {
       lastLiveStatus: data[0].payload?.lastLiveStatus,
       liveWebhookKey: data[0].payload?.liveWebhookKey,
       sections: data[0].payload?.sections,
-    });
+    }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load remote shift sync settings.";
     if (message.includes("shift_sync_settings")) {
@@ -623,7 +756,7 @@ function parseShiftWorkbook(buffer, sourceFileName) {
 }
 
 function mergeShiftRosters(existing, incoming) {
-  if (!existing) return incoming;
+  if (!existing) return materializeRosterWithHistory(incoming);
 
   const manualRows = (existing.rows || []).filter((row) => String(row.group_key || "").includes("_blank_"));
   const existingMap = new Map(manualRows.map((row) => [row.row_key, row]));
@@ -646,7 +779,7 @@ function mergeShiftRosters(existing, incoming) {
 
   mergedRows.sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index);
 
-  return {
+  return materializeRosterWithHistory({
     ...existing,
     sheet_name: incoming.sheet_name,
     store_name: incoming.store_name,
@@ -660,13 +793,13 @@ function mergeShiftRosters(existing, incoming) {
       updated_rows: updatedRows,
       preserved_rows: mergedRows.length - incoming.rows.length,
     },
-  };
+  });
 }
 
 async function loadRemoteShiftRosters() {
   try {
     const data = await restFetch("shift_rosters?select=id,sheet_name,store_name,store_code,source_file_name,payload,updated_at&order=updated_at.desc", { method: "GET" });
-    return (Array.isArray(data) ? data : []).map((item) => ({
+    return (Array.isArray(data) ? data : []).map((item) => materializeRosterWithHistory({
       id: item.id,
       sheet_name: item.sheet_name,
       store_name: item.store_name,
@@ -675,11 +808,8 @@ async function loadRemoteShiftRosters() {
       custom_columns: item.payload?.custom_columns || [],
       rows: item.payload?.rows || [],
       updated_at: item.updated_at,
-      import_summary: item.payload?.import_summary || {
-        imported_rows: 0,
-        updated_rows: 0,
-        preserved_rows: 0,
-      },
+      import_summary: normalizeImportSummary(item.payload?.import_summary),
+      history: item.payload?.history || [],
     }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load remote shift rosters.";
@@ -691,18 +821,24 @@ async function loadRemoteShiftRosters() {
 }
 
 async function upsertRemoteShiftRosters(rosters) {
-  const payload = rosters.map((roster) => ({
-    sheet_name: roster.sheet_name,
-    store_name: roster.store_name,
-    store_code: roster.store_code,
-    source_file_name: roster.source_file_name,
-    payload: {
-      custom_columns: roster.custom_columns,
-      rows: roster.rows,
-      import_summary: roster.import_summary,
-    },
-    updated_at: new Date().toISOString(),
-  }));
+  const currentRosters = await loadRemoteShiftRosters();
+  const currentMap = new Map(currentRosters.map((roster) => [roster.sheet_name, roster]));
+  const payload = rosters.map((roster) => {
+    const merged = buildRosterHistoryUpdate(currentMap.get(roster.sheet_name), roster);
+    return {
+      sheet_name: merged.sheet_name,
+      store_name: merged.store_name,
+      store_code: merged.store_code,
+      source_file_name: merged.source_file_name,
+      payload: {
+        custom_columns: merged.custom_columns,
+        rows: merged.rows,
+        import_summary: merged.import_summary,
+        history: merged.history || [],
+      },
+      updated_at: merged.updated_at,
+    };
+  });
 
   try {
     await restFetch("shift_rosters?on_conflict=sheet_name", {

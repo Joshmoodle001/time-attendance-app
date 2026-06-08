@@ -3,9 +3,12 @@
   "private": true,
   "version": "0.0.2",
   "type": "module",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "electron:open": "electron .",
+    "electron:server": "npm run build && electron .",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -33,6 +36,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^38.3.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",

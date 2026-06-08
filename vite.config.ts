@@ -87,6 +87,7 @@ function devShiftDownloadProxy(): Plugin {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [react(), devShiftDownloadProxy()],
   resolve: {
     alias: {
