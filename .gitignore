@@ -24,6 +24,10 @@ dist-ssr
 *.sw?
 
 .vercel
+.electron-session-data/
+.electron-user-data/
+.env.vercel.production
+report-bridge.log
 
 .env.local
 .env.*.local
