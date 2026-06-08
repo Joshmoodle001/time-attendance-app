@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, CalendarRange, Printer, Search, Download, RefreshCw, UserRound, WandSparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import {
   getAttendanceByDateRange,
   getAvailableDates,
+  getEmployees,
+  initializeEmployeeDatabase,
   normalizeEmployeeCode,
   type AttendanceRecord,
   type Employee,
@@ -16,10 +18,16 @@ import { getCombinedCalendarEvents, getWeekEventForDate } from "@/services/calen
 import {
   getShiftRosters,
   initializeShiftDatabase,
+  materializeShiftRostersForDate,
   type ShiftDayKey,
   type ShiftRoster,
   type ShiftRow,
 } from "@/services/shifts";
+import type {
+  DesktopReportJob,
+  DesktopReportJobResult,
+  RemoteReportPayload,
+} from "@/types/desktopReportBridge";
 import {
   buildAppliedLeaveLookup,
   getAppliedLeaveApplications,
@@ -34,6 +42,14 @@ type JsPdfConstructor = (typeof import("jspdf"))["default"];
 type AutoTableFn = (typeof import("jspdf-autotable"))["default"];
 
 let pdfRuntimePromise: Promise<{ jsPDF: JsPdfConstructor; autoTable: AutoTableFn }> | null = null;
+const REPORT_RANGE_CACHE_TTL_MS = 2 * 60 * 1000;
+const mergedAttendanceRangeCache = new Map<
+  string,
+  {
+    createdAt: number;
+    mergedRecords: AttendanceRecord[];
+  }
+>();
 
 function loadPdfRuntime() {
   if (!pdfRuntimePromise) {
@@ -44,6 +60,40 @@ function loadPdfRuntime() {
   }
 
   return pdfRuntimePromise;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function buildReportRangeCacheKey(startDate: string, endDate: string) {
+  return `${normalizeText(startDate)}::${normalizeText(endDate)}`;
+}
+
+function getCachedMergedAttendanceRange(startDate: string, endDate: string) {
+  const cacheKey = buildReportRangeCacheKey(startDate, endDate);
+  const cached = mergedAttendanceRangeCache.get(cacheKey);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > REPORT_RANGE_CACHE_TTL_MS) {
+    mergedAttendanceRangeCache.delete(cacheKey);
+    return null;
+  }
+  return cached.mergedRecords;
+}
+
+function setCachedMergedAttendanceRange(startDate: string, endDate: string, mergedRecords: AttendanceRecord[]) {
+  const cacheKey = buildReportRangeCacheKey(startDate, endDate);
+  mergedAttendanceRangeCache.set(cacheKey, {
+    createdAt: Date.now(),
+    mergedRecords,
+  });
 }
 type AttendanceRecordLike = {
   id: string;
@@ -70,6 +120,9 @@ type ReportsBuilderProps = {
   reportDateRangeLabel: string;
   employeesReady?: boolean;
   getStoreDeviceType?: (store: string) => "physical" | "logical";
+  workerMode?: boolean;
+  workerRequest?: DesktopReportJob | null;
+  onWorkerResult?: (result: DesktopReportJobResult) => void | Promise<void>;
 };
 
 type SelectionMode = "store" | "employees";
@@ -477,6 +530,14 @@ function buildRosterSources(rosters: ShiftRoster[]) {
   return sources;
 }
 
+function buildRosterSourcesByDate(rosters: ShiftRoster[], dateKeys: string[]) {
+  const byDate = new Map<string, Map<string, EmployeeRosterSource[]>>();
+  dateKeys.forEach((dateKey) => {
+    byDate.set(dateKey, buildRosterSources(materializeShiftRostersForDate(rosters, dateKey)));
+  });
+  return byDate;
+}
+
 function matchRosterSource(employee: Employee, sources: EmployeeRosterSource[]) {
   const employeeStoreCode = normalizeCompare(employee.store_code);
   const employeeStore = normalizeCompare(employee.store);
@@ -598,10 +659,14 @@ export default function ReportsBuilder({
   reportDateRangeLabel,
   employeesReady = true,
   getStoreDeviceType,
+  workerMode = false,
+  workerRequest = null,
+  onWorkerResult,
 }: ReportsBuilderProps) {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [shiftRosters, setShiftRosters] = useState<ShiftRoster[]>([]);
   const [leaveApplications, setLeaveApplications] = useState<LeaveApplication[]>([]);
+  const [workerEmployees, setWorkerEmployees] = useState<Employee[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(BUILT_IN_TEMPLATES[0].id);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("store");
   const [includeInactiveProfiles, setIncludeInactiveProfiles] = useState(false);
@@ -617,7 +682,12 @@ export default function ReportsBuilder({
   const [statusMessage, setStatusMessage] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWorkerExporting, setIsWorkerExporting] = useState(false);
+  const [workerEmployeesLoaded, setWorkerEmployeesLoaded] = useState(false);
+  const activeWorkerJobRef = useRef<string | null>(null);
   const liveLoadedRecordCount = records.length;
+  const effectiveEmployees = workerMode ? workerEmployees : employees;
+  const effectiveEmployeesReady = workerMode ? workerEmployeesLoaded : employeesReady;
   const resolveStoreDeviceType = useCallback(
     (store: string): "physical" | "logical" => {
       if (!getStoreDeviceType) return "logical";
@@ -631,6 +701,34 @@ export default function ReportsBuilder({
     const timeout = window.setTimeout(() => setStatusMessage(""), 6000);
     return () => window.clearTimeout(timeout);
   }, [statusMessage]);
+
+  useEffect(() => {
+    if (!workerMode) return;
+    let alive = true;
+
+    const loadWorkerEmployees = async () => {
+      try {
+        await initializeEmployeeDatabase();
+        const data = await getEmployees();
+        if (!alive) return;
+        setWorkerEmployees(data);
+      } catch (error) {
+        console.error("Failed to load worker employees:", error);
+        if (alive) {
+          setStatusMessage("Failed to load employee profiles for desktop report generation.");
+        }
+      } finally {
+        if (alive) {
+          setWorkerEmployeesLoaded(true);
+        }
+      }
+    };
+
+    void loadWorkerEmployees();
+    return () => {
+      alive = false;
+    };
+  }, [workerMode]);
 
   useEffect(() => {
     let alive = true;
@@ -676,7 +774,7 @@ export default function ReportsBuilder({
   const storeOptions = useMemo<StoreOption[]>(() => {
     const values = new Map<string, StoreOption>();
 
-    employees.forEach((employee) => {
+    effectiveEmployees.forEach((employee) => {
       if (!isEmployeeIncludedInBuilder(employee, includeInactiveProfiles)) return;
 
       const store = normalizeText(employee.store);
@@ -716,7 +814,7 @@ export default function ReportsBuilder({
         employeeCodes: [...option.employeeCodes].sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [employees, includeInactiveProfiles, resolveStoreDeviceType]);
+  }, [effectiveEmployees, includeInactiveProfiles, resolveStoreDeviceType]);
 
   const storeSelectionGroups = useMemo(() => {
     const counts = new Map<string, { key: string; label: string; count: number }>();
@@ -773,7 +871,7 @@ export default function ReportsBuilder({
 
   const employeeOptions = useMemo(
     () =>
-      [...employees]
+      [...effectiveEmployees]
         .filter((employee) => isEmployeeIncludedInBuilder(employee, includeInactiveProfiles))
         .sort(
           (a, b) =>
@@ -781,10 +879,12 @@ export default function ReportsBuilder({
             normalizeText(a.last_name).localeCompare(normalizeText(b.last_name)) ||
             normalizeText(a.first_name).localeCompare(normalizeText(a.first_name))
         ),
-    [employees, includeInactiveProfiles]
+    [effectiveEmployees, includeInactiveProfiles]
   );
 
-  const selectorDataReady = employeesReady && !isLoading && storeOptions.length > 0 && employeeOptions.length > 0;
+  const selectorDataReady = workerMode
+    ? effectiveEmployeesReady && !isLoading
+    : effectiveEmployeesReady && !isLoading && storeOptions.length > 0 && employeeOptions.length > 0;
 
   const selectedStoreOptions = useMemo(
     () =>
@@ -893,8 +993,8 @@ export default function ReportsBuilder({
   const rosterSourcesByEmployee = useMemo(() => buildRosterSources(shiftRosters), [shiftRosters]);
   const leaveLookup = useMemo(() => buildAppliedLeaveLookup(leaveApplications), [leaveApplications]);
   const employeeMap = useMemo(
-    () => new Map(employees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee])),
-    [employees]
+    () => new Map(effectiveEmployees.map((employee) => [normalizeEmployeeCode(employee.employee_code), employee])),
+    [effectiveEmployees]
   );
   const attendanceByEmployeeCode = useMemo(() => {
     const map = new Map<string, AttendanceRecord[]>();
@@ -924,6 +1024,10 @@ export default function ReportsBuilder({
     });
     return map;
   }, [generatedCalendarEvents, generatedCriteria, generatedDateKeys]);
+  const rosterSourcesByEmployeeAndDate = useMemo(
+    () => buildRosterSourcesByDate(shiftRosters, generatedDateKeys),
+    [generatedDateKeys, shiftRosters]
+  );
 
   const holidayTitleByDate = useMemo(() => {
     const map = new Map<string, string>();
@@ -944,9 +1048,10 @@ export default function ReportsBuilder({
       const employee = employeeMap.get(normalizedEmployeeCode);
       if (!isEmployeeReportable(employee)) return;
       const attendanceSamples = attendanceByEmployeeCode.get(normalizedEmployeeCode) || [];
+      const firstRosterSources = (generatedDateKeys[0] ? rosterSourcesByEmployeeAndDate.get(generatedDateKeys[0]) : null)?.get(normalizedEmployeeCode) || [];
       const rosterSource = employee
-        ? matchRosterSource(employee, rosterSourcesByEmployee.get(normalizedEmployeeCode) || [])
-        : (rosterSourcesByEmployee.get(normalizedEmployeeCode) || [])[0] || null;
+        ? matchRosterSource(employee, firstRosterSources)
+        : firstRosterSources[0] || null;
 
       const store = normalizeText(employee?.store) || rosterSource?.storeName || attendanceSamples[0]?.store || "Unassigned store";
       const storeCode = normalizeText(employee?.store_code) || rosterSource?.storeCode || attendanceSamples[0]?.store_code || "";
@@ -974,11 +1079,15 @@ export default function ReportsBuilder({
         const weekLabel = weekLabelByDate.get(dateKey) || "WEEK 1";
         const weekNumber = parseWeekNumber(weekLabel);
         const dayKey = getDateWeekdayKey(dateKey);
-        const shiftRow = rosterSource?.weekRows.get(weekNumber);
+        const rosterSourcesForDate = rosterSourcesByEmployeeAndDate.get(dateKey)?.get(normalizedEmployeeCode) || [];
+        const effectiveRosterSource = employee
+          ? matchRosterSource(employee, rosterSourcesForDate)
+          : rosterSourcesForDate[0] || null;
+        const shiftRow = effectiveRosterSource?.weekRows.get(weekNumber);
         const targetHours = getTargetHours(shiftRow, dayKey);
         const leaveApplication =
-          (rosterSource
-            ? leaveLookup.get(getSheetScopedLeaveLookupKey(rosterSource.sheetName, normalizedEmployeeCode, dateKey))
+          (effectiveRosterSource
+            ? leaveLookup.get(getSheetScopedLeaveLookupKey(effectiveRosterSource.sheetName, normalizedEmployeeCode, dateKey))
             : null) || leaveLookup.get(getFallbackLeaveLookupKey(normalizedEmployeeCode, dateKey));
         const holidayTitle = holidayTitleByDate.get(dateKey) || "";
         const isPublicHoliday = !!holidayTitle;
@@ -1039,7 +1148,7 @@ export default function ReportsBuilder({
         ),
       }))
       .sort((a, b) => a.store.localeCompare(b.store));
-  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, attendanceByEmployeeDateAndStore, employeeMap, generatedCriteria, generatedDateKeys, holidayTitleByDate, leaveLookup, resolveStoreDeviceType, rosterSourcesByEmployee, weekLabelByDate]);
+  }, [attendanceByEmployeeAndDate, attendanceByEmployeeCode, attendanceByEmployeeDateAndStore, employeeMap, generatedCriteria, generatedDateKeys, holidayTitleByDate, leaveLookup, resolveStoreDeviceType, rosterSourcesByEmployeeAndDate, weekLabelByDate]);
 
   const generatedTotals = useMemo(() => {
     return generatedSections.reduce(
@@ -1113,53 +1222,111 @@ export default function ReportsBuilder({
       );
   }, [generatedCriteria, generatedSections]);
 
-  const handleGenerate = async () => {
-    const trimmedStart = normalizeText(startDate);
-    const trimmedEnd = normalizeText(endDate);
+  const remoteReportPayload = useMemo<RemoteReportPayload | null>(() => {
+    if (!generatedCriteria) return null;
+    return {
+      generatedAt: new Date().toISOString(),
+      criteria: {
+        templateKey: generatedCriteria.templateKey as DesktopReportJob["templateKey"],
+        startDate: generatedCriteria.startDate,
+        endDate: generatedCriteria.endDate,
+        selectionMode: generatedCriteria.selectionMode,
+        includeInactiveProfiles: generatedCriteria.includeInactiveProfiles,
+        selectedStores: [...generatedCriteria.selectedStores],
+        employeeCodes: [...generatedCriteria.employeeCodes],
+        awolThresholdDays: generatedCriteria.awolThresholdDays,
+      },
+      totals: {
+        totalRows: generatedTotals.totalRows,
+        inOut: generatedTotals.inOut,
+        noInOut: generatedTotals.noInOut,
+        awol: generatedTotals.awol,
+        workedHours: generatedTotals.workedHours,
+      },
+      sections: generatedSections,
+      awolRows: generatedAwolRows,
+    };
+  }, [generatedAwolRows, generatedCriteria, generatedSections, generatedTotals]);
+
+  const handleGenerate = async (override?: Partial<DesktopReportJob>) => {
+    const nextSelectionMode = override?.selectionMode || selectionMode;
+    const nextRequestMode = override?.requestMode || "selected";
+    const nextFullCompany = Boolean(override?.fullCompany || nextRequestMode === "all");
+    const nextTemplateId = override?.templateKey || selectedTemplateId;
+    const nextIncludeInactiveProfiles = override?.includeInactiveProfiles ?? includeInactiveProfiles;
+    const nextSelectedStores = override?.selectedStores || selectedStores;
+    const nextSelectedEmployeeCodes = override?.employeeCodes || selectedEmployeeCodes;
+    const nextAwolThresholdDays = override?.awolThresholdDays ?? awolThresholdDays;
+    const trimmedStart = normalizeText(override?.startDate || startDate);
+    const trimmedEnd = normalizeText(override?.endDate || endDate);
 
     if (!trimmedStart || !trimmedEnd) {
-      setStatusMessage("Choose a start date and end date before generating the report.");
-      return;
+      const errorMessage = "Choose a start date and end date before generating the report.";
+      setStatusMessage(errorMessage);
+      return { ok: false, error: errorMessage };
     }
 
     if (trimmedStart > trimmedEnd) {
-      setStatusMessage("The start date must be before or equal to the end date.");
-      return;
+      const errorMessage = "The start date must be before or equal to the end date.";
+      setStatusMessage(errorMessage);
+      return { ok: false, error: errorMessage };
     }
 
     const eligibleEmployees = employeeOptions;
+    const normalizedRequestedStores = nextSelectedStores.map((value) => normalizeCompare(value)).filter(Boolean);
     const selectedStoreEmployeeCodes = Array.from(
-      new Set(selectedStoreOptions.flatMap((option) => option.employeeCodes).map((code) => normalizeEmployeeCode(code)).filter(Boolean))
+      new Set(
+        storeOptions
+          .filter((option) => {
+            if (nextSelectedStores.includes(option.key)) return true;
+            if (normalizedRequestedStores.length === 0) return false;
+            const optionTerms = [
+              option.key,
+              option.store,
+              option.storeCode,
+              option.displayName,
+            ].map((value) => normalizeCompare(value));
+            return normalizedRequestedStores.some((requested) => optionTerms.includes(requested));
+          })
+          .flatMap((option) => option.employeeCodes)
+          .map((code) => normalizeEmployeeCode(code))
+          .filter(Boolean)
+      )
     );
 
-    const employeeCodes =
-      selectionMode === "store"
+    const employeeCodes = nextFullCompany
+      ? eligibleEmployees
+          .map((employee) => normalizeEmployeeCode(employee.employee_code))
+          .filter(Boolean)
+      : nextSelectionMode === "store"
         ? selectedStoreEmployeeCodes
-        : selectedEmployeeCodes.filter((employeeCode) =>
+        : nextSelectedEmployeeCodes.filter((employeeCode) =>
             eligibleEmployees.some((employee) => normalizeEmployeeCode(employee.employee_code) === normalizeEmployeeCode(employeeCode))
           );
 
-    if (selectionMode === "store" && selectedStores.length === 0) {
-      setStatusMessage("Choose at least one store before generating the report.");
-      return;
+    if (!nextFullCompany && nextSelectionMode === "store" && nextSelectedStores.length === 0) {
+      const errorMessage = "Choose at least one store before generating the report.";
+      setStatusMessage(errorMessage);
+      return { ok: false, error: errorMessage };
     }
 
-    if (selectionMode === "employees" && selectedEmployeeCodes.length === 0) {
-      setStatusMessage("Search and select at least one employee before generating the report.");
-      return;
+    if (!nextFullCompany && nextSelectionMode === "employees" && nextSelectedEmployeeCodes.length === 0) {
+      const errorMessage = "Search and select at least one employee before generating the report.";
+      setStatusMessage(errorMessage);
+      return { ok: false, error: errorMessage };
     }
 
     if (employeeCodes.length === 0) {
-      setStatusMessage(
-        selectionMode === "store"
-          ? includeInactiveProfiles
+      const errorMessage =
+        nextSelectionMode === "store"
+          ? nextIncludeInactiveProfiles
             ? "No employee profiles are assigned to the selected store yet."
             : "No active employee profiles are assigned to the selected store yet."
-          : includeInactiveProfiles
+          : nextIncludeInactiveProfiles
             ? "Select at least one employee profile before generating the report."
-            : "Select at least one active employee profile before generating the report."
-      );
-      return;
+            : "Select at least one active employee profile before generating the report.";
+      setStatusMessage(errorMessage);
+      return { ok: false, error: errorMessage };
     }
 
     setIsGenerating(true);
@@ -1171,58 +1338,67 @@ export default function ReportsBuilder({
           employeeCodes
             .map((code) => normalizeEmployeeCode(code))
             .filter(Boolean)
-            .filter((code) => isEmployeeIncludedInBuilder(employeeMap.get(code), includeInactiveProfiles))
+            .filter((code) => isEmployeeIncludedInBuilder(employeeMap.get(code), nextIncludeInactiveProfiles))
         )
       );
       const normalizedEmployeeCodeSet = new Set(normalizedEmployeeCodes);
       if (normalizedEmployeeCodes.length === 0) {
-        setStatusMessage(
-          includeInactiveProfiles
+        const errorMessage =
+          nextIncludeInactiveProfiles
             ? "No employee profiles matched the selected report criteria."
-            : "No active employee profiles matched the selected report criteria."
-        );
-        return;
+            : "No active employee profiles matched the selected report criteria.";
+        setStatusMessage(errorMessage);
+        return { ok: false, error: errorMessage };
       }
-      const [rangeRecords, rawClockEvents] = await Promise.all([
-        getAttendanceByDateRange(trimmedStart, trimmedEnd),
-        getClockEvents({
-          startDate: trimmedStart,
-          endDate: trimmedEnd,
-        }),
-      ]);
-      const filteredAttendance = rangeRecords.filter((record) => normalizedEmployeeCodeSet.has(normalizeEmployeeCode(record.employee_code)));
-      const mergedRecords = mergeAttendanceWithClockEvents(filteredAttendance, rawClockEvents, employeeMap, rosterSourcesByEmployee);
+      let mergedRecords = getCachedMergedAttendanceRange(trimmedStart, trimmedEnd);
+      if (!mergedRecords) {
+        const [rangeRecords, rawClockEvents] = await Promise.all([
+          getAttendanceByDateRange(trimmedStart, trimmedEnd),
+          getClockEvents({
+            startDate: trimmedStart,
+            endDate: trimmedEnd,
+          }),
+        ]);
+        mergedRecords = mergeAttendanceWithClockEvents(rangeRecords, rawClockEvents, employeeMap, rosterSourcesByEmployee);
+        setCachedMergedAttendanceRange(trimmedStart, trimmedEnd, mergedRecords);
+      }
+      const filteredMergedRecords = mergedRecords.filter((record) =>
+        normalizedEmployeeCodeSet.has(normalizeEmployeeCode(record.employee_code))
+      );
 
-      setGeneratedRecords(mergedRecords);
+      setGeneratedRecords(filteredMergedRecords);
       setGeneratedCriteria({
-        templateKey: selectedTemplateId,
+        templateKey: nextTemplateId,
         startDate: trimmedStart,
         endDate: trimmedEnd,
-        selectionMode,
-        includeInactiveProfiles,
-        selectedStores,
+        selectionMode: nextSelectionMode,
+        includeInactiveProfiles: nextIncludeInactiveProfiles,
+        selectedStores: nextSelectedStores,
         employeeCodes: normalizedEmployeeCodes,
-        awolThresholdDays,
+        awolThresholdDays: nextAwolThresholdDays,
       });
 
       setStatusMessage(
-        selectedTemplateId === "awol_report"
-          ? `Generated AWOL streak report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"} with a threshold of ${awolThresholdDays} day${awolThresholdDays === 1 ? "" : "s"}.`
-          : mergedRecords.length > 0
+        nextTemplateId === "awol_report"
+          ? `Generated AWOL streak report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"} with a threshold of ${nextAwolThresholdDays} day${nextAwolThresholdDays === 1 ? "" : "s"}.`
+          : filteredMergedRecords.length > 0
             ? `Generated attendance report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"} across ${formatRangeLabel(trimmedStart, trimmedEnd)} using shifts, attendance, leave applications, and raw clock data.`
             : `Generated a roster-led attendance report for ${normalizedEmployeeCodes.length} employee profile${normalizedEmployeeCodes.length === 1 ? "" : "s"}. No attendance or raw clock data matched the selected range, so empty scheduled days show as AWOL, Day Off, or On Leave when leave was applied.`
       );
+      return { ok: true };
     } catch (error) {
-      setStatusMessage(`Could not generate the report: ${error instanceof Error ? error.message : "Unknown error"}`);
+      const errorMessage = `Could not generate the report: ${error instanceof Error ? error.message : "Unknown error"}`;
+      setStatusMessage(errorMessage);
+      return { ok: false, error: errorMessage };
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleExportPdf = async () => {
+  const handleExportPdf = async (options?: { returnArrayBuffer?: boolean }) => {
     if (!generatedCriteria) {
       setStatusMessage("Generate a report before exporting it.");
-      return;
+      return null;
     }
 
     const { jsPDF, autoTable } = await loadPdfRuntime();
@@ -1230,7 +1406,7 @@ export default function ReportsBuilder({
     if (generatedCriteria.templateKey === "awol_report") {
       if (generatedAwolRows.length === 0) {
         setStatusMessage("Generate an AWOL report before exporting it.");
-        return;
+        return null;
       }
 
       const doc = new jsPDF({
@@ -1267,14 +1443,17 @@ export default function ReportsBuilder({
         ]),
       });
 
+      if (options?.returnArrayBuffer) {
+        return doc.output("arraybuffer");
+      }
       doc.save(`awol-report-${generatedCriteria.startDate}-to-${generatedCriteria.endDate}.pdf`);
       setStatusMessage("AWOL report exported to PDF.");
-      return;
+      return null;
     }
 
     if (generatedSections.length === 0) {
       setStatusMessage("Generate a report before exporting it.");
-      return;
+return null;
 }
 
     const doc = new jsPDF({
@@ -1525,8 +1704,13 @@ export default function ReportsBuilder({
       });
     });
 
+    if (options?.returnArrayBuffer) {
+      return doc.output("arraybuffer");
+    }
+
     doc.save(`attendance-report-${generatedCriteria.startDate}-to-${generatedCriteria.endDate}.pdf`);
     setStatusMessage("Attendance report exported to clean professional portrait A4 PDF.");
+    return null;
   };
 
   const handlePrint = () => {
@@ -1833,6 +2017,128 @@ export default function ReportsBuilder({
     setStatusMessage("Opened a print-friendly version of the attendance report.");
   };
 
+  useEffect(() => {
+    if (!workerMode || !workerRequest || !selectorDataReady || isLoading || isGenerating || isWorkerExporting) {
+      return;
+    }
+    if (activeWorkerJobRef.current === workerRequest.jobId) {
+      return;
+    }
+
+    activeWorkerJobRef.current = workerRequest.jobId;
+    void (async () => {
+      const result = await handleGenerate(workerRequest);
+      if (result?.ok) {
+        return;
+      }
+      activeWorkerJobRef.current = null;
+      await onWorkerResult?.({
+        jobId: workerRequest.jobId,
+        sessionId: workerRequest.sessionId,
+        success: false,
+        error: result?.error || "Desktop report generation could not start.",
+      });
+    })();
+  }, [handleGenerate, isGenerating, isLoading, isWorkerExporting, onWorkerResult, selectorDataReady, workerMode, workerRequest]);
+
+  useEffect(() => {
+    if (!workerMode || !workerRequest || !onWorkerResult || !generatedCriteria || isGenerating || isWorkerExporting) {
+      return;
+    }
+    if (activeWorkerJobRef.current !== workerRequest.jobId) {
+      return;
+    }
+
+    const criteriaMatches =
+      generatedCriteria.templateKey === workerRequest.templateKey &&
+      generatedCriteria.startDate === workerRequest.startDate &&
+      generatedCriteria.endDate === workerRequest.endDate;
+
+    if (!criteriaMatches) {
+      return;
+    }
+
+    let alive = true;
+    setIsWorkerExporting(true);
+
+    void (async () => {
+      try {
+        if (workerRequest.outputMode === "data") {
+          if (!remoteReportPayload) {
+            await onWorkerResult({
+              jobId: workerRequest.jobId,
+              sessionId: workerRequest.sessionId,
+              success: false,
+              error: "Report data could not be generated.",
+            });
+            return;
+          }
+
+          await onWorkerResult({
+            jobId: workerRequest.jobId,
+            sessionId: workerRequest.sessionId,
+            success: true,
+            reportPayload: remoteReportPayload,
+          });
+          return;
+        }
+
+        const pdfBuffer = await handleExportPdf({ returnArrayBuffer: true });
+        if (!alive) return;
+        if (!(pdfBuffer instanceof ArrayBuffer)) {
+          await onWorkerResult({
+            jobId: workerRequest.jobId,
+            sessionId: workerRequest.sessionId,
+            success: false,
+            error: "Report PDF could not be generated.",
+          });
+          return;
+        }
+
+        const fileStem = workerRequest.templateKey === "awol_report" ? "awol-report" : "attendance-report";
+        await onWorkerResult({
+          jobId: workerRequest.jobId,
+          sessionId: workerRequest.sessionId,
+          success: true,
+          fileName: `${fileStem}-${workerRequest.startDate}-to-${workerRequest.endDate}.pdf`,
+          mimeType: "application/pdf",
+          pdfBase64: arrayBufferToBase64(pdfBuffer),
+        });
+      } catch (error) {
+        if (!alive) return;
+        await onWorkerResult({
+          jobId: workerRequest.jobId,
+          sessionId: workerRequest.sessionId,
+          success: false,
+          error: error instanceof Error ? error.message : "Desktop report generation failed.",
+        });
+      } finally {
+        if (alive) {
+          setIsWorkerExporting(false);
+          activeWorkerJobRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [generatedCriteria, handleExportPdf, isGenerating, isWorkerExporting, onWorkerResult, remoteReportPayload, workerMode, workerRequest]);
+
+  if (workerMode) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-200">
+        <div className="rounded-2xl border border-cyan-500/20 bg-slate-900/80 px-6 py-5 text-center shadow-2xl">
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-400">Desktop Report Worker</div>
+          <div className="mt-3 text-lg font-semibold text-white">
+            {isWorkerExporting ? "Exporting PDF..." : isGenerating ? "Generating report..." : "Waiting for report job..."}
+          </div>
+          <div className="mt-2 text-sm text-slate-400">{statusMessage || "Ready"}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="section-tech-stack">
       {isLoading && (
@@ -2129,7 +2435,7 @@ export default function ReportsBuilder({
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={handleGenerate} disabled={isGenerating} className="bg-cyan-600 hover:bg-cyan-500">
+            <Button onClick={() => void handleGenerate()} disabled={isGenerating} className="bg-cyan-600 hover:bg-cyan-500">
               {isGenerating ? "Generating..." : selectedTemplateId === "awol_report" ? "Generate AWOL Report" : "Generate Attendance Report"}
             </Button>
           </div>
