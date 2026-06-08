@@ -108,7 +108,7 @@ export default async function handler(req, res) {
         ...processingJob.request,
         requestMode: processingJob.request?.requestMode || "selected",
         fullCompany: processingJob.request?.requestMode === "all",
-        outputMode: "data",
+        outputMode: "pdf",
       },
     });
   } catch (error) {
