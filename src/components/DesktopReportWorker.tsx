@@ -85,9 +85,6 @@ export default function DesktopReportWorker() {
             sessionId: result.sessionId,
             success: result.success,
             reportPayload: result.reportPayload || null,
-            pdfBase64: result.pdfBase64 || null,
-            fileName: result.fileName || "",
-            mimeType: result.mimeType || "",
             error: result.error || "",
           }),
         });

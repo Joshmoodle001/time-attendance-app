@@ -310,9 +310,6 @@ async function pollRemoteReportJobs() {
       sessionId: job.sessionId,
       success: Boolean(result?.success),
       reportPayload: result?.reportPayload || null,
-      pdfBase64: result?.pdfBase64 || null,
-      fileName: result?.fileName || "",
-      mimeType: result?.mimeType || "",
       error: result?.error || "",
     });
     logBridge(`Completed remote job ${activeRemoteJobId} success=${Boolean(result?.success)}`);

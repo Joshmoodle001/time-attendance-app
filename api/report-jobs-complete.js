@@ -48,8 +48,6 @@ export default async function handler(req, res) {
       req.body?.result ||
       (req.body?.reportPayload
         ? { reportPayload: req.body.reportPayload }
-        : req.body?.pdfBase64
-        ? { pdfBase64: req.body.pdfBase64, fileName: req.body.fileName || "remote-report.pdf", mimeType: req.body.mimeType || "application/pdf" }
         : null);
     const nextJob = {
       ...job,
