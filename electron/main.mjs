@@ -304,6 +304,12 @@ async function pollRemoteReportJobs() {
     activeRemoteJobId = String(job.jobId || "");
     logBridge(`Received remote job ${activeRemoteJobId}`);
     const result = await dispatchReportJob(job);
+    
+    logBridge(`Job ${job.jobId} result keys: ${Object.keys(result || {}).join(", ")}` +
+      ` reportPayload keys: ${result?.reportPayload ? Object.keys(result.reportPayload).join(", ") : "none"}` +
+      ` hasCriteria: ${!!result?.reportPayload?.criteria}` +
+      ` templateKey: ${result?.reportPayload?.criteria?.templateKey || "MISSING"}`);
+
     const completePayload = {
       serverId: remoteServerId,
       jobId: job.jobId,
