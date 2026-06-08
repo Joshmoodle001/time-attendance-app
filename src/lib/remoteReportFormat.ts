@@ -90,6 +90,14 @@ export function getStatusTone(status: string) {
 }
 
 export async function buildRemoteReportPdf(payload: RemoteReportPayload) {
+  console.log("[buildRemoteReportPdf] Called with payload:", {
+    hasPayload: !!payload,
+    hasCriteria: !!(payload && payload.criteria),
+    payloadType: typeof payload,
+    payloadKeys: payload ? Object.keys(payload) : [],
+    criteriaKeys: payload?.criteria ? Object.keys(payload.criteria) : [],
+  });
+
   if (!payload?.criteria?.templateKey) {
     throw new Error("Report payload is incomplete — missing criteria with templateKey.");
   }

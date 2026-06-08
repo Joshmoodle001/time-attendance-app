@@ -600,11 +600,23 @@ export default function RemoteReportsHub() {
     }
 
     if (!reportPayload?.criteria?.templateKey) {
+      console.error("[ExportPDF] reportPayload is missing criteria:", {
+        hasPayload: !!reportPayload,
+        hasCriteria: !!(reportPayload && reportPayload.criteria),
+        payloadKeys: reportPayload ? Object.keys(reportPayload) : [],
+        criteriaKeys: reportPayload?.criteria ? Object.keys(reportPayload.criteria) : [],
+        rawPayload: reportPayload,
+      });
       setStatusMessage("The report data is incomplete and cannot be exported. Try generating a new report.");
       setIsExporting(false);
       return;
     }
 
+    console.log("[ExportPDF] Payload looks valid, generating PDF...", {
+      templateKey: reportPayload.criteria.templateKey,
+      sections: reportPayload.sections?.length,
+      awolRows: reportPayload.awolRows?.length,
+    });
     setIsExporting(true);
     try {
       const { blob, fileName } = await buildRemoteReportPdf(reportPayload);
@@ -640,7 +652,7 @@ export default function RemoteReportsHub() {
             <div>
               <CardTitle className="flex items-center gap-2 text-xl font-bold text-white">
                 <WandSparkles className="h-5 w-5 text-cyan-400" />
-                Remote Report Request
+                Remote Report Request <Badge className="ml-1 bg-green-600 text-[10px]">v2·guarded</Badge>
               </CardTitle>
               <CardDescription className="mt-2 text-slate-400">
                 Send a session-linked request to the Electron server host. The host processes the report and this page handles the finished browser-side export flow.
