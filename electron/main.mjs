@@ -160,6 +160,7 @@ async function registerWithVcell() {
 
   try {
     const payload = {
+      action: "hello",
       hostname: String(os.hostname()).trim(),
       platform: process.platform,
       machine: {
@@ -168,7 +169,7 @@ async function registerWithVcell() {
       },
     };
 
-    const result = await postRemoteBridge("/api/vcell/hello", payload);
+    const result = await postRemoteBridge("/api/vcell", payload);
 
     if (result?.workerId) {
       writeWorkerConfig({ workerId: result.workerId, vcellRole: result.role });
@@ -448,7 +449,8 @@ ipcMain.handle("desktop:vcell-assign-role", async (_event, { role }) => {
       return { error: "Not registered with vCell yet." };
     }
 
-    const result = await postRemoteBridge("/api/vcell/assign", {
+    const result = await postRemoteBridge("/api/vcell", {
+      action: "assign",
       workerId,
       role: role === "primary" ? "primary" : "secondary",
     });
