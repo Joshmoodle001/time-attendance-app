@@ -2,10 +2,12 @@ import {
   buildJobRequestFingerprint,
   downloadJson,
   ensureBucket,
+  getAllServerStatuses,
   getAdminClient,
   getJobPath,
   readJobIndex,
   repairStaleJobs,
+  shouldDispatchToWorker,
   upsertJobIndexEntry,
   updateServerStatus,
   uploadJson,
@@ -36,6 +38,7 @@ export default async function handler(req, res) {
     const serverId = String(req.body?.serverId || "desktop-server").trim();
     const workerReady = Boolean(req.body?.workerReady);
     const activeJobId = String(req.body?.activeJobId || "").trim();
+    const workerPriority = String(req.body?.workerPriority || "secondary").trim();
 
     await updateServerStatus(client, {
       serverId,
@@ -43,9 +46,21 @@ export default async function handler(req, res) {
       activeJobId: activeJobId || "",
       platform: req.body?.platform || "",
       machine: req.body?.machine || {},
+      workerPriority,
     });
 
     if (activeJobId) {
+      res.status(200).json({ job: null });
+      return;
+    }
+
+    if (!workerReady) {
+      res.status(200).json({ job: null });
+      return;
+    }
+
+    const allServers = await getAllServerStatuses(client);
+    if (!shouldDispatchToWorker(serverId, allServers)) {
       res.status(200).json({ job: null });
       return;
     }

@@ -2,10 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 
 const BUCKET_NAME = "shared-app-state";
 const JOBS_PREFIX = "report-bridge/jobs";
+const SERVERS_PREFIX = "report-bridge/servers";
 const SERVER_STATUS_PATH = "report-bridge/server-status.json";
 const JOB_INDEX_PATH = "report-bridge/jobs-index.json";
 const DEFAULT_SERVER_TOKEN = "ember-report-server-2026";
 const SERVER_ONLINE_THRESHOLD_MS = 90_000;
+const SERVER_CLEANUP_MS = 24 * 60 * 60_000;
 const STALE_PROCESSING_MS = 3 * 60_000;
 const COMPLETED_JOB_RETENTION_MS = 30 * 60_000;
 
@@ -249,23 +251,85 @@ export function verifyServerToken(req) {
   return token && token === getServerToken();
 }
 
+function getServerStatusPath(serverId) {
+  const safeId = String(serverId || "desktop-server").trim().replace(/[^a-zA-Z0-9\-_]/g, "-");
+  return `${SERVERS_PREFIX}/${safeId}.json`;
+}
+
 export async function updateServerStatus(client, payload) {
-  const current = (await downloadJson(client, SERVER_STATUS_PATH)) || {};
+  const serverId = String(payload?.serverId || "desktop-server").trim();
+  const now = new Date().toISOString();
+
+  const perServerPath = getServerStatusPath(serverId);
+  const current = (await downloadJson(client, perServerPath)) || {};
   const next = {
     ...current,
     ...payload,
-    lastSeenAt: new Date().toISOString(),
+    serverId,
+    lastSeenAt: now,
+    workerPriority: String(payload?.workerPriority || current.workerPriority || "secondary").trim().toLowerCase() === "primary" ? "primary" : "secondary",
   };
-  await uploadJson(client, SERVER_STATUS_PATH, next);
+  await uploadJson(client, perServerPath, next);
+
+  const aggregate = (await downloadJson(client, SERVER_STATUS_PATH)) || {};
+  aggregate.serverId = serverId;
+  aggregate.workerReady = payload?.workerReady != null ? Boolean(payload.workerReady) : aggregate.workerReady;
+  aggregate.lastSeenAt = now;
+  aggregate.workerPriority = next.workerPriority;
+  await uploadJson(client, SERVER_STATUS_PATH, aggregate);
+
   return next;
+}
+
+async function listServerFiles(client) {
+  const { data, error } = await client.storage.from(BUCKET_NAME).list(SERVERS_PREFIX, {
+    limit: 100,
+    sortBy: { column: "name", order: "asc" },
+  });
+  if (error) throw error;
+  return (data || []).filter((item) => item.name?.endsWith(".json"));
+}
+
+export async function getAllServerStatuses(client) {
+  const files = await listServerFiles(client);
+  const servers = [];
+  const now = Date.now();
+  for (const file of files) {
+    const serverId = file.name.replace(/\.json$/i, "");
+    const status = await downloadJson(client, getServerStatusPath(serverId));
+    if (status) {
+      const lastSeenAt = new Date(String(status.lastSeenAt || "")).getTime();
+      servers.push({
+        ...status,
+        serverId: String(status.serverId || serverId),
+        online: Boolean(lastSeenAt) && now - lastSeenAt < SERVER_ONLINE_THRESHOLD_MS,
+        stale: Boolean(lastSeenAt) && now - lastSeenAt >= SERVER_CLEANUP_MS,
+      });
+    }
+  }
+  return servers.filter((s) => !s.stale);
+}
+
+export function hasOnlinePrimary(servers) {
+  return servers.some((s) => s.online && s.workerReady && s.workerPriority === "primary");
+}
+
+export function shouldDispatchToWorker(requestingServerId, allServers) {
+  const requestingServer = allServers.find((s) => s.serverId === requestingServerId);
+  if (!requestingServer || !requestingServer.online || !requestingServer.workerReady) return false;
+
+  const primaryOnline = hasOnlinePrimary(allServers);
+  if (!primaryOnline) return true;
+  return requestingServer.workerPriority === "primary";
 }
 
 export async function getServerStatus(client) {
   await repairStaleJobs(client);
   const status = await downloadJson(client, SERVER_STATUS_PATH);
+  const allServers = await getAllServerStatuses(client);
   const index = await readJobIndex(client);
   if (!status) {
-    return { online: false, workerReady: false, queue: { queued: 0, processing: 0, complete: 0, completed: 0, failed: 0 } };
+    return { online: false, workerReady: false, servers: allServers, queue: { queued: 0, processing: 0, complete: 0, completed: 0, failed: 0 } };
   }
   const queue = {
     queued: index.entries.filter((job) => job.status === "queued").length,
@@ -279,6 +343,7 @@ export async function getServerStatus(client) {
   return {
     ...status,
     online,
+    servers: allServers,
     queue,
   };
 }

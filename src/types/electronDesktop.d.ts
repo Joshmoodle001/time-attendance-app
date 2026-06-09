@@ -28,6 +28,8 @@ declare global {
         serverId: string;
         pollingMode?: "main" | "renderer";
       };
+      getWorkerConfig?: () => Promise<{ workerPriority: "primary" | "secondary" }>;
+      setWorkerConfig?: (config: { workerPriority?: "primary" | "secondary" }) => Promise<{ workerPriority: "primary" | "secondary" }>;
     };
   }
 }

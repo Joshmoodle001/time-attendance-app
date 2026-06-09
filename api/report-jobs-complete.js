@@ -92,6 +92,7 @@ export default async function handler(req, res) {
       serverId: String(req.body?.serverId || job.serverId || "desktop-server"),
       workerReady: true,
       activeJobId: "",
+      workerPriority: String(req.body?.workerPriority || "secondary").trim(),
       lastCompletedJobId: jobId,
       lastCompletedAt: nextJob.completedAt,
       lastError: nextJob.error || "",

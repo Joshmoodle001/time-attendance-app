@@ -1,5 +1,5 @@
-import { type ChangeEvent, useMemo, useState } from "react";
-import { AlertTriangle, Download, RefreshCw, RotateCcw, Upload } from "lucide-react";
+import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Download, RefreshCw, RotateCcw, Server, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
   const [restoreFileSummary, setRestoreFileSummary] = useState<AppRestoreBundle | null>(null);
   const [dataToolsMessage, setDataToolsMessage] = useState("");
   const [resetProgress, setResetProgress] = useState({ step: "", percent: 0 });
+  const [workerPriority, setWorkerPriority] = useState<"primary" | "secondary">("secondary");
 
   const summaryHighlights = useMemo(() => {
     if (!restoreFileSummary) return [];
@@ -150,6 +151,26 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
     } catch (error) {
       setStatus(`Could not restore the application data: ${error instanceof Error ? error.message : "Unknown error"}`);
       setIsRestoringData(false);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronDesktop?.getWorkerConfig) {
+      void window.electronDesktop.getWorkerConfig().then((config) => {
+        setWorkerPriority(config?.workerPriority || "secondary");
+      });
+    }
+  }, []);
+
+  const handleSetWorkerPriority = async (priority: "primary" | "secondary") => {
+    setWorkerPriority(priority);
+    setStatus(`Report worker priority set to ${priority}.`);
+    if (typeof window !== "undefined" && window.electronDesktop?.setWorkerConfig) {
+      try {
+        await window.electronDesktop.setWorkerConfig({ workerPriority: priority });
+      } catch {
+        // persisted via IPC
+      }
     }
   };
 
@@ -292,6 +313,44 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
                 </>
               )}
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Server className="h-5 w-5" />
+            Report Worker Priority
+          </CardTitle>
+          <CardDescription>
+            Set this machine as the primary report worker for remote jobs. When a primary worker
+            is online, secondary workers will not be assigned jobs unless no primary worker is available.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant={workerPriority === "primary" ? "default" : "outline"}
+              className={workerPriority === "primary" ? "bg-emerald-600 hover:bg-emerald-500" : ""}
+              onClick={() => void handleSetWorkerPriority("primary")}
+              disabled={workerPriority === "primary"}
+            >
+              Primary
+            </Button>
+            <Button
+              variant={workerPriority === "secondary" ? "default" : "outline"}
+              className={workerPriority === "secondary" ? "bg-slate-600 hover:bg-slate-500" : ""}
+              onClick={() => void handleSetWorkerPriority("secondary")}
+              disabled={workerPriority === "secondary"}
+            >
+              Secondary
+            </Button>
+            <span className="text-sm text-slate-500">
+              {workerPriority === "primary"
+                ? "This machine will handle remote report jobs first."
+                : "This machine will only handle jobs when no primary worker is online."}
+            </span>
           </div>
         </CardContent>
       </Card>

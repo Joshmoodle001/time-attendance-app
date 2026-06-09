@@ -20,6 +20,7 @@ const remoteBridgeBaseUrl = String(process.env.REPORT_BRIDGE_BASE_URL || "https:
 const remoteBridgeToken = String(process.env.REPORT_SERVER_TOKEN || "ember-report-server-2026").trim();
 const remotePollIntervalMs = 5000;
 const bridgeLogPath = path.join(rootDir, "report-bridge.log");
+const workerConfigPath = path.join(rootDir, ".electron-user-data", "worker-config.json");
 
 let mainWindow = null;
 let workerWindow = null;
@@ -40,6 +41,35 @@ function logBridge(message) {
     // ignore log write errors
   }
   console.log(message);
+}
+
+function readWorkerConfig() {
+  try {
+    fs.mkdirSync(path.dirname(workerConfigPath), { recursive: true });
+  } catch {}
+  try {
+    const raw = fs.readFileSync(workerConfigPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      workerPriority: String(parsed?.workerPriority || "secondary").trim().toLowerCase() === "primary" ? "primary" : "secondary",
+    };
+  } catch {
+    return { workerPriority: "secondary" };
+  }
+}
+
+function writeWorkerConfig(config) {
+  try {
+    fs.mkdirSync(path.dirname(workerConfigPath), { recursive: true });
+  } catch {}
+  const current = readWorkerConfig();
+  const next = {
+    ...current,
+    ...config,
+    workerPriority: String(config.workerPriority || current.workerPriority || "secondary").trim().toLowerCase() === "primary" ? "primary" : "secondary",
+  };
+  fs.writeFileSync(workerConfigPath, JSON.stringify(next, null, 2), "utf8");
+  return next;
 }
 
 app.setPath("userData", path.join(rootDir, ".electron-user-data"));
@@ -289,6 +319,7 @@ async function pollRemoteReportJobs() {
       workerReady,
       activeJobId: activeRemoteJobId,
       platform: process.platform,
+      workerPriority: readWorkerConfig().workerPriority,
       machine: {
         cpuCores: os.cpus().length,
         memoryGB: Math.round(os.totalmem() / 1024 / 1024 / 1024),
@@ -311,6 +342,7 @@ async function pollRemoteReportJobs() {
       success: Boolean(result?.success),
       reportPayload: result?.reportPayload || null,
       error: result?.error || "",
+      workerPriority: readWorkerConfig().workerPriority,
     });
     logBridge(`Completed remote job ${activeRemoteJobId} success=${Boolean(result?.success)}`);
   } catch (error) {
@@ -351,6 +383,14 @@ ipcMain.handle("desktop:report-job-result", async (_event, payload) => {
   pendingReportJobs.delete(payload.jobId);
   pending.resolve(payload);
   return true;
+});
+
+ipcMain.handle("desktop:get-worker-config", async () => {
+  return readWorkerConfig();
+});
+
+ipcMain.handle("desktop:set-worker-config", async (_event, config) => {
+  return writeWorkerConfig(config || {});
 });
 
 app.whenReady().then(() => {

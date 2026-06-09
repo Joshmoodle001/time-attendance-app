@@ -27,4 +27,6 @@ contextBridge.exposeInMainWorld("electronDesktop", {
       ipcRenderer.removeListener("desktop:report-job", listener);
     };
   },
+  getWorkerConfig: () => ipcRenderer.invoke("desktop:get-worker-config"),
+  setWorkerConfig: (config) => ipcRenderer.invoke("desktop:set-worker-config", config),
 });
