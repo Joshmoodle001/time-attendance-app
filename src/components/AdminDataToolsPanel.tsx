@@ -157,19 +157,26 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
   useEffect(() => {
     if (typeof window !== "undefined" && window.electronDesktop?.getWorkerConfig) {
       void window.electronDesktop.getWorkerConfig().then((config) => {
-        setWorkerPriority(config?.workerPriority || "secondary");
+        const role = (config?.vcellRole || config?.workerPriority || "secondary") as "primary" | "secondary";
+        setWorkerPriority(role);
       });
     }
   }, []);
 
   const handleSetWorkerPriority = async (priority: "primary" | "secondary") => {
-    setWorkerPriority(priority);
-    setStatus(`Report worker priority set to ${priority}.`);
-    if (typeof window !== "undefined" && window.electronDesktop?.setWorkerConfig) {
+    setStatus(`Requesting vCell to set this worker as ${priority}...`);
+
+    if (typeof window !== "undefined" && window.electronDesktop?.vcellAssignRole) {
       try {
-        await window.electronDesktop.setWorkerConfig({ workerPriority: priority });
+        const result = await window.electronDesktop.vcellAssignRole(priority);
+        if (result?.success) {
+          setWorkerPriority(result.role as "primary" | "secondary");
+          setStatus(`vCell assigned role: ${result.role}.`);
+        } else {
+          setStatus(`vCell assign failed: ${result?.error || "unknown error"}`);
+        }
       } catch {
-        // persisted via IPC
+        setStatus("vCell assign request failed.");
       }
     }
   };
@@ -324,8 +331,9 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
             Report Worker Priority
           </CardTitle>
           <CardDescription>
-            Set this machine as the primary report worker for remote jobs. When a primary worker
-            is online, secondary workers will not be assigned jobs unless no primary worker is available.
+            The vCell manager assigns each worker its role. Set this machine as primary to
+            handle remote report jobs first. When a primary worker is online, secondary
+            workers standby and only take jobs if no primary is available.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -336,7 +344,7 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
               onClick={() => void handleSetWorkerPriority("primary")}
               disabled={workerPriority === "primary"}
             >
-              Primary
+              Set as Primary
             </Button>
             <Button
               variant={workerPriority === "secondary" ? "default" : "outline"}
@@ -344,12 +352,12 @@ export default function AdminDataToolsPanel({ onStatusMessage }: AdminDataToolsP
               onClick={() => void handleSetWorkerPriority("secondary")}
               disabled={workerPriority === "secondary"}
             >
-              Secondary
+              Set as Secondary
             </Button>
             <span className="text-sm text-slate-500">
               {workerPriority === "primary"
-                ? "This machine will handle remote report jobs first."
-                : "This machine will only handle jobs when no primary worker is online."}
+                ? "This machine is the primary report worker."
+                : "This machine is a secondary standby worker."}
             </span>
           </div>
         </CardContent>

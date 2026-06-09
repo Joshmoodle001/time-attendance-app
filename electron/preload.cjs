@@ -29,4 +29,5 @@ contextBridge.exposeInMainWorld("electronDesktop", {
   },
   getWorkerConfig: () => ipcRenderer.invoke("desktop:get-worker-config"),
   setWorkerConfig: (config) => ipcRenderer.invoke("desktop:set-worker-config", config),
+  vcellAssignRole: (role) => ipcRenderer.invoke("desktop:vcell-assign-role", { role }),
 });

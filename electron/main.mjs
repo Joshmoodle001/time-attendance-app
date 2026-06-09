@@ -32,6 +32,14 @@ let activeRemoteJobId = "";
 
 const pendingReportJobs = new Map();
 const remoteServerId = `${os.hostname()}-${randomUUID().slice(0, 8)}`;
+let remoteWorkerId = "";
+
+function getRemoteWorkerId() {
+  if (remoteWorkerId) return remoteWorkerId;
+  const config = readWorkerConfig();
+  remoteWorkerId = String(config.workerId || "").trim();
+  return remoteWorkerId;
+}
 
 function logBridge(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
@@ -52,9 +60,11 @@ function readWorkerConfig() {
     const parsed = JSON.parse(raw);
     return {
       workerPriority: String(parsed?.workerPriority || "secondary").trim().toLowerCase() === "primary" ? "primary" : "secondary",
+      workerId: String(parsed?.workerId || "").trim(),
+      vcellRole: String(parsed?.vcellRole || "").trim(),
     };
   } catch {
-    return { workerPriority: "secondary" };
+    return { workerPriority: "secondary", workerId: "", vcellRole: "" };
   }
 }
 
@@ -66,9 +76,15 @@ function writeWorkerConfig(config) {
   const next = {
     ...current,
     ...config,
-    workerPriority: String(config.workerPriority || current.workerPriority || "secondary").trim().toLowerCase() === "primary" ? "primary" : "secondary",
+    workerPriority: config.workerPriority != null
+      ? (String(config.workerPriority).trim().toLowerCase() === "primary" ? "primary" : "secondary")
+      : current.workerPriority,
+    workerId: String(config.workerId != null ? config.workerId : current.workerId || "").trim(),
+    vcellRole: String(config.vcellRole != null ? config.vcellRole : current.vcellRole || "").trim(),
   };
   fs.writeFileSync(workerConfigPath, JSON.stringify(next, null, 2), "utf8");
+  if (config.workerId != null) remoteWorkerId = String(config.workerId).trim();
+  if (config.vcellRole != null) remoteWorkerId = next.workerId;
   return next;
 }
 
@@ -134,6 +150,36 @@ function createWorkerWindow() {
       pendingReportJobs.delete(jobId);
     }
   });
+}
+
+async function registerWithVcell() {
+  if (getRemoteWorkerId()) {
+    logBridge(`vCell: already registered as worker ${getRemoteWorkerId()}`);
+    return getRemoteWorkerId();
+  }
+
+  try {
+    const payload = {
+      hostname: String(os.hostname()).trim(),
+      platform: process.platform,
+      machine: {
+        cpuCores: os.cpus().length,
+        memoryGB: Math.round(os.totalmem() / 1024 / 1024 / 1024),
+      },
+    };
+
+    const result = await postRemoteBridge("/api/vcell/hello", payload);
+
+    if (result?.workerId) {
+      writeWorkerConfig({ workerId: result.workerId, vcellRole: result.role });
+      logBridge(`vCell: registered as ${result.workerId} (role: ${result.role})`);
+      return result.workerId;
+    }
+  } catch (error) {
+    logBridge(`vCell: hello failed - ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return "";
 }
 
 async function ensureWorkerReady() {
@@ -316,6 +362,7 @@ async function pollRemoteReportJobs() {
     logBridge(`Polling remote bridge. workerReady=${workerReady} activeRemoteJobId=${activeRemoteJobId || "-"}`);
     const pollPayload = {
       serverId: remoteServerId,
+      workerId: getRemoteWorkerId(),
       workerReady,
       activeJobId: activeRemoteJobId,
       platform: process.platform,
@@ -337,6 +384,7 @@ async function pollRemoteReportJobs() {
     const result = await dispatchReportJob(job);
     await postRemoteBridge("/api/report-jobs-complete", {
       serverId: remoteServerId,
+      workerId: getRemoteWorkerId(),
       jobId: job.jobId,
       sessionId: job.sessionId,
       success: Boolean(result?.success),
@@ -393,11 +441,35 @@ ipcMain.handle("desktop:set-worker-config", async (_event, config) => {
   return writeWorkerConfig(config || {});
 });
 
+ipcMain.handle("desktop:vcell-assign-role", async (_event, { role }) => {
+  try {
+    const workerId = getRemoteWorkerId();
+    if (!workerId) {
+      return { error: "Not registered with vCell yet." };
+    }
+
+    const result = await postRemoteBridge("/api/vcell/assign", {
+      workerId,
+      role: role === "primary" ? "primary" : "secondary",
+    });
+
+    if (result?.role) {
+      writeWorkerConfig({ vcellRole: result.role, workerPriority: result.role });
+      return { success: true, role: result.role };
+    }
+
+    return { error: "vCell assign returned no role." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
 app.whenReady().then(() => {
   createMainWindow();
   createWorkerWindow();
   startDesktopServer();
   startRemoteReportPolling();
+  void registerWithVcell();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

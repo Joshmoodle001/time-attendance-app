@@ -5,7 +5,9 @@ import {
   getAllServerStatuses,
   getAdminClient,
   getJobPath,
+  getWorkerRole,
   readJobIndex,
+  readWorkerRegistry,
   repairStaleJobs,
   shouldDispatchToWorker,
   upsertJobIndexEntry,
@@ -36,9 +38,14 @@ export default async function handler(req, res) {
     await repairStaleJobs(client);
 
     const serverId = String(req.body?.serverId || "desktop-server").trim();
+    const workerId = String(req.body?.workerId || "").trim();
     const workerReady = Boolean(req.body?.workerReady);
     const activeJobId = String(req.body?.activeJobId || "").trim();
-    const workerPriority = String(req.body?.workerPriority || "secondary").trim();
+    const selfReportedPriority = String(req.body?.workerPriority || "secondary").trim();
+
+    const workerRegistry = await readWorkerRegistry(client);
+    const vcellRole = workerId ? getWorkerRole(workerRegistry, workerId) : null;
+    const workerPriority = vcellRole || selfReportedPriority;
 
     await updateServerStatus(client, {
       serverId,
@@ -47,14 +54,10 @@ export default async function handler(req, res) {
       platform: req.body?.platform || "",
       machine: req.body?.machine || {},
       workerPriority,
+      workerId: workerId || undefined,
     });
 
-    if (activeJobId) {
-      res.status(200).json({ job: null });
-      return;
-    }
-
-    if (!workerReady) {
+    if (activeJobId || !workerReady) {
       res.status(200).json({ job: null });
       return;
     }

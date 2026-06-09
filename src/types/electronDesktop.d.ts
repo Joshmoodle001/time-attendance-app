@@ -28,8 +28,9 @@ declare global {
         serverId: string;
         pollingMode?: "main" | "renderer";
       };
-      getWorkerConfig?: () => Promise<{ workerPriority: "primary" | "secondary" }>;
-      setWorkerConfig?: (config: { workerPriority?: "primary" | "secondary" }) => Promise<{ workerPriority: "primary" | "secondary" }>;
+      getWorkerConfig?: () => Promise<{ workerPriority: "primary" | "secondary"; workerId: string; vcellRole: string }>;
+      setWorkerConfig?: (config: { workerPriority?: "primary" | "secondary" }) => Promise<{ workerPriority: "primary" | "secondary"; workerId: string; vcellRole: string }>;
+      vcellAssignRole?: (role: "primary" | "secondary") => Promise<{ success?: boolean; role?: string; error?: string }>;
     };
   }
 }

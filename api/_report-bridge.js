@@ -282,12 +282,16 @@ export async function updateServerStatus(client, payload) {
 }
 
 async function listServerFiles(client) {
-  const { data, error } = await client.storage.from(BUCKET_NAME).list(SERVERS_PREFIX, {
-    limit: 100,
-    sortBy: { column: "name", order: "asc" },
-  });
-  if (error) throw error;
-  return (data || []).filter((item) => item.name?.endsWith(".json"));
+  try {
+    const { data, error } = await client.storage.from(BUCKET_NAME).list(SERVERS_PREFIX, {
+      limit: 100,
+      sortBy: { column: "name", order: "asc" },
+    });
+    if (error) return [];
+    return (data || []).filter((item) => item.name?.endsWith(".json"));
+  } catch {
+    return [];
+  }
 }
 
 export async function getAllServerStatuses(client) {
@@ -308,6 +312,77 @@ export async function getAllServerStatuses(client) {
     }
   }
   return servers.filter((s) => !s.stale);
+}
+
+const WORKER_REGISTRY_PATH = "report-bridge/worker-registry.json";
+
+// ── vCell Worker Registry ──────────────────────────────────────────
+
+export async function readWorkerRegistry(client) {
+  await ensureBucket(client);
+  const registry = (await downloadJson(client, WORKER_REGISTRY_PATH)) || { workers: {} };
+  return registry;
+}
+
+export async function writeWorkerRegistry(client, registry) {
+  await ensureBucket(client);
+  await uploadJson(client, WORKER_REGISTRY_PATH, registry);
+  return registry;
+}
+
+export async function registerWorker(client, { hostname, platform, machine }) {
+  const registry = await readWorkerRegistry(client);
+  const hostnameKey = String(hostname || "unknown").trim().toLowerCase();
+
+  let entry = registry.workers[hostnameKey];
+
+  if (!entry) {
+    entry = {
+      workerId: `${hostnameKey}-${Math.random().toString(36).slice(2, 8)}`,
+      hostname: String(hostname || "unknown").trim(),
+      role: "secondary",
+      registeredAt: new Date().toISOString(),
+      platform: platform || "",
+      machine: machine || {},
+    };
+    registry.workers[hostnameKey] = entry;
+  } else {
+    entry.platform = platform || entry.platform;
+    entry.machine = machine || entry.machine;
+  }
+
+  await writeWorkerRegistry(client, registry);
+  return entry;
+}
+
+export async function assignWorkerRole(client, { workerId, role }) {
+  const registry = await readWorkerRegistry(client);
+
+  let found = null;
+  for (const key of Object.keys(registry.workers)) {
+    if (registry.workers[key].workerId === workerId) {
+      registry.workers[key].role = role === "primary" ? "primary" : "secondary";
+      registry.workers[key].assignedAt = new Date().toISOString();
+      found = registry.workers[key];
+      break;
+    }
+  }
+
+  if (!found) return null;
+
+  await writeWorkerRegistry(client, registry);
+  return found;
+}
+
+export function getWorkerRole(registry, workerId) {
+  if (!workerId || !registry?.workers) return "secondary";
+
+  for (const key of Object.keys(registry.workers)) {
+    if (registry.workers[key].workerId === workerId) {
+      return registry.workers[key].role || "secondary";
+    }
+  }
+  return "secondary";
 }
 
 export function hasOnlinePrimary(servers) {

@@ -93,6 +93,7 @@ export default async function handler(req, res) {
       workerReady: true,
       activeJobId: "",
       workerPriority: String(req.body?.workerPriority || "secondary").trim(),
+      workerId: String(req.body?.workerId || "").trim(),
       lastCompletedJobId: jobId,
       lastCompletedAt: nextJob.completedAt,
       lastError: nextJob.error || "",
