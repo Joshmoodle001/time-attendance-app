@@ -13,23 +13,39 @@ function sanitizeUrl(value) {
   return normalizeEnvText(value).replace(/\/+$/g, "");
 }
 
+function pickEnv(...names) {
+  for (const name of names) {
+    const value = normalizeEnvText(process.env[name] || "");
+    if (value) return value;
+  }
+  return "";
+}
+
 const SUPABASE_URL = sanitizeUrl(
-  process.env.VITE_SUPABASE_URL
-  || process.env.NEXT_PUBLIC_SUPABASE_URL
-  || process.env.SUPABASE_URL
-  || "",
+  pickEnv(
+    "VITE_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "SUPABASE_URL",
+    "SUPABASE_PROJECT_URL",
+  ),
 );
-const SUPABASE_ANON_KEY = normalizeEnvText(
-  process.env.VITE_SUPABASE_ANON_KEY
-  || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  || process.env.SUPABASE_ANON_KEY
-  || "",
+const SUPABASE_ANON_KEY = pickEnv(
+  "VITE_SUPABASE_ANON_KEY",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_ANON_KEY",
+  "VITE_SUPABASE_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+  "SUPABASE_PUBLISHABLE_KEY",
+  "SUPABASE_KEY",
 );
-const SUPABASE_SERVICE_ROLE_KEY = normalizeEnvText(
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-  || process.env.SUPABASE_SERVICE_KEY
-  || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-  || "",
+const SUPABASE_SERVICE_ROLE_KEY = pickEnv(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_SERVICE_KEY",
+  "SUPABASE_SECRET_KEY",
+  "VITE_SUPABASE_SERVICE_ROLE_KEY",
+  "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY",
+  "VITE_SUPABASE_SECRET_KEY",
+  "NEXT_PUBLIC_SUPABASE_SECRET_KEY",
 );
 const SUPABASE_REST_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
@@ -280,12 +296,43 @@ function getSupabaseAdminClient() {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      headers: {
+        apikey: SUPABASE_REST_KEY,
+        Authorization: `Bearer ${SUPABASE_REST_KEY}`,
+      },
+    },
   });
   return supabaseAdminClient;
 }
 
+function formatSupabaseError(error) {
+  if (error instanceof Error) {
+    return normalizeText(error.message) || "Unknown Supabase error.";
+  }
+  if (error && typeof error === "object") {
+    const segments = [
+      normalizeText(error.message),
+      normalizeText(error.error_description || error.error || error.msg),
+      normalizeText(error.details),
+      normalizeText(error.hint ? `Hint: ${error.hint}` : ""),
+      normalizeText(error.code ? `Code: ${error.code}` : ""),
+      normalizeText(error.status ? `Status: ${error.status}` : ""),
+    ].filter(Boolean);
+    if (segments.length > 0) {
+      return segments.join(" | ");
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "Unknown Supabase error object.";
+    }
+  }
+  return normalizeText(error) || "Could not reach Supabase.";
+}
+
 function describeSupabaseAccessError(error) {
-  const message = error instanceof Error ? error.message : String(error || "Could not reach Supabase.");
+  const message = formatSupabaseError(error);
   if (message === "fetch failed" && SUPABASE_URL) {
     try {
       return `Could not reach Supabase at ${new URL(SUPABASE_URL).host} from the shift sync worker.`;
