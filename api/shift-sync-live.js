@@ -1,5 +1,3 @@
-import { loadRemoteShiftSyncSettings, runUniversalShiftSync } from "./_shift-sync-utils.js";
-
 function parseBody(body) {
   if (!body) return {};
   if (typeof body === "string") {
@@ -11,6 +9,22 @@ function parseBody(body) {
   }
   if (typeof body === "object") return body;
   return {};
+}
+
+function primeShiftSyncEnv() {
+  if (process.env.SUPABASE_URL) {
+    process.env.VITE_SUPABASE_URL = process.env.SUPABASE_URL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.SUPABASE_URL;
+  }
+  if (process.env.SUPABASE_ANON_KEY) {
+    process.env.VITE_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+  }
+}
+
+async function loadShiftSyncUtils() {
+  primeShiftSyncEnv();
+  return import("./_shift-sync-utils.js");
 }
 
 export default async function handler(req, res) {
@@ -25,6 +39,7 @@ export default async function handler(req, res) {
           ? [body.sectionId]
           : [];
 
+    const { loadRemoteShiftSyncSettings, runUniversalShiftSync } = await loadShiftSyncUtils();
     const settings = await loadRemoteShiftSyncSettings();
     if (!settings.liveWebhookKey || providedKey !== settings.liveWebhookKey) {
       res.status(401).json({
