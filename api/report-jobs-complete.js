@@ -1,4 +1,5 @@
 import {
+  applyCors,
   buildJobRequestFingerprint,
   downloadJson,
   ensureBucket,
@@ -12,9 +13,16 @@ import {
 } from "./_report-bridge.js";
 
 export default async function handler(req, res) {
+  applyCors(req, res);
+
   const client = getAdminClient();
   if (!client) {
     res.status(500).json({ error: "Supabase service role is not configured." });
+    return;
+  }
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
     return;
   }
 
@@ -44,11 +52,8 @@ export default async function handler(req, res) {
     }
 
     const success = Boolean(req.body?.success);
-    const resultPayload =
-      req.body?.result ||
-      (req.body?.reportPayload
-        ? { reportPayload: req.body.reportPayload }
-        : null);
+    const resultPayload = req.body?.result
+      || (req.body?.reportPayload ? { reportPayload: req.body.reportPayload } : null);
     const nextJob = {
       ...job,
       status: success ? "complete" : "failed",
@@ -90,10 +95,14 @@ export default async function handler(req, res) {
 
     await updateServerStatus(client, {
       serverId: String(req.body?.serverId || job.serverId || "desktop-server"),
+      machineId: req.body?.machineId || "",
+      machineLabel: req.body?.machineLabel || "",
+      hostname: req.body?.hostname || req.body?.machine?.hostname || "",
       workerReady: true,
       activeJobId: "",
       workerPriority: String(req.body?.workerPriority || "secondary").trim(),
       workerId: String(req.body?.workerId || "").trim(),
+      machine: req.body?.machine || {},
       lastCompletedJobId: jobId,
       lastCompletedAt: nextJob.completedAt,
       lastError: nextJob.error || "",
