@@ -1,9 +1,16 @@
-import { ensureBucket, getAdminClient, getServerStatus } from "./_report-bridge.js";
+import { applyCors, ensureBucket, getAdminClient, getServerStatus } from "./_report-bridge.js";
 
 export default async function handler(req, res) {
+  applyCors(req, res, "GET,OPTIONS");
+
   const client = getAdminClient();
   if (!client) {
     res.status(500).json({ error: "Supabase service role is not configured." });
+    return;
+  }
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
     return;
   }
 
