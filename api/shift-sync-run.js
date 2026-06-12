@@ -1,5 +1,3 @@
-import { loadRemoteShiftSyncSettings, runUniversalShiftSync } from "./_shift-sync-utils.js";
-
 function parseBody(body) {
   if (!body) return {};
   if (typeof body === "string") {
@@ -22,6 +20,22 @@ function isAuthorized(req) {
   return authHeader.replace("Bearer ", "") === secret;
 }
 
+function primeShiftSyncEnv() {
+  if (process.env.SUPABASE_URL) {
+    process.env.VITE_SUPABASE_URL = process.env.SUPABASE_URL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.SUPABASE_URL;
+  }
+  if (process.env.SUPABASE_ANON_KEY) {
+    process.env.VITE_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+  }
+}
+
+async function loadShiftSyncUtils() {
+  primeShiftSyncEnv();
+  return import("./_shift-sync-utils.js");
+}
+
 export default async function handler(req, res) {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -29,6 +43,7 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
+      const { loadRemoteShiftSyncSettings } = await loadShiftSyncUtils();
       const settings = await loadRemoteShiftSyncSettings();
       res.status(200).json({ success: true, settings });
     } catch (error) {
@@ -52,6 +67,7 @@ export default async function handler(req, res) {
       : body.sectionId
         ? [body.sectionId]
         : [];
+    const { runUniversalShiftSync } = await loadShiftSyncUtils();
     const result = await runUniversalShiftSync("manual", { sectionIds });
     res.status(200).json(result);
   } catch (error) {
