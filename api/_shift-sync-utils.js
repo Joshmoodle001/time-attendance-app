@@ -1,9 +1,39 @@
+import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
+function normalizeText(value) {
+  return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
+}
+
+function normalizeEnvText(value) {
+  return normalizeText(value).replace(/^['"]+|['"]+$/g, "");
+}
+
+function sanitizeUrl(value) {
+  return normalizeEnvText(value).replace(/\/+$/g, "");
+}
+
+const SUPABASE_URL = sanitizeUrl(
+  process.env.VITE_SUPABASE_URL
+  || process.env.NEXT_PUBLIC_SUPABASE_URL
+  || process.env.SUPABASE_URL
+  || "",
+);
+const SUPABASE_ANON_KEY = normalizeEnvText(
+  process.env.VITE_SUPABASE_ANON_KEY
+  || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  || process.env.SUPABASE_ANON_KEY
+  || "",
+);
+const SUPABASE_SERVICE_ROLE_KEY = normalizeEnvText(
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_SERVICE_KEY
+  || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+  || "",
+);
 const SUPABASE_REST_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+
+let supabaseAdminClient = null;
 
 const DEFAULT_SHIFT_SYNC_SECTIONS = [
   {
@@ -69,10 +99,6 @@ function createLiveWebhookKey() {
 }
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-
-function normalizeText(value) {
-  return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
-}
 
 function normalizeKey(value) {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -246,88 +272,99 @@ function requireSupabaseConfig() {
   }
 }
 
-async function restFetch(path, options = {}) {
+function getSupabaseAdminClient() {
   requireSupabaseConfig();
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_REST_KEY,
-      Authorization: `Bearer ${SUPABASE_REST_KEY}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
+  if (supabaseAdminClient) return supabaseAdminClient;
+  supabaseAdminClient = createClient(SUPABASE_URL, SUPABASE_REST_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
     },
   });
+  return supabaseAdminClient;
+}
 
-  if (!response.ok) {
-    const payload = await response.text();
-    throw new Error(payload || `Supabase request failed with status ${response.status}`);
+function describeSupabaseAccessError(error) {
+  const message = error instanceof Error ? error.message : String(error || "Could not reach Supabase.");
+  if (message === "fetch failed" && SUPABASE_URL) {
+    try {
+      return `Could not reach Supabase at ${new URL(SUPABASE_URL).host} from the shift sync worker.`;
+    } catch {
+      return "Could not reach Supabase from the shift sync worker.";
+    }
   }
+  return message;
+}
 
-  if (response.status === 204) return null;
-  const text = await response.text();
-  if (!text) return null;
-  return JSON.parse(text);
+function mapSettingsRecordToSettings(record) {
+  if (!record) return DEFAULT_SHIFT_SYNC_SETTINGS;
+  return applyAutoSyncBootstrap(normalizeSettings({
+    autoSyncEnabled: record.auto_sync_enabled,
+    backupIntervalMinutes: record.payload?.backupIntervalMinutes,
+    scheduledRunTimes: record.payload?.scheduledRunTimes,
+    lastUniversalSyncedAt: record.last_universal_synced_at,
+    lastUniversalStatus: record.last_universal_status,
+    liveSyncEnabled: record.payload?.liveSyncEnabled,
+    lastLiveSyncedAt: record.payload?.lastLiveSyncedAt,
+    lastLiveStatus: record.payload?.lastLiveStatus,
+    liveWebhookKey: record.payload?.liveWebhookKey,
+    sections: record.payload?.sections,
+  }));
 }
 
 export async function loadRemoteShiftSyncSettings() {
   try {
-    const data = await restFetch("shift_sync_settings?id=eq.global&select=*", { method: "GET" });
-    if (!Array.isArray(data) || !data[0]) return DEFAULT_SHIFT_SYNC_SETTINGS;
-    return applyAutoSyncBootstrap(normalizeSettings({
-      autoSyncEnabled: data[0].auto_sync_enabled,
-      backupIntervalMinutes: data[0].payload?.backupIntervalMinutes,
-      scheduledRunTimes: data[0].payload?.scheduledRunTimes,
-      lastUniversalSyncedAt: data[0].last_universal_synced_at,
-      lastUniversalStatus: data[0].last_universal_status,
-      liveSyncEnabled: data[0].payload?.liveSyncEnabled,
-      lastLiveSyncedAt: data[0].payload?.lastLiveSyncedAt,
-      lastLiveStatus: data[0].payload?.lastLiveStatus,
-      liveWebhookKey: data[0].payload?.liveWebhookKey,
-      sections: data[0].payload?.sections,
-    }));
+    const client = getSupabaseAdminClient();
+    const { data, error } = await client
+      .from("shift_sync_settings")
+      .select("*")
+      .eq("id", "global")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return DEFAULT_SHIFT_SYNC_SETTINGS;
+    return mapSettingsRecordToSettings(data);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not load remote shift sync settings.";
+    const message = describeSupabaseAccessError(error);
     if (message.includes("shift_sync_settings")) {
       throw new Error("Remote shift sync settings table is not set up yet.");
     }
-    throw error;
+    throw new Error(message);
   }
 }
 
 export async function saveRemoteShiftSyncSettings(settings) {
   const normalized = normalizeSettings(settings);
   try {
-    await restFetch("shift_sync_settings?on_conflict=id", {
-      method: "POST",
-      headers: {
-        Prefer: "resolution=merge-duplicates",
-      },
-      body: JSON.stringify([
-        {
-          id: "global",
-          auto_sync_enabled: normalized.autoSyncEnabled,
-          last_universal_synced_at: normalized.lastUniversalSyncedAt || null,
-          last_universal_status: normalized.lastUniversalStatus,
-          payload: {
-            backupIntervalMinutes: normalized.backupIntervalMinutes,
-            scheduledRunTimes: normalized.scheduledRunTimes,
-            liveSyncEnabled: normalized.liveSyncEnabled,
-            lastLiveSyncedAt: normalized.lastLiveSyncedAt || null,
-            lastLiveStatus: normalized.lastLiveStatus,
-            liveWebhookKey: normalized.liveWebhookKey,
-            sections: normalized.sections,
-          },
-          updated_at: new Date().toISOString(),
+    const client = getSupabaseAdminClient();
+    const { error } = await client.from("shift_sync_settings").upsert(
+      {
+        id: "global",
+        auto_sync_enabled: normalized.autoSyncEnabled,
+        last_universal_synced_at: normalized.lastUniversalSyncedAt || null,
+        last_universal_status: normalized.lastUniversalStatus,
+        payload: {
+          backupIntervalMinutes: normalized.backupIntervalMinutes,
+          scheduledRunTimes: normalized.scheduledRunTimes,
+          liveSyncEnabled: normalized.liveSyncEnabled,
+          lastLiveSyncedAt: normalized.lastLiveSyncedAt || null,
+          lastLiveStatus: normalized.lastLiveStatus,
+          liveWebhookKey: normalized.liveWebhookKey,
+          sections: normalized.sections,
         },
-      ]),
-    });
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+
+    if (error) throw error;
     return normalized;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not save remote shift sync settings.";
+    const message = describeSupabaseAccessError(error);
     if (message.includes("shift_sync_settings")) {
       throw new Error("Remote shift sync settings table is not set up yet.");
     }
-    throw error;
+    throw new Error(message);
   }
 }
 
@@ -569,12 +606,9 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
   let currentWeekLabel = "";
   let currentWeekSlotIndex = -1;
 
-  // Check if first row is a header or raw data
   const firstRowText = textAt(headerRow, 0).toUpperCase();
   const isRawData = /^WEEK\s*\d+/i.test(firstRowText);
-  
-  // For raw data format: 
-  // Column 0: WEEK | Column 1: NAME | Column 2: SHARED | Column 3: TYPE | Column 4: CODE | Column 5-11: MON-SUN | Column 12+: EXTRAS
+
   const FIXED_RAW_COLUMNS = {
     week: 0,
     name: 1,
@@ -599,8 +633,8 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
       continue;
     }
 
-    let rawWeekLabel, employeeName, department, employeeCode;
-    let monday, tuesday, wednesday, thursday, friday, saturday, sunday;
+    let rawWeekLabel; let employeeName; let department; let employeeCode;
+    let monday; let tuesday; let wednesday; let thursday; let friday; let saturday; let sunday;
 
     if (useFixedColumns) {
       rawWeekLabel = textAt(row, FIXED_RAW_COLUMNS.week);
@@ -740,15 +774,15 @@ function parseShiftWorkbook(buffer, sourceFileName) {
       try {
         return parseSheetRows(workbook.Sheets[sheetName], sheetName, sourceFileName);
       } catch (sheetError) {
-        console.error(`Error parsing sheet "${sheetName}":`, sheetError);
+        console.error(`Error parsing sheet \"${sheetName}\":`, sheetError);
         return null;
       }
     }).filter((roster) => roster && roster.rows && roster.rows.length > 0);
-    
+
     if (results.length === 0) {
       throw new Error("No valid shift data was found in the sheet. Check that the sheet has 'Week' headers and employee rows.");
     }
-    
+
     return results;
   } catch (error) {
     throw new Error(`Failed to parse workbook: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -796,27 +830,37 @@ function mergeShiftRosters(existing, incoming) {
   });
 }
 
+function mapRosterRecord(record) {
+  return materializeRosterWithHistory({
+    id: record.id,
+    sheet_name: record.sheet_name,
+    store_name: record.store_name,
+    store_code: record.store_code || "",
+    source_file_name: record.source_file_name || "",
+    custom_columns: record.payload?.custom_columns || [],
+    rows: record.payload?.rows || [],
+    updated_at: record.updated_at,
+    import_summary: normalizeImportSummary(record.payload?.import_summary),
+    history: record.payload?.history || [],
+  });
+}
+
 async function loadRemoteShiftRosters() {
   try {
-    const data = await restFetch("shift_rosters?select=id,sheet_name,store_name,store_code,source_file_name,payload,updated_at&order=updated_at.desc", { method: "GET" });
-    return (Array.isArray(data) ? data : []).map((item) => materializeRosterWithHistory({
-      id: item.id,
-      sheet_name: item.sheet_name,
-      store_name: item.store_name,
-      store_code: item.store_code || "",
-      source_file_name: item.source_file_name || "",
-      custom_columns: item.payload?.custom_columns || [],
-      rows: item.payload?.rows || [],
-      updated_at: item.updated_at,
-      import_summary: normalizeImportSummary(item.payload?.import_summary),
-      history: item.payload?.history || [],
-    }));
+    const client = getSupabaseAdminClient();
+    const { data, error } = await client
+      .from("shift_rosters")
+      .select("id,sheet_name,store_name,store_code,source_file_name,payload,updated_at")
+      .order("updated_at", { ascending: false });
+
+    if (error) throw error;
+    return (Array.isArray(data) ? data : []).map((item) => mapRosterRecord(item));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not load remote shift rosters.";
+    const message = describeSupabaseAccessError(error);
     if (message.includes("shift_rosters")) {
       throw new Error("Remote shift roster table is not set up yet.");
     }
-    throw error;
+    throw new Error(message);
   }
 }
 
@@ -841,19 +885,15 @@ async function upsertRemoteShiftRosters(rosters) {
   });
 
   try {
-    await restFetch("shift_rosters?on_conflict=sheet_name", {
-      method: "POST",
-      headers: {
-        Prefer: "resolution=merge-duplicates",
-      },
-      body: JSON.stringify(payload),
-    });
+    const client = getSupabaseAdminClient();
+    const { error } = await client.from("shift_rosters").upsert(payload, { onConflict: "sheet_name" });
+    if (error) throw error;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not save remote shift rosters.";
+    const message = describeSupabaseAccessError(error);
     if (message.includes("shift_rosters")) {
       throw new Error("Remote shift roster table is not set up yet.");
     }
-    throw error;
+    throw new Error(message);
   }
 }
 
@@ -872,13 +912,13 @@ async function runSingleSectionSync(section, trigger) {
 
   try {
     const buffer = await downloadGoogleWorkbook(cleanUrl);
-    
+
     if (!buffer || buffer.byteLength === 0) {
       throw new Error("Downloaded file is empty.");
     }
-    
+
     const imported = parseShiftWorkbook(buffer, `${section.label}.xlsx`);
-    
+
     if (imported.length === 0) {
       throw new Error("No shift data found in the sheet. Make sure the sheet has 'Week' headers and employee rows.");
     }
@@ -889,6 +929,7 @@ async function runSingleSectionSync(section, trigger) {
     await upsertRemoteShiftRosters(merged);
 
     const syncedAt = new Date().toISOString();
+    const triggerLabel = getTriggerLabel(trigger);
     return {
       success: true,
       rosterCount: merged.length,
@@ -896,7 +937,7 @@ async function runSingleSectionSync(section, trigger) {
       section: {
         ...section,
         lastSyncedAt: syncedAt,
-        lastStatus: `${trigger === "manual" ? "Manual" : "Hourly background"} sync complete: ${merged.length} roster(s) with ${merged.reduce((sum, r) => sum + (r.rows?.length || 0), 0)} employee rows.`,
+        lastStatus: `${triggerLabel} sync complete: ${merged.length} roster(s) with ${merged.reduce((sum, r) => sum + (r.rows?.length || 0), 0)} employee rows.`,
       },
     };
   } catch (error) {
@@ -967,7 +1008,7 @@ function shouldRunScheduledSync(settings, now = new Date()) {
 export async function runUniversalShiftSync(trigger = "manual", options = {}) {
   try {
     const currentSettings = await loadRemoteShiftSyncSettings();
-    
+
     if (!hasConfiguredSectionLinks(currentSettings)) {
       return {
         success: true,
@@ -987,15 +1028,6 @@ export async function runUniversalShiftSync(trigger = "manual", options = {}) {
           message: shouldRun.message,
         };
       }
-    }
-
-    if (trigger === "live" && !currentSettings.liveSyncEnabled) {
-      return {
-        success: true,
-        skipped: true,
-        settings: currentSettings,
-        message: "Hourly background shift sync is disabled.",
-      };
     }
 
     if (trigger === "live" && !currentSettings.liveSyncEnabled) {
