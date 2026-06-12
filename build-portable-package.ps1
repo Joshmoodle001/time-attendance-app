@@ -1,7 +1,33 @@
+param(
+  [string]$OutputRoot = "",
+  [string]$PortableFolderName = "server time and attendance system"
+)
+
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$packageRoot = Join-Path $repoRoot 'portable-dist\server time and attendance system'
+
+function Resolve-OutputRoot {
+  param([string]$RequestedRoot)
+
+  if ($RequestedRoot) {
+    return $RequestedRoot
+  }
+
+  try {
+    $desktopPath = [Environment]::GetFolderPath('Desktop')
+    if ($desktopPath -and (Test-Path -LiteralPath $desktopPath)) {
+      return $desktopPath
+    }
+  } catch {
+    # Fall back to the repo-local staging folder if Desktop cannot be resolved.
+  }
+
+  return (Join-Path $repoRoot 'portable-dist')
+}
+
+$outputRoot = Resolve-OutputRoot -RequestedRoot $OutputRoot
+$packageRoot = Join-Path $outputRoot $PortableFolderName
 $appRoot = Join-Path $packageRoot 'resources\app'
 $portableDataRoot = Join-Path $appRoot 'portable-data'
 
@@ -13,18 +39,46 @@ function Reset-TargetDirectory {
   New-Item -ItemType Directory -Path $Path | Out-Null
 }
 
+function Ensure-ParentDirectory {
+  param([string]$Path)
+  $parent = Split-Path -Parent $Path
+  if ($parent) {
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  }
+}
+
 function Copy-IfExists {
   param(
     [string]$Source,
     [string]$Destination
   )
   if (Test-Path -LiteralPath $Source) {
-    $destinationParent = Split-Path -Parent $Destination
-    if ($destinationParent) {
-      New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
-    }
+    Ensure-ParentDirectory -Path $Destination
     Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
   }
+}
+
+function Merge-Path {
+  param(
+    [string]$Source,
+    [string]$Destination
+  )
+
+  if (-not (Test-Path -LiteralPath $Source)) {
+    return
+  }
+
+  $sourceItem = Get-Item -LiteralPath $Source -Force
+  if ($sourceItem.PSIsContainer) {
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
+      Merge-Path -Source $_.FullName -Destination (Join-Path $Destination $_.Name)
+    }
+    return
+  }
+
+  Ensure-ParentDirectory -Path $Destination
+  Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
 Reset-TargetDirectory -Path $packageRoot
@@ -46,14 +100,25 @@ $repoItemsToCopy = @(
   'tsconfig.node.json',
   'tailwind.config.js',
   'postcss.config.js',
-  'components.json',
-  'portable-data'
+  'components.json'
 )
 
 foreach ($item in $repoItemsToCopy) {
   $sourcePath = Join-Path $repoRoot $item
   $destinationPath = Join-Path $appRoot $item
   Copy-IfExists -Source $sourcePath -Destination $destinationPath
+}
+
+$dataSources = @(
+  @{ Source = (Join-Path $repoRoot 'portable-data'); Destination = $portableDataRoot },
+  @{ Source = (Join-Path $repoRoot '.electron-user-data'); Destination = (Join-Path $portableDataRoot 'user-data') },
+  @{ Source = (Join-Path $repoRoot '.electron-session-data'); Destination = (Join-Path $portableDataRoot 'session-data') },
+  @{ Source = (Join-Path $repoRoot 'report-bridge.log'); Destination = (Join-Path $portableDataRoot 'report-bridge.log') },
+  @{ Source = (Join-Path $repoRoot 'resources\app\portable-data'); Destination = $portableDataRoot }
+)
+
+foreach ($entry in $dataSources) {
+  Merge-Path -Source $entry.Source -Destination $entry.Destination
 }
 
 $runtimeFiles = @(
@@ -115,7 +180,8 @@ How to use this folder:
 4. If you copy this folder to another machine and want a fresh machine identity, run "Prepare For New Machine.bat" before launching there.
 
 Important:
-- Local app data now lives inside resources\app\portable-data.
+- Local app data lives inside resources\app\portable-data.
+- The builder merges both the current portable-data layout and older hidden Electron data folders.
 - The Amber live site can route report generation to this machine.
 - If this machine is set as the primary host and is offline, Amber can fail over to another ready machine.
 '@ | Set-Content -LiteralPath $readmePath -Encoding ASCII
