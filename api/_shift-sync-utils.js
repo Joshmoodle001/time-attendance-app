@@ -23,9 +23,9 @@ function pickEnv(...names) {
 
 const SUPABASE_URL = sanitizeUrl(
   pickEnv(
+    "SUPABASE_URL",
     "VITE_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_URL",
-    "SUPABASE_URL",
     "SUPABASE_PROJECT_URL",
   ),
 );
