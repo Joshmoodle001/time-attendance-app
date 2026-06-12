@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  applyCors,
   ensureBucket,
   getAdminClient,
   getJobPath,
@@ -10,9 +11,16 @@ import {
 } from "./_report-bridge.js";
 
 export default async function handler(req, res) {
+  applyCors(req, res);
+
   const client = getAdminClient();
   if (!client) {
     res.status(500).json({ error: "Supabase service role is not configured." });
+    return;
+  }
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
     return;
   }
 
