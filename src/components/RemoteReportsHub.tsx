@@ -44,6 +44,11 @@ type ReportServerStatus = {
   lastSeenAt?: string;
   lastCompletedAt?: string;
   lastError?: string;
+  primaryServerId?: string;
+  primaryServerLabel?: string;
+  dispatchServerId?: string;
+  dispatchServerLabel?: string;
+  dispatchMode?: "primary" | "failover" | "auto" | "unavailable" | string;
 };
 
 type RemotePdfResult = {
@@ -53,7 +58,6 @@ type RemotePdfResult = {
   sessionId?: string;
 };
 
-const REPORT_API_BASE = "/api";
 const REPORT_SESSION_STORAGE_KEY = "remote-reports-session-id-v1";
 const MAX_VISIBLE_SEARCH_RESULTS = 8;
 
@@ -61,7 +65,7 @@ const REPORT_TEMPLATES: Array<{ key: ReportTemplateKey; title: string; descripti
   {
     key: "attendance_report",
     title: "Attendance Report",
-    description: "Generate the attendance report from the desktop host and export the PDF from this browser session.",
+    description: "Generate the attendance report from the desktop host and return the finished PDF to this session.",
   },
   {
     key: "awol_report",
@@ -127,8 +131,36 @@ function formatDateInput(date: Date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
+function getReportApiBase() {
+  if (typeof window !== "undefined") {
+    const remoteBase = normalizeText(window.electronDesktop?.remoteBridge?.baseUrl);
+    if (remoteBase) {
+      return `${remoteBase.replace(/\/+$/g, "")}/api`;
+    }
+  }
+  return "/api";
+}
+
+function describeDispatch(status: ReportServerStatus | null) {
+  if (!status?.online) {
+    return "No ready Electron report host is online. Start the portable Electron host and wait a few seconds.";
+  }
+
+  const dispatchLabel = status.dispatchServerLabel || status.primaryServerLabel || "the active report host";
+  if (status.dispatchMode === "failover") {
+    return `Amber is routing reports to fallback host ${dispatchLabel} because the selected primary host is not ready.`;
+  }
+
+  if (status.dispatchMode === "primary") {
+    return `Amber is routing reports to primary host ${dispatchLabel}.`;
+  }
+
+  return `Amber is routing reports to ${dispatchLabel}.`;
+}
+
 export default function RemoteReportsHub() {
   const today = useMemo(() => new Date(), []);
+  const reportApiBase = useMemo(() => getReportApiBase(), []);
   const [templateKey, setTemplateKey] = useState<ReportTemplateKey>("attendance_report");
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("store");
   const [startDate, setStartDate] = useState(formatDateInput(today));
@@ -139,7 +171,7 @@ export default function RemoteReportsHub() {
   const [includeInactiveProfiles, setIncludeInactiveProfiles] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("Ready to send a report request to the desktop server host.");
+  const [statusMessage, setStatusMessage] = useState("Ready to send a report request to the live Amber queue.");
   const [serverReachable, setServerReachable] = useState<boolean | null>(null);
   const [serverStatus, setServerStatus] = useState<ReportServerStatus | null>(null);
   const [activeJobId, setActiveJobId] = useState("");
@@ -168,7 +200,7 @@ export default function RemoteReportsHub() {
   });
 
   const sameMachineHint =
-    "Any device can request reports here. The Electron server machine polls the live queue, generates the report from its local data, and sends the finished result back to this browser session.";
+    "This screen works in both places: the Amber website and the portable Electron app. Requests always go through the live Amber queue, and the selected Electron host returns the finished PDF.";
 
   useEffect(() => {
     if (loadedRef.current) return;
@@ -244,7 +276,7 @@ export default function RemoteReportsHub() {
         (a, b) =>
           normalizeText(a.store).localeCompare(normalizeText(b.store)) ||
           normalizeText(a.last_name).localeCompare(normalizeText(b.last_name)) ||
-          normalizeText(a.first_name).localeCompare(normalizeText(a.first_name)),
+          normalizeText(a.first_name).localeCompare(normalizeText(b.first_name)),
       ),
     [effectiveEmployees],
   );
@@ -394,7 +426,7 @@ export default function RemoteReportsHub() {
 
   const checkDesktopServer = useCallback(async (silently = false) => {
     try {
-      const response = await fetch(`${REPORT_API_BASE}/report-server-status`, {
+      const response = await fetch(`${reportApiBase}/report-server-status`, {
         method: "GET",
         cache: "no-store",
       });
@@ -405,12 +437,7 @@ export default function RemoteReportsHub() {
       setServerStatus(payload);
       setServerReachable(Boolean(payload.online));
       if (!silently) {
-        const workerMessage = payload.workerReady ? "worker ready" : "worker warming up";
-        setStatusMessage(
-          payload.online
-            ? `Desktop report server is online and ${workerMessage}.`
-            : "Desktop report server host is offline. Start the Electron host machine and wait a few seconds.",
-        );
+        setStatusMessage(describeDispatch(payload));
       }
     } catch (error) {
       setServerStatus(null);
@@ -419,7 +446,7 @@ export default function RemoteReportsHub() {
         setStatusMessage(error instanceof Error ? error.message : "Desktop report server is not reachable.");
       }
     }
-  }, []);
+  }, [reportApiBase]);
 
   useEffect(() => {
     void checkDesktopServer(true);
@@ -433,7 +460,7 @@ export default function RemoteReportsHub() {
     async (jobId: string) => {
       if (!jobId) return;
       try {
-        const response = await fetch(`${REPORT_API_BASE}/report-jobs?jobId=${encodeURIComponent(jobId)}&sessionId=${encodeURIComponent(sessionId)}`, {
+        const response = await fetch(`${reportApiBase}/report-jobs?jobId=${encodeURIComponent(jobId)}&sessionId=${encodeURIComponent(sessionId)}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -448,7 +475,7 @@ export default function RemoteReportsHub() {
           if (job.result?.pdfBase64) {
             setPdfResult(job.result as RemotePdfResult);
             setReportPayload(null);
-            setStatusMessage("Report generated successfully. You can now download it from this browser session.");
+            setStatusMessage("Report generated successfully. The returned server PDF is ready to download from this session.");
           } else {
             const rp = job.result?.reportPayload;
             const hasSections = Array.isArray(rp?.sections) && rp.sections.length > 0;
@@ -495,15 +522,16 @@ export default function RemoteReportsHub() {
         }
 
         if (job.status === "processing") {
-          setStatusMessage("Desktop server is processing the report request for this session...");
+          const activeLabel = serverStatus?.dispatchServerLabel || serverStatus?.primaryServerLabel || "the active host";
+          setStatusMessage(`Desktop report host ${activeLabel} is processing the request...`);
         } else {
-          setStatusMessage("Report request queued. Waiting for the desktop server host to pick it up...");
+          setStatusMessage("Report request queued. Waiting for the selected desktop host to pick it up...");
         }
       } catch (error) {
         setStatusMessage(error instanceof Error ? error.message : "Could not refresh the report request status.");
       }
     },
-    [checkDesktopServer, sessionId],
+    [checkDesktopServer, reportApiBase, serverStatus?.dispatchServerLabel, serverStatus?.primaryServerLabel, sessionId],
   );
 
   useEffect(() => {
@@ -529,8 +557,8 @@ export default function RemoteReportsHub() {
     setPdfResult(null);
     setStatusMessage(
       requestMode === "all"
-        ? "Sending a full-company report request to the desktop server host. This can take longer."
-        : "Sending a targeted report request to the desktop server host...",
+        ? "Sending a full-company report request to Amber. This can take longer."
+        : "Sending a targeted report request to Amber...",
     );
     try {
       const storeSearchTerms = selectionMode === "store"
@@ -553,14 +581,14 @@ export default function RemoteReportsHub() {
         awolThresholdDays: templateKey === "awol_report" ? Number(awolThresholdDays || 0) : undefined,
       };
 
-      const response = await fetch(`${REPORT_API_BASE}/report-jobs`, {
+      const response = await fetch(`${reportApiBase}/report-jobs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           ...payload,
-          outputMode: "data",
+          outputMode: "pdf",
         }),
       });
 
@@ -577,7 +605,7 @@ export default function RemoteReportsHub() {
 
       setActiveJobId(nextJobId);
       setServerReachable(true);
-      setStatusMessage("Report request queued. Waiting for the desktop server host to process it.");
+      setStatusMessage("Report request queued. Waiting for Amber to dispatch it to the selected desktop host.");
       void checkDesktopServer(true);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Desktop report request failed.");
@@ -653,7 +681,7 @@ export default function RemoteReportsHub() {
                 Remote Report Request
               </CardTitle>
               <CardDescription className="mt-2 text-slate-400">
-                Send a session-linked request to the Electron server host. The host processes the report and this page handles the finished browser-side export flow.
+                Send a session-linked request to Amber. The selected Electron host processes the report from local data and returns the finished PDF to this session.
               </CardDescription>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
@@ -853,8 +881,8 @@ export default function RemoteReportsHub() {
                     )}
 
                     {selectorDataReady && storeRegionGroups.length > 0 && (
-                    <div className="hidden rounded-lg border border-white/10 bg-white/[0.02] p-3 lg:block">
-                      <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Teams by Region</div>
+                      <div className="hidden rounded-lg border border-white/10 bg-white/[0.02] p-3 lg:block">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Teams by Region</div>
                         <div className="max-h-52 space-y-3 overflow-y-auto pr-1">
                           {storeRegionGroups.map((regionGroup) => (
                             <div key={regionGroup.region} className="rounded-md border border-white/5 bg-black/20 p-2">
@@ -923,9 +951,9 @@ export default function RemoteReportsHub() {
                               </div>
                               <div className="text-xs text-slate-500">
                                 {employee.employee_code}
-                                {employee.id_number ? ` \u2022 ${employee.id_number}` : ""}
-                                {employee.store ? ` \u2022 ${buildStoreDisplayName(employee.store, employee.store_code)}` : ""}
-                                {getEmployeeProfileState(employee) ? ` \u2022 ${getEmployeeProfileState(employee)}` : ""}
+                                {employee.id_number ? ` • ${employee.id_number}` : ""}
+                                {employee.store ? ` • ${buildStoreDisplayName(employee.store, employee.store_code)}` : ""}
+                                {getEmployeeProfileState(employee) ? ` • ${getEmployeeProfileState(employee)}` : ""}
                               </div>
                             </div>
                             <span className="text-xs font-semibold text-cyan-400">+ Add</span>
@@ -960,7 +988,7 @@ export default function RemoteReportsHub() {
 
                     {selectedEmployees.length === 0 && !employeeSearch && selectorDataReady && (
                       <div className="rounded-lg border border-dashed border-white/10 px-4 py-3 text-center text-sm text-slate-500">
-                        No employees selected — search above to add
+                        No employees selected - search above to add
                       </div>
                     )}
                   </>
@@ -988,6 +1016,9 @@ export default function RemoteReportsHub() {
             </div>
             <div className="mt-3 hidden space-y-1 text-xs text-slate-400 sm:block">
               {queueSummary ? <div>Queue: {queueSummary}</div> : null}
+              {serverStatus?.primaryServerLabel ? <div>Primary host: {serverStatus.primaryServerLabel}</div> : null}
+              {serverStatus?.dispatchServerLabel ? <div>Current dispatch host: {serverStatus.dispatchServerLabel}</div> : null}
+              {serverStatus?.dispatchMode ? <div>Routing mode: {serverStatus.dispatchMode}</div> : null}
               {serverStatus?.lastSeenAt ? (
                 <div>Server last seen: {new Date(serverStatus.lastSeenAt).toLocaleString("en-ZA")}</div>
               ) : null}
@@ -1023,7 +1054,7 @@ export default function RemoteReportsHub() {
           <CardHeader className="border-b border-slate-200 pb-4">
             <CardTitle className="text-lg font-semibold text-slate-900">Report Ready</CardTitle>
             <CardDescription className="text-slate-500">
-              The desktop server host finished this request. Export the PDF from this browser session when you are ready.
+              The selected desktop host finished this request. Export the PDF from this browser session when you are ready.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 p-4 sm:grid-cols-3 sm:p-6">
