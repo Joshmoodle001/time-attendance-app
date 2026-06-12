@@ -31,6 +31,20 @@ declare global {
       getWorkerConfig?: () => Promise<{ workerPriority: "primary" | "secondary"; workerId: string; vcellRole: string }>;
       setWorkerConfig?: (config: { workerPriority?: "primary" | "secondary" }) => Promise<{ workerPriority: "primary" | "secondary"; workerId: string; vcellRole: string }>;
       vcellAssignRole?: (role: "primary" | "secondary") => Promise<{ success?: boolean; role?: string; error?: string }>;
+      getMachineContext?: () => Promise<{
+        machineId: string;
+        serverId: string;
+        machineLabel: string;
+        hostname: string;
+        setupComplete: boolean;
+        needsSetup: boolean;
+        copiedToNewMachine?: boolean;
+        dataDirectory?: string;
+        workerPriority?: "primary" | "secondary";
+        workerId?: string;
+        vcellRole?: string;
+      }>;
+      completePortableSetup?: (payload: { primary?: boolean }) => Promise<{ error?: string } | unknown>;
     };
   }
 }
