@@ -661,13 +661,13 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
     name: 1,
     department: 2,
     code: 4,
-    monday: 5,
-    tuesday: 6,
-    wednesday: 7,
-    thursday: 8,
-    friday: 9,
-    saturday: 10,
-    sunday: 11,
+    monday: 6,
+    tuesday: 7,
+    wednesday: 8,
+    thursday: 9,
+    friday: 10,
+    saturday: 11,
+    sunday: 12,
   };
 
   const useFixedColumns = isRawData && header.weekIndex === 0 && header.nameIndex === 1;
@@ -733,7 +733,7 @@ function parseSheetRows(sheet, sheetName, sourceFileName) {
 
     const extraColumns = {};
     if (useFixedColumns) {
-      for (let colIndex = 12; colIndex < row.length; colIndex++) {
+      for (let colIndex = 13; colIndex < row.length; colIndex++) {
         const value = textAt(row, colIndex);
         if (value) {
           const key = `extra_${colIndex}`;
