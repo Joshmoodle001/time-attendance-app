@@ -208,6 +208,7 @@ type DeviceRecord = {
   deviceName: string;
   region: string;
   store: string;
+  storeCode?: string;
   deviceType: "physical" | "logical";
   status: "online" | "offline" | "warning";
   lastSeen: string;
@@ -432,9 +433,15 @@ function extractTitleFromDisplayName(value: string) {
 function findStaffListHeaderRow(rows: unknown[][]) {
   return rows.findIndex((row) => {
     const normalized = row.map((cell) => normalizeImportKey(String(cell || "")));
-    return normalized.includes("employee_code") &&
-      normalized.includes("company") &&
+    return (normalized.includes("employee_code") || normalized.includes("employee_number")) &&
       (
+        normalized.includes("company") ||
+        normalized.includes("company_rule") ||
+        normalized.includes("hierarchy_department_hierarchy_name")
+      ) &&
+      (
+        normalized.includes("gen_entity_first_name") ||
+        normalized.includes("genentity_first_name") ||
         normalized.includes("genentity_first_name") ||
         normalized.includes("display_name")
       );
@@ -445,15 +452,15 @@ function findEmployeeHeaderRow(rows: unknown[][]) {
   return rows.findIndex((row) =>
     row.some((cell) => {
       const key = normalizeImportKey(String(cell || ""));
-      return key === "employee_number" || key === "employee_num" || key === "employee_id" || key === "employee";
+      return key === "employee_code" || key === "employee_number" || key === "employee_num" || key === "employee_id" || key === "employee";
     }) &&
     row.some((cell) => {
       const key = normalizeImportKey(String(cell || ""));
-      return key === "first_name" || key === "firstname" || key === "first";
+      return key === "first_name" || key === "firstname" || key === "first" || key === "gen_entity_first_name" || key === "genentity_first_name";
     }) &&
     row.some((cell) => {
       const key = normalizeImportKey(String(cell || ""));
-      return key === "last_name" || key === "lastname" || key === "last";
+      return key === "last_name" || key === "lastname" || key === "last" || key === "gen_entity_last_name" || key === "genentity_last_name";
     })
   );
 }
@@ -487,6 +494,26 @@ function buildNormalizedSheetEntries(row: Record<string, unknown>) {
     if (normalized === "fingerprintsenrolled") acc["fingerprints_enrolled"] = value;
     if (normalized === "custom1") acc["custom_1"] = value;
     if (normalized === "custom2") acc["custom_2"] = value;
+    if (normalized === "employee_code") acc["employee_number"] = value;
+    if (normalized === "gen_entity_first_name" || normalized === "genentity_first_name") acc["first_name"] = value;
+    if (normalized === "gen_entity_last_name" || normalized === "genentity_last_name") acc["last_name"] = value;
+    if (normalized === "gen_entity_known_as_name" || normalized === "genentity_known_as_name") {
+      acc["known_as_name"] = value;
+      acc["alias"] = value;
+    }
+    if (normalized === "gen_entity_id_number" || normalized === "genentity_id_number") {
+      acc["id_number"] = value;
+      acc["national_id"] = value;
+    }
+    if (normalized === "gen_entity_gender" || normalized === "genentity_gender") acc["gender"] = value;
+    if (normalized === "hierarchy_department_hierarchy_name") acc["department"] = value;
+    if (normalized === "hierarchy_paypoint_hierarchy_name") {
+      acc["branch"] = value;
+      acc["team"] = value;
+      acc["paypoint"] = value;
+    }
+    if (normalized === "hierarchy_stores_hierarchy_name") acc["store"] = value;
+    if (normalized === "company_rule") acc["cost_center"] = value;
     
     return acc;
   }, {});
@@ -526,10 +553,41 @@ function parseStaffListStoreValue(value: unknown) {
 }
 
 function deriveStaffListRegion(departmentValue: string, paypointValue: string, existing?: Employee) {
+  if (String(departmentValue || "").trim()) return String(departmentValue).trim();
   const paypointPrefix = String(paypointValue || "").split(/\s+-\s+/)[0].trim();
   if (paypointPrefix) return paypointPrefix;
-  if (String(departmentValue || "").trim()) return String(departmentValue).trim();
   return existing?.region || "";
+}
+
+function buildEmployeeHierarchyAssignment(entries: Record<string, unknown>, existing?: Employee) {
+  const departmentValue = String(
+    getFirstSheetEntry(entries, ["hierarchy_department_hierarchy_name", "department", "dept"])
+  ).trim();
+  const paypointValue = String(
+    getFirstSheetEntry(entries, ["hierarchy_paypoint_hierarchy_name", "paypoint", "branch"])
+  ).trim();
+  const explicitStoreSource = String(
+    getFirstSheetEntry(entries, ["hierarchy_stores_hierarchy_name", "store"])
+  ).trim();
+  const parsedStore = parseStaffListStoreValue(explicitStoreSource);
+  const fallbackStoreAssignment = parseStoreAssignment(entries);
+  const store = parsedStore.store || fallbackStoreAssignment.store;
+  const storeCode = String(
+    getFirstSheetEntry(entries, ["store_code", "storecode", "hierarchy_stores_store_code"])
+  ).trim() || parsedStore.storeCode || fallbackStoreAssignment.storeCode;
+  const fallbackRegion = deriveStaffListRegion(departmentValue, paypointValue, existing);
+  const resolvedRegion = resolveRegionForStore(store, storeCode, fallbackRegion);
+
+  return {
+    departmentValue,
+    paypointValue,
+    teamValue: String(getFirstSheetEntry(entries, ["team", "hierarchy_paypoint_hierarchy_name", "paypoint", "branch"])).trim() || paypointValue,
+    store,
+    storeCode,
+    storeLabel: parsedStore.storeDisplay || (storeCode ? `${storeCode} - ${store} (${storeCode})` : store),
+    regionValue: resolvedRegion === "UNASSIGNED" ? fallbackRegion : resolvedRegion,
+    accessProfileValue: String(getFirstSheetEntry(entries, ["access_profile", "access"])).trim(),
+  };
 }
 
 function parseStoreAssignment(entries: Record<string, unknown>) {
@@ -585,18 +643,21 @@ function parseStaffListEmployeeWorkbook(workbook: WorkBook, existingEmployees: E
 
       const companyValue = String(getFirstSheetEntry(entries, ["company"])).trim();
       const knownAsName = String(getFirstSheetEntry(entries, ["genentity_known_as_name", "known_as_name", "alias"])).trim();
-      const departmentValue = String(getFirstSheetEntry(entries, ["hierarchy_department_hierarchy_name", "department"])).trim();
-      const paypointValue = String(getFirstSheetEntry(entries, ["hierarchy_paypoint_hierarchy_name", "paypoint"])).trim();
-      const storeSourceValue = String(getFirstSheetEntry(entries, ["hierarchy_stores_hierarchy_name", "store"])).trim();
-      const storeAssignment = parseStaffListStoreValue(storeSourceValue);
+      const {
+        departmentValue,
+        paypointValue,
+        teamValue,
+        store,
+        storeCode,
+        regionValue,
+        accessProfileValue,
+      } = buildEmployeeHierarchyAssignment(entries, existing);
       const companyRuleValue = String(getFirstSheetEntry(entries, ["company_rule", "cost_center"])).trim();
       const payslipTypeValue = String(getFirstSheetEntry(entries, ["payslip_type", "person_type"])).trim();
       const payRunDefinitionValue = String(getFirstSheetEntry(entries, ["pay_run_definition", "business_unit"])).trim();
       const terminationReason = String(getFirstSheetEntry(entries, ["employee_termination_reason", "termination_reason"])).trim();
       const terminationDate = parseEmployeeDate(getFirstSheetEntry(entries, ["employee_termination_date", "termination_date"]));
       const shouldBeInactive = Boolean(terminationReason || terminationDate);
-      const regionValue = deriveStaffListRegion(departmentValue, paypointValue, existing);
-      const storeLabel = storeAssignment.storeDisplay || storeAssignment.store;
 
       employeeMap.set(code, {
         employee_code: code,
@@ -611,8 +672,8 @@ function parseStaffListEmployeeWorkbook(workbook: WorkBook, existingEmployees: E
         job_title: existing?.job_title || "",
         department: departmentValue,
         region: regionValue,
-        store: storeAssignment.store,
-        store_code: storeAssignment.storeCode,
+        store,
+        store_code: storeCode,
         hire_date: parseEmployeeDate(getFirstSheetEntry(entries, ["employee_date_engaged", "hire_date"])),
         person_type: payslipTypeValue,
         fingerprints_enrolled: existing?.fingerprints_enrolled ?? null,
@@ -620,10 +681,10 @@ function parseStaffListEmployeeWorkbook(workbook: WorkBook, existingEmployees: E
         branch: paypointValue,
         business_unit: payRunDefinitionValue,
         cost_center: companyRuleValue,
-        team: storeLabel,
+        team: teamValue,
         ta_integration_id_1: existing?.ta_integration_id_1 || "",
         ta_integration_id_2: existing?.ta_integration_id_2 || "",
-        access_profile: existing?.access_profile || "",
+        access_profile: accessProfileValue || existing?.access_profile || "",
         ta_enabled: existing?.ta_enabled ?? null,
         permanent: existing?.permanent ?? null,
         active: shouldBeInactive ? false : true,
@@ -846,6 +907,47 @@ function normalizeOverviewCompare(value: unknown) {
 
 function normalizeStoreLookupKey(value: unknown) {
   return normalizeOverviewCompare(value).replace(/\s+/g, " ");
+}
+
+function buildStoreTypeLookupKeys(store: unknown, storeCode?: unknown, fallbackLabel?: unknown) {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  const addKey = (value: string) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    keys.push(value);
+  };
+
+  const cleanStore = String(store || "").trim();
+  const cleanStoreCode = String(storeCode || "").trim();
+  const cleanFallback = String(fallbackLabel || "").trim();
+  const parsedStore = parseRegionStore(cleanStore || cleanFallback);
+  const resolvedStoreCode = cleanStoreCode || parsedStore.storeCode || "";
+  const grouping = getStoreGrouping(
+    cleanStore || parsedStore.store || cleanFallback,
+    resolvedStoreCode,
+    parsedStore.region || "",
+  );
+  const canonicalStore = String(grouping.store || parsedStore.store || cleanStore || cleanFallback).trim();
+  const rawFallbackStore = String(parseRegionStore(cleanFallback).store || "").trim();
+
+  if (resolvedStoreCode) {
+    addKey(`code:${resolvedStoreCode.toUpperCase()}`);
+  }
+  if (canonicalStore) {
+    addKey(`store:${normalizeStoreLookupKey(canonicalStore)}`);
+  }
+  if (cleanStore) {
+    addKey(`store:${normalizeStoreLookupKey(cleanStore)}`);
+  }
+  if (rawFallbackStore) {
+    addKey(`store:${normalizeStoreLookupKey(rawFallbackStore)}`);
+  }
+  if (cleanFallback) {
+    addKey(`store:${normalizeStoreLookupKey(cleanFallback)}`);
+  }
+
+  return keys;
 }
 
 function normalizeDeviceType(value: unknown): "physical" | "logical" {
@@ -2105,7 +2207,7 @@ export default function App() {
         .map((row) => {
           const entries = buildNormalizedSheetEntries(row);
 
-          const code = String(
+          const code = normalizeEmployeeCode(String(
             entries.employee_number || 
             entries.employee_code || 
             entries.code || 
@@ -2114,7 +2216,7 @@ export default function App() {
             entries.employee_num ||
             entries.emp_num ||
             ""
-          );
+          ));
           const firstName = String(
             entries.first_name || 
             entries.firstname || 
@@ -2133,8 +2235,15 @@ export default function App() {
 
           if (!code || !firstName || !lastName) return null;
 
-          const storeAssignment = parseStoreAssignment(entries);
-          const region = String(entries.region || storeAssignment.derivedRegion || parseRegionFromDepartment(String(entries.department || "")) || "");
+          const {
+            departmentValue,
+            paypointValue,
+            teamValue,
+            store,
+            storeCode,
+            regionValue,
+            accessProfileValue,
+          } = buildEmployeeHierarchyAssignment(entries);
           const normalizedStatus = normalizeEmployeeStatusValue(entries.status);
 
           return {
@@ -2142,26 +2251,26 @@ export default function App() {
             first_name: firstName,
             last_name: lastName,
             title: String(entries.title || ""),
-            alias: String(entries.alias || ""),
+            alias: String(entries.alias || entries.known_as_name || ""),
             id_number: String(entries.national_id || entries.id_number || ""),
             email: String(entries.email || ""),
             phone: String(entries.phone || entries.telephone || entries.mobile || ""),
             job_title: String(entries.job_title || entries.jobtitle || entries.position || entries.job_title || ""),
-            department: String(entries.department || entries.dept || ""),
-            region,
-            store: storeAssignment.store,
-            store_code: String(entries.store_code || entries.storecode || storeAssignment.storeCode || ""),
+            department: departmentValue,
+            region: regionValue,
+            store,
+            store_code: storeCode,
             hire_date: parseEmployeeDate(entries.hire_date || entries.hiredate || entries.start_date),
             person_type: String(entries.person_type || ""),
             fingerprints_enrolled: parseEmployeeNumber(entries.fingerprints_enrolled),
             company: String(entries.company || ""),
-            branch: String(entries.branch || ""),
+            branch: paypointValue,
             business_unit: String(entries.business_unit || ""),
             cost_center: String(entries.cost_center || ""),
-            team: String(entries.team || ""),
+            team: teamValue,
             ta_integration_id_1: String(entries.t_and_a_intergration_id_number_1 || entries.t_and_a_integration_id_number_1 || entries.ta_integration_id_1 || ""),
             ta_integration_id_2: String(entries.t_and_a_intergration_id_number_2 || entries.t_and_a_integration_id_number_2 || entries.ta_integration_id_2 || ""),
-            access_profile: String(entries.access || entries.access_profile || ""),
+            access_profile: accessProfileValue,
             ta_enabled: parseEmployeeBoolean(entries.t_and_a),
             permanent: parseEmployeeBoolean(entries.permanent),
             active: parseEmployeeBoolean(entries.active) ?? normalizedStatus === "active",
@@ -2181,7 +2290,7 @@ export default function App() {
       setPayrollUploadProgress(60);
       setPayrollUploadStage(`Importing ${newEmployees.length} employees to database...`);
       
-      const result = await importEmployees(newEmployees);
+      const result = await importEmployees(newEmployees, { replaceExisting: true });
       
       setPayrollUploadProgress(90);
       setPayrollUploadStage("Finalizing import...");
@@ -2190,7 +2299,7 @@ export default function App() {
           ? `Imported ${result.count} employee profiles from ${file.name}. ${result.error}` 
           : `Imported ${result.count} employee profiles from ${file.name}`;
         setSaveMessage(msg);
-        await loadEmployees();
+        await loadEmployees({ force: true });
       } else {
         const msg = `Import error: ${result.error}`;
         setSaveMessage(msg);
@@ -2296,7 +2405,7 @@ export default function App() {
             ? `Updated ${analysis.updatedProfiles} matching employee profile${analysis.updatedProfiles === 1 ? "" : "s"} from ${file.name}. ${analysis.inactiveProfiles} profile${analysis.inactiveProfiles === 1 ? "" : "s"} were marked inactive from termination data. ${result.error}`
             : `Updated ${analysis.updatedProfiles} matching employee profile${analysis.updatedProfiles === 1 ? "" : "s"} from ${file.name}. ${analysis.inactiveProfiles} profile${analysis.inactiveProfiles === 1 ? "" : "s"} were marked inactive from termination data.`
         );
-        await loadEmployees();
+        await loadEmployees({ force: true });
       } else {
         setStaffListUploadProgress(100);
         setStaffListUploadStage("Employee update import failed.");
@@ -2464,18 +2573,20 @@ export default function App() {
   const storeDeviceTypeLookup = useMemo(() => {
     const lookup = new Map<string, "physical" | "logical">();
     deviceRecords.forEach((device) => {
-      const key = normalizeStoreLookupKey(device.store);
-      if (!key) return;
-      const current = lookup.get(key);
-      if (device.deviceType === "physical" || !current) {
-        lookup.set(key, device.deviceType);
-      }
+      buildStoreTypeLookupKeys(device.store, device.storeCode, device.name).forEach((key) => {
+        const current = lookup.get(key);
+        if (device.deviceType === "physical" || !current) {
+          lookup.set(key, device.deviceType);
+        }
+      });
     });
     return lookup;
   }, [deviceRecords]);
 
-  const getStoreDeviceType = useCallback((store: string) => {
-    const type = storeDeviceTypeLookup.get(normalizeStoreLookupKey(store));
+  const getStoreDeviceType = useCallback((store: string, storeCode = "", fallbackLabel = "") => {
+    const type = buildStoreTypeLookupKeys(store, storeCode, fallbackLabel)
+      .map((key) => storeDeviceTypeLookup.get(key))
+      .find(Boolean);
     return type || "logical";
   }, [storeDeviceTypeLookup]);
 
@@ -2502,7 +2613,7 @@ export default function App() {
       const store = String(employee.store || "").trim();
       const storeCode = String(employee.store_code || "").trim();
       if (!store && !storeCode) return;
-      if (shouldRestrictOverviewToPhysical && getStoreDeviceType(store) !== "physical") return;
+      if (shouldRestrictOverviewToPhysical && getStoreDeviceType(store, storeCode, employee.team || "") !== "physical") return;
       const region = resolveRegionForStore(store, storeCode, employee.region);
 
       const key = buildOverviewStoreKey(store, storeCode);
@@ -2609,7 +2720,7 @@ export default function App() {
 
   const filteredOverviewAttendanceRecords = useMemo(() => {
     const physicalFiltered = shouldRestrictOverviewToPhysical
-      ? overviewAttendanceRecords.filter((record) => getStoreDeviceType(record.store) === "physical")
+      ? overviewAttendanceRecords.filter((record) => getStoreDeviceType(record.store, record.storeCode) === "physical")
       : overviewAttendanceRecords;
 
     const regionFiltered =
@@ -2628,7 +2739,7 @@ export default function App() {
 
   const filteredOverviewEmployeeProfiles = useMemo(() => {
     const physicalFiltered = shouldRestrictOverviewToPhysical
-      ? overviewEmployeeProfiles.filter((employee) => getStoreDeviceType(employee.store || "") === "physical")
+      ? overviewEmployeeProfiles.filter((employee) => getStoreDeviceType(employee.store || "", employee.store_code || "", employee.team || "") === "physical")
       : overviewEmployeeProfiles;
 
     const regionFiltered =
@@ -2918,13 +3029,33 @@ export default function App() {
     });
   }, [attendanceRecords, searchTerm, selectedRegion, selectedStore]);
 
+  const deviceStoreSummaries = useMemo(() => {
+    const map = new Map<string, { key: string; store: string; storeCode: string; deviceType: "physical" | "logical"; devices: DeviceRecord[] }>();
+    deviceRecords.forEach((device) => {
+      const parsedStore = parseRegionStore(device.store || device.name || "");
+      const store = String(device.store || parsedStore.store || "Unassigned Store").trim();
+      const storeCode = String(device.storeCode || parsedStore.storeCode || "").trim();
+      const grouping = getStoreGrouping(store, storeCode, device.region);
+      const canonicalStore = String(grouping.store || store).trim() || "Unassigned Store";
+      const key = buildOverviewStoreKey(canonicalStore, storeCode);
+      const current = map.get(key) || {
+        key,
+        store: canonicalStore,
+        storeCode,
+        deviceType: device.deviceType,
+        devices: [],
+      };
+      if (device.deviceType === "physical" || current.deviceType !== "physical") {
+        current.deviceType = device.deviceType;
+      }
+      current.devices.push(device);
+      map.set(key, current);
+    });
+    return Array.from(map.values()).sort((a, b) => a.store.localeCompare(b.store) || a.storeCode.localeCompare(b.storeCode));
+  }, [deviceRecords]);
+
   const deviceStats = useMemo(() => {
-    const physicalStores = new Set(
-      deviceRecords
-        .filter((d) => d.deviceType === "physical")
-        .map((d) => normalizeStoreLookupKey(d.store))
-        .filter(Boolean)
-    ).size;
+    const physicalStores = deviceStoreSummaries.filter((item) => item.deviceType === "physical").length;
     return {
       total: deviceRecords.length,
       online: deviceRecords.filter(d => d.status === "online").length,
@@ -2932,20 +3063,7 @@ export default function App() {
       warning: deviceRecords.filter(d => d.status === "warning").length,
       physicalStores,
     };
-  }, [deviceRecords]);
-
-  // Get all unique stores from devices
-  const deviceStoresMap = useMemo(() => {
-    const map = new Map<string, DeviceRecord[]>();
-    deviceRecords.forEach(device => {
-      if (device.store) {
-        const existing = map.get(device.store) || [];
-        existing.push(device);
-        map.set(device.store, existing);
-      }
-    });
-    return map;
-  }, [deviceRecords]);
+  }, [deviceRecords, deviceStoreSummaries]);
 
   const reportDateRangeLabel = useMemo(() => {
     if (availableDates.length > 1) {
@@ -3265,6 +3383,7 @@ export default function App() {
           deviceName: deviceName,
           region,
           store,
+          storeCode: parsedStore.storeCode || "",
           deviceType,
           status,
           lastSeen: lastSeen || new Date().toISOString(),
@@ -4395,12 +4514,12 @@ export default function App() {
       if (key && !normalizedEmployeeStores.has(key)) normalizedEmployeeStores.set(key, store);
     });
 
-    const physicalStores = Array.from(deviceStoresMap.keys())
-      .filter((store) => getStoreDeviceType(store) === "physical");
-    const logicalFromDeviceSheet = Array.from(deviceStoresMap.keys())
-      .filter((store) => getStoreDeviceType(store) === "logical");
+    const physicalStores = deviceStoreSummaries.filter((item) => item.deviceType === "physical");
+    const logicalFromDeviceSheet = deviceStoreSummaries
+      .filter((item) => item.deviceType === "logical")
+      .map((item) => item.store);
     const logicalWithoutDeviceRows = Array.from(normalizedEmployeeStores.entries())
-      .filter(([key]) => !storeDeviceTypeLookup.has(key))
+      .filter(([, store]) => !buildStoreTypeLookupKeys(store).some((key) => storeDeviceTypeLookup.has(key)))
       .map(([, store]) => store);
     const logicalStores = Array.from(new Set([...logicalFromDeviceSheet, ...logicalWithoutDeviceRows]));
 
@@ -4497,14 +4616,15 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="text-slate-700">
-                  {physicalStores.map((store) => {
-                    const storeDevices = deviceStoresMap.get(store) || [];
+                  {physicalStores.map((storeItem) => {
+                    const storeDevices = storeItem.devices;
                     const online = storeDevices.filter(d => d.status === "online").length;
                     const offline = storeDevices.filter(d => d.status === "offline" || d.status === "warning").length;
                     return (
-                      <tr key={store} className="border-t hover:bg-slate-50">
+                      <tr key={storeItem.key} className="border-t hover:bg-slate-50">
                         <td className="px-4 py-3">
-                          <div className="font-medium">{store}</div>
+                          <div className="font-medium">{storeItem.store}</div>
+                          {storeItem.storeCode ? <div className="text-xs text-slate-500">{storeItem.storeCode}</div> : null}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <Badge className="bg-green-100 text-green-700">Physical</Badge>

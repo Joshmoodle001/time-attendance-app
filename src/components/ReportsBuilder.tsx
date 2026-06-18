@@ -119,7 +119,7 @@ type ReportsBuilderProps = {
   employees: Employee[];
   reportDateRangeLabel: string;
   employeesReady?: boolean;
-  getStoreDeviceType?: (store: string) => "physical" | "logical";
+  getStoreDeviceType?: (store: string, storeCode?: string, fallbackLabel?: string) => "physical" | "logical";
   workerMode?: boolean;
   workerRequest?: DesktopReportJob | null;
   onWorkerResult?: (result: DesktopReportJobResult) => void | Promise<void>;
@@ -689,9 +689,9 @@ export default function ReportsBuilder({
   const effectiveEmployees = workerMode ? workerEmployees : employees;
   const effectiveEmployeesReady = workerMode ? workerEmployeesLoaded : employeesReady;
   const resolveStoreDeviceType = useCallback(
-    (store: string): "physical" | "logical" => {
+    (store: string, storeCode = "", fallbackLabel = ""): "physical" | "logical" => {
       if (!getStoreDeviceType) return "logical";
-      return getStoreDeviceType(store);
+      return getStoreDeviceType(store, storeCode, fallbackLabel);
     },
     [getStoreDeviceType]
   );
@@ -789,7 +789,7 @@ export default function ReportsBuilder({
           key,
           store: grouping.store || store || "Unassigned store",
           storeCode,
-          storeType: resolveStoreDeviceType(grouping.store || store || "Unassigned store"),
+          storeType: resolveStoreDeviceType(grouping.store || store || "Unassigned store", storeCode, employee.team || ""),
           displayName: buildStoreDisplayName(grouping.store || store, storeCode),
           region: grouping.region,
           groupKey: grouping.groupKey,
@@ -1055,7 +1055,7 @@ export default function ReportsBuilder({
 
       const store = normalizeText(employee?.store) || rosterSource?.storeName || attendanceSamples[0]?.store || "Unassigned store";
       const storeCode = normalizeText(employee?.store_code) || rosterSource?.storeCode || attendanceSamples[0]?.store_code || "";
-      const storeType = resolveStoreDeviceType(store);
+      const storeType = resolveStoreDeviceType(store, storeCode, employee?.team || "");
       const region = normalizeText(employee?.region) || attendanceSamples[0]?.region || "Unassigned region";
       const employeeName =
         `${normalizeText(employee?.first_name)} ${normalizeText(employee?.last_name)}`.trim() ||

@@ -354,12 +354,16 @@ export default function EmployeesHub({
   };
 
   const handleAddEmployee = async () => {
-    if (!employeeFormData.employee_code.trim() || !employeeFormData.first_name.trim() || !employeeFormData.last_name.trim()) {
+    const normalizedEmployeeCode = normalizeEmployeeCode(employeeFormData.employee_code);
+    if (!normalizedEmployeeCode || !employeeFormData.first_name.trim() || !employeeFormData.last_name.trim()) {
       alert("Please fill in the required fields: Employee Code, First Name, and Last Name.");
       return;
     }
     try {
-      await createEmployee(employeeFormData);
+      await createEmployee({
+        ...employeeFormData,
+        employee_code: normalizedEmployeeCode,
+      });
       setIsAddingEmployee(false);
       setEditingEmployee(null);
       resetEmployeeForm();
@@ -410,12 +414,16 @@ export default function EmployeesHub({
 
   const handleUpdateEmployee = async () => {
     if (!editingEmployee?.id) return;
-    if (!employeeFormData.employee_code.trim() || !employeeFormData.first_name.trim() || !employeeFormData.last_name.trim()) {
+    const normalizedEmployeeCode = normalizeEmployeeCode(employeeFormData.employee_code);
+    if (!normalizedEmployeeCode || !employeeFormData.first_name.trim() || !employeeFormData.last_name.trim()) {
       alert("Please fill in the required fields: Employee Code, First Name, and Last Name.");
       return;
     }
     try {
-      await updateEmployee(editingEmployee.id, employeeFormData);
+      await updateEmployee(editingEmployee.id, {
+        ...employeeFormData,
+        employee_code: normalizedEmployeeCode,
+      });
       setIsAddingEmployee(false);
       setEditingEmployee(null);
       resetEmployeeForm();

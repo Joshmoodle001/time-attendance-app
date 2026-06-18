@@ -18,6 +18,14 @@ type CoversheetHubProps = {
   mode: "view" | "admin";
 };
 
+type CoversheetRepGroup = {
+  id: string;
+  repLabel: string;
+  storeCount: number;
+  employeeCount: number;
+  stores: CoversheetStore[];
+};
+
 const STORE_CODE_KEYS = ["store_code", "store_no", "store_number", "shop_code", "branch_code", "route_code", "customer_code"];
 const STORE_NAME_KEYS = ["store_name", "store", "branch_name", "branch", "customer_name", "customer", "location", "site_name", "site", "route"];
 const EMPLOYEE_CODE_KEYS = ["employee_code", "employee_no", "employee_number", "employee_id", "payroll_code", "payroll_no", "payroll_number", "rep_code", "rep_number"];
@@ -376,6 +384,13 @@ function formatContact(phone: string) {
   return { tel: compact, whatsapp: compact };
 }
 
+function getVisibleRepLabel(employee: CoversheetEmployee) {
+  const repLabel = cleanText(employee.repLabel);
+  if (!repLabel) return "";
+  if (employee.statuses.includes("hold") && /hold/i.test(repLabel)) return "";
+  return repLabel;
+}
+
 export default function CoversheetHub({ mode }: CoversheetHubProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [upload, setUpload] = useState<CoversheetUpload | null>(null);
@@ -474,13 +489,67 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
     return mergedStores.filter((store) => {
       if (`${store.storeCode} ${store.storeName}`.toLowerCase().includes(query)) return true;
       return store.employees.some((employee) =>
-        [employee.employeeCode, employee.employeeName, employee.phone, employee.email, employee.statuses.join(" ")]
+        [employee.employeeCode, employee.employeeName, employee.repLabel, employee.phone, employee.email, employee.statuses.join(" ")]
           .join(" ")
           .toLowerCase()
           .includes(query)
       );
     });
   }, [deferredSearch, mergedStores]);
+
+  const repSearchGroups = useMemo(() => {
+    const query = cleanText(deferredSearch).toLowerCase();
+    if (!query) return [];
+
+    const repMap = new Map<string, { repLabel: string; stores: Map<string, CoversheetStore> }>();
+
+    mergedStores.forEach((store) => {
+      store.employees.forEach((employee) => {
+        const repLabel = getVisibleRepLabel(employee);
+        if (!repLabel || !repLabel.toLowerCase().includes(query)) return;
+
+        const repKey = repLabel.toLowerCase();
+        let repEntry = repMap.get(repKey);
+        if (!repEntry) {
+          repEntry = { repLabel, stores: new Map() };
+          repMap.set(repKey, repEntry);
+        }
+
+        const existingStore = repEntry.stores.get(store.id) || {
+          id: store.id,
+          storeCode: store.storeCode,
+          storeName: store.storeName,
+          employees: [],
+        };
+
+        existingStore.employees.push(employee);
+        repEntry.stores.set(store.id, existingStore);
+      });
+    });
+
+    return Array.from(repMap.values())
+      .map<CoversheetRepGroup>((entry) => {
+        const stores = Array.from(entry.stores.values())
+          .map((store) => ({
+            ...store,
+            employees: [...store.employees].sort((left, right) =>
+              left.employeeName.localeCompare(right.employeeName) || left.employeeCode.localeCompare(right.employeeCode)
+            ),
+          }))
+          .sort((left, right) => `${left.storeCode} ${left.storeName}`.trim().localeCompare(`${right.storeCode} ${right.storeName}`.trim()));
+
+        return {
+          id: entry.repLabel.toLowerCase(),
+          repLabel: entry.repLabel,
+          storeCount: stores.length,
+          employeeCount: stores.reduce((total, store) => total + store.employees.length, 0),
+          stores,
+        };
+      })
+      .sort((left, right) => left.repLabel.localeCompare(right.repLabel));
+  }, [deferredSearch, mergedStores]);
+
+  const showingRepGroups = cleanText(deferredSearch) !== "" && repSearchGroups.length > 0;
 
   const handleUpload = async (file: File) => {
     setMessage("");
@@ -620,16 +689,113 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search stores, employee names, codes, phone, or email..."
+              placeholder="Search stores, employee names, codes, rep names, phone, or email..."
               className="pl-10"
             />
           </div>
 
-          <div className="text-xs text-slate-400">Showing {visibleStores.length} of {mergedStores.length} store(s)</div>
+          <div className="text-xs text-slate-400">
+            {showingRepGroups
+              ? `Showing ${repSearchGroups.length} rep group(s) across ${repSearchGroups.reduce((total, group) => total + group.storeCount, 0)} store match(es)`
+              : `Showing ${visibleStores.length} of ${mergedStores.length} store(s)`}
+          </div>
         </CardContent>
       </Card>
 
-      {visibleStores.map((store) => {
+      {showingRepGroups && repSearchGroups.map((group) => (
+        <Card key={group.id} className="rounded-2xl border-slate-700 bg-slate-900/50">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <User className="h-4 w-4 text-slate-300" />
+              <span className="font-semibold text-white">{group.repLabel}</span>
+              <Badge className="border border-slate-600 bg-slate-700/50 text-slate-200">{group.storeCount} stores</Badge>
+              <Badge className="border border-slate-600 bg-slate-700/50 text-slate-200">{group.employeeCount} employees</Badge>
+            </div>
+
+            <div className="space-y-3">
+              {group.stores.map((store) => {
+                const storeLabel = `${store.storeCode ? `${store.storeCode} - ` : ""}${store.storeName}`.trim();
+
+                return (
+                  <div key={`${group.id}_${store.id}`} className="rounded-lg border border-slate-700/70 bg-slate-950/40 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-slate-200">{storeLabel}</span>
+                      <Badge className="border border-slate-600 bg-slate-700/50 text-slate-200">{store.employees.length}</Badge>
+                    </div>
+
+                    <div className="space-y-2">
+                      {store.employees.map((employee) => {
+                        const contact = formatContact(employee.phone);
+                        const email = normalizeEmail(employee.email);
+                        const mailTo = isValidEmail(email) ? email : "";
+
+                        return (
+                          <div key={`${group.id}_${store.id}_${employee.id}`} className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <User className="h-3.5 w-3.5 text-slate-400" />
+                              <span className="font-medium text-slate-100">
+                                {employee.employeeCode ? `${employee.employeeCode} - ` : ""}
+                                {employee.employeeName}
+                              </span>
+                              {employee.statuses.map((status) => (
+                                <Badge key={`${group.id}_${employee.id}_${status}`} className={statusBadgeClass(status)}>
+                                  {status}
+                                </Badge>
+                              ))}
+                            </div>
+
+                            <div className="mt-1 space-y-1 text-xs text-slate-400">
+                              <div className="flex items-center gap-1.5">
+                                <Phone className="h-3.5 w-3.5" />
+                                <span>{employee.phone || "-"}</span>
+                                {contact.tel && (
+                                  <a
+                                    href={`tel:${contact.tel}`}
+                                    className="ml-2 inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/25"
+                                  >
+                                    <Phone className="h-3 w-3" />
+                                    Call
+                                  </a>
+                                )}
+                                {contact.whatsapp && (
+                                  <a
+                                    href={`https://wa.me/${contact.whatsapp}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2 py-0.5 text-[11px] font-medium text-green-300 hover:bg-green-500/25"
+                                  >
+                                    <MessageCircle className="h-3 w-3" />
+                                    WhatsApp
+                                  </a>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Mail className="h-3.5 w-3.5" />
+                                <span>{email || "-"}</span>
+                                {mailTo && (
+                                  <a
+                                    href={`mailto:${mailTo}`}
+                                    className="ml-2 inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/25"
+                                  >
+                                    <Mail className="h-3 w-3" />
+                                    Email
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      {!showingRepGroups && visibleStores.map((store) => {
         const isExpanded = expandedStores.has(store.id);
         const storeLabel = `${store.storeCode ? `${store.storeCode} - ` : ""}${store.storeName}`.trim();
 
@@ -661,6 +827,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
                     const contact = formatContact(employee.phone);
                     const email = normalizeEmail(employee.email);
                     const mailTo = isValidEmail(email) ? email : "";
+                    const repLabel = getVisibleRepLabel(employee);
 
                     return (
                       <div key={employee.id} className="rounded-lg border border-slate-700/70 bg-slate-950/40 px-3 py-2">
@@ -678,6 +845,13 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
                         </div>
 
                         <div className="mt-1 space-y-1 text-xs text-slate-400">
+                          {repLabel && (
+                            <div className="flex items-center gap-1.5">
+                              <User className="h-3.5 w-3.5" />
+                              <span className="text-slate-500">Rep:</span>
+                              <span>{repLabel}</span>
+                            </div>
+                          )}
                           <div className="flex items-center gap-1.5">
                             <Phone className="h-3.5 w-3.5" />
                             <span>{employee.phone || "-"}</span>
@@ -726,7 +900,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
         );
       })}
 
-      {visibleStores.length === 0 && (
+      {((showingRepGroups && repSearchGroups.length === 0) || (!showingRepGroups && visibleStores.length === 0)) && (
         <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
           <CardContent className="py-8 text-center text-slate-400">No stores matched this search.</CardContent>
         </Card>

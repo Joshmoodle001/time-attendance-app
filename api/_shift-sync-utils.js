@@ -523,30 +523,40 @@ function parseHeaderRow(headerRow) {
     index,
   }));
 
-  const findIndex = (...candidates) => {
-    for (const candidate of candidates) {
+  const findIndex = (exactCandidates, includesCandidates = []) => {
+    for (const candidate of exactCandidates) {
+      const found = normalized.find((item) => item.value === candidate);
+      if (found) return found.index;
+    }
+
+    for (const candidate of includesCandidates) {
       const found = normalized.find((item) => item.value === candidate || item.value.includes(candidate));
       if (found) return found.index;
     }
+
     return -1;
   };
 
-  const weekIndex = findIndex("week");
-  const detectedNameIndex = findIndex("name", "employee name");
-  const detectedDepartmentIndex = findIndex("department", "section", "role");
-  const hrIndex = findIndex("hr");
-  const codeIndex = findIndex("employee code", "code");
-  const timeIndex = findIndex("time", "shift");
-  const notesIndex = findIndex("notes", "note");
+  const weekIndex = findIndex(["week"], ["week"]);
+  // Avoid matching title cells like "STORE NAME: ..." as the employee-name header.
+  const detectedNameIndex = findIndex(
+    ["employee name", "employee names", "name", "merchandiser", "merchandiser name"],
+    ["employee name", "employee names", "merchandiser name"]
+  );
+  const detectedDepartmentIndex = findIndex(["department", "section", "role"], ["department", "section", "role"]);
+  const hrIndex = findIndex(["hr"], ["hr"]);
+  const codeIndex = findIndex(["employee code", "code"], ["employee code"]);
+  const timeIndex = findIndex(["time", "shift"], ["shift time"]);
+  const notesIndex = findIndex(["notes", "note"], ["notes"]);
 
   const dayIndexes = {
-    monday: findIndex("monday"),
-    tuesday: findIndex("tuesday"),
-    wednesday: findIndex("wednesday"),
-    thursday: findIndex("thursday"),
-    friday: findIndex("friday"),
-    saturday: findIndex("saturday"),
-    sunday: findIndex("sunday"),
+    monday: findIndex(["monday"], ["monday"]),
+    tuesday: findIndex(["tuesday"], ["tuesday"]),
+    wednesday: findIndex(["wednesday"], ["wednesday"]),
+    thursday: findIndex(["thursday"], ["thursday"]),
+    friday: findIndex(["friday"], ["friday"]),
+    saturday: findIndex(["saturday"], ["saturday"]),
+    sunday: findIndex(["sunday"], ["sunday"]),
   };
 
   const dayMax = Math.max(...DAY_ORDER.map((day) => dayIndexes[day]).filter((index) => index >= 0), -1);

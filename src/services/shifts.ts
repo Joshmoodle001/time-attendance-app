@@ -101,6 +101,13 @@ type ParsedSheetHeader = {
   extraIndexes: Array<{ index: number; key: string }>;
 };
 
+type SheetLayout = {
+  title: string;
+  header: ParsedSheetHeader;
+  startRowIndex: number;
+  useFixedColumns: boolean;
+};
+
 const DAY_ORDER: ShiftDayKey[] = [
   "monday",
   "tuesday",
@@ -110,6 +117,21 @@ const DAY_ORDER: ShiftDayKey[] = [
   "saturday",
   "sunday",
 ];
+const FIXED_RAW_COLUMNS = {
+  week: 0,
+  name: 1,
+  department: 2,
+  hr: 3,
+  code: 4,
+  time: 5,
+  monday: 6,
+  tuesday: 7,
+  wednesday: 8,
+  thursday: 9,
+  friday: 10,
+  saturday: 11,
+  sunday: 12,
+} as const;
 const SHIFT_ROSTER_STORAGE_KEY = "shift-rosters-cache-v1";
 const SHIFT_REMOTE_SETUP_HINT =
   "Remote shift table is not set up yet. Run setup-database.ps1 or the SQL in supabase-setup.sql to create the Supabase schema. Shifts are still being saved locally in this browser.";
@@ -215,6 +237,41 @@ function normalizeKey(value: string) {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
+function isLegacySyntheticShiftName(row: Pick<ShiftRow, "employee_name" | "employee_code" | "department" | "time_label" | "week_number" | "order_index">) {
+  const employeeName = normalizeText(row.employee_name);
+  if (!employeeName || normalizeText(row.employee_code)) return false;
+
+  const department = normalizeText(row.department) || "Shift";
+  const timeLabel = normalizeText(row.time_label);
+  const weekNumber = Number(row.week_number || 0);
+  const orderIndex = Number(row.order_index);
+  if (!weekNumber || !Number.isFinite(orderIndex)) return false;
+
+  const candidates = [
+    normalizeText(`${department} ${timeLabel} W${weekNumber} R${orderIndex}`),
+    normalizeText(`${department} W${weekNumber} R${orderIndex}`),
+    normalizeText(`Shift ${timeLabel} W${weekNumber} R${orderIndex}`),
+    normalizeText(`Shift W${weekNumber} R${orderIndex}`),
+  ];
+
+  return candidates.includes(employeeName);
+}
+
+function sanitizeShiftRow(row: ShiftRow): ShiftRow {
+  if (!isLegacySyntheticShiftName(row)) {
+    return row;
+  }
+
+  return {
+    ...row,
+    employee_name: "",
+  };
+}
+
+function sanitizeShiftRows(rows: ShiftRow[]) {
+  return rows.map((row) => sanitizeShiftRow(row));
+}
+
 function formatEffectiveDate(value?: string) {
   const source = normalizeText(value) || new Date().toISOString();
   return source.slice(0, 10);
@@ -245,7 +302,7 @@ function createRosterSnapshot(
     captured_at: roster.updated_at || new Date().toISOString(),
     source_file_name: normalizeText(roster.source_file_name),
     custom_columns: [...(roster.custom_columns || [])].sort(),
-    rows: Array.isArray(roster.rows) ? roster.rows : [],
+    rows: Array.isArray(roster.rows) ? sanitizeShiftRows(roster.rows) : [],
     import_summary: normalizeImportSummary(roster.import_summary),
   };
 }
@@ -259,7 +316,7 @@ function normalizeRosterHistory(roster: ShiftRoster): ShiftRosterSnapshot[] {
       captured_at: normalizeText(snapshot?.captured_at) || roster.updated_at || new Date().toISOString(),
       source_file_name: normalizeText(snapshot?.source_file_name) || normalizeText(roster.source_file_name),
       custom_columns: Array.isArray(snapshot?.custom_columns) ? [...snapshot.custom_columns].sort() : [...roster.custom_columns].sort(),
-      rows: Array.isArray(snapshot?.rows) ? snapshot.rows : [],
+      rows: Array.isArray(snapshot?.rows) ? sanitizeShiftRows(snapshot.rows) : [],
       import_summary: normalizeImportSummary(snapshot?.import_summary),
     }))
     .filter((snapshot) => snapshot.rows.length > 0);
@@ -289,7 +346,7 @@ function materializeRosterWithHistory(roster: ShiftRoster): ShiftRoster {
     ...roster,
     source_file_name: latest.source_file_name,
     custom_columns: latest.custom_columns,
-    rows: latest.rows,
+    rows: sanitizeShiftRows(latest.rows),
     updated_at: latest.captured_at,
     import_summary: latest.import_summary,
     history,
@@ -409,28 +466,38 @@ function parseHeaderRow(headerRow: unknown[]): ParsedSheetHeader {
     index,
   }));
 
-  const findIndex = (...candidates: string[]) => {
-    for (const candidate of candidates) {
+  const findIndex = (exactCandidates: string[], includesCandidates: string[] = []) => {
+    for (const candidate of exactCandidates) {
+      const found = normalized.find((item) => item.value === candidate);
+      if (found) return found.index;
+    }
+
+    for (const candidate of includesCandidates) {
       const found = normalized.find((item) => item.value === candidate || item.value.includes(candidate));
       if (found) return found.index;
     }
+
     return -1;
   };
 
-  const weekIndex = findIndex("week");
-  const detectedNameIndex = findIndex("name", "employee name");
-  const detectedDepartmentIndex = findIndex("department", "section", "role");
-  const hrIndex = findIndex("hr");
-  const codeIndex = findIndex("employee code", "code");
-  const timeIndex = findIndex("time", "shift");
-  const mondayIndex = findIndex("monday");
-  const tuesdayIndex = findIndex("tuesday");
-  const wednesdayIndex = findIndex("wednesday");
-  const thursdayIndex = findIndex("thursday");
-  const fridayIndex = findIndex("friday");
-  const saturdayIndex = findIndex("saturday");
-  const sundayIndex = findIndex("sunday");
-  const notesIndex = findIndex("notes", "note");
+  const weekIndex = findIndex(["week"], ["week"]);
+  // Avoid matching title cells like "STORE NAME: ..." as the employee-name header.
+  const detectedNameIndex = findIndex(
+    ["employee name", "employee names", "name", "merchandiser", "merchandiser name"],
+    ["employee name", "employee names", "merchandiser name"]
+  );
+  const detectedDepartmentIndex = findIndex(["department", "section", "role"], ["department", "section", "role"]);
+  const hrIndex = findIndex(["hr"], ["hr"]);
+  const codeIndex = findIndex(["employee code", "code"], ["employee code"]);
+  const timeIndex = findIndex(["time", "shift"], ["shift time"]);
+  const mondayIndex = findIndex(["monday"], ["monday"]);
+  const tuesdayIndex = findIndex(["tuesday"], ["tuesday"]);
+  const wednesdayIndex = findIndex(["wednesday"], ["wednesday"]);
+  const thursdayIndex = findIndex(["thursday"], ["thursday"]);
+  const fridayIndex = findIndex(["friday"], ["friday"]);
+  const saturdayIndex = findIndex(["saturday"], ["saturday"]);
+  const sundayIndex = findIndex(["sunday"], ["sunday"]);
+  const notesIndex = findIndex(["notes", "note"], ["notes"]);
 
   const dayIndexes = {
     monday: mondayIndex,
@@ -483,7 +550,7 @@ function parseHeaderRow(headerRow: unknown[]): ParsedSheetHeader {
     weekIndex: finalWeekIndex,
     nameIndex: finalNameIndex,
     departmentIndex: finalDepartmentIndex,
-    hrIndex: finalCodeIndex, // Using code index as HR
+    hrIndex,
     codeIndex: finalCodeIndex,
     timeIndex: finalTimeIndex,
     dayIndexes,
@@ -497,8 +564,79 @@ function textAt(row: unknown[], index: number) {
   return normalizeText(row[index]);
 }
 
-function buildGroupKey(sheetName: string, slotIndex: number) {
-  return `${normalizeKey(sheetName)}_slot_${slotIndex + 1}`;
+function findHeaderRowIndex(rows: unknown[][]) {
+  const scanLimit = Math.min(rows.length, 8);
+
+  for (let rowIndex = 0; rowIndex < scanLimit; rowIndex += 1) {
+    const row = rows[rowIndex] as unknown[];
+    if (!row || isBlankRow(row)) continue;
+
+    const firstCell = textAt(row, 0);
+    if (/^week\s*\d+/i.test(firstCell)) continue;
+
+    const parsed = parseHeaderRow(row);
+    const detectedDays = DAY_ORDER.filter((day) => parsed.dayIndexes[day] >= 0).length;
+    const hasIdentityColumns = parsed.weekIndex >= 0 || parsed.nameIndex >= 0 || parsed.codeIndex >= 0;
+
+    if (detectedDays >= 3 || (detectedDays >= 2 && hasIdentityColumns)) {
+      return rowIndex;
+    }
+  }
+
+  return -1;
+}
+
+function findTitle(rows: unknown[][], fallback: string, limitExclusive: number) {
+  for (let rowIndex = 0; rowIndex < Math.min(limitExclusive, rows.length); rowIndex += 1) {
+    const row = rows[rowIndex] as unknown[];
+    if (!row || isBlankRow(row)) continue;
+
+    const firstCell = textAt(row, 0);
+    if (!firstCell) continue;
+    if (/^week\s*$/i.test(firstCell) || /^week\s*\d+/i.test(firstCell)) continue;
+
+    return firstCell;
+  }
+
+  return fallback;
+}
+
+function resolveSheetLayout(rows: unknown[][], sheetName: string): SheetLayout {
+  const headerRowIndex = findHeaderRowIndex(rows);
+  if (headerRowIndex >= 0) {
+    return {
+      title: findTitle(rows, sheetName, headerRowIndex),
+      header: parseHeaderRow((rows[headerRowIndex] || []) as unknown[]),
+      startRowIndex: headerRowIndex + 1,
+      useFixedColumns: false,
+    };
+  }
+
+  let startRowIndex = 0;
+  while (startRowIndex < rows.length) {
+    const row = rows[startRowIndex] as unknown[];
+    if (!row || isBlankRow(row)) {
+      startRowIndex += 1;
+      continue;
+    }
+
+    if (/^week\s*\d+/i.test(textAt(row, FIXED_RAW_COLUMNS.week))) {
+      break;
+    }
+
+    startRowIndex += 1;
+  }
+
+  return {
+    title: findTitle(rows, sheetName, startRowIndex),
+    header: parseHeaderRow([]),
+    startRowIndex,
+    useFixedColumns: true,
+  };
+}
+
+function buildGroupKey(sheetName: string, weekNumber: number, slotIndex: number) {
+  return `${normalizeKey(sheetName)}_w${Math.max(1, weekNumber)}_slot_${Math.max(1, slotIndex + 1)}`;
 }
 
 function parseWeekNumber(value: string) {
@@ -561,9 +699,9 @@ function mergeRow(existing: ShiftRow | undefined, incoming: ShiftRow, source: "i
 
 function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName: string): ShiftRoster {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
-  const headerRow = (rows[0] || []) as unknown[];
-  const header = parseHeaderRow(headerRow);
-  const title = normalizeText(headerRow[0]) || sheetName;
+  const layout = resolveSheetLayout(rows, sheetName);
+  const header = layout.header;
+  const title = layout.title;
   const storeCode = (title.match(/^(\d+)/)?.[1] || "").trim();
   const storeName = title;
   const rowMap = new Map<string, ShiftRow>();
@@ -573,32 +711,7 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
   let currentWeekLabel = "";
   let currentWeekSlotIndex = -1;
 
-  // Check if first row is a header or raw data
-  const firstRowText = textAt(headerRow, 0).toUpperCase();
-  const isRawData = /^WEEK\s*\d+/i.test(firstRowText);
-  
-  // For raw data format: 
-  // Column 0: WEEK | Column 1: NAME | Column 2: SHARED | Column 3: TYPE | Column 4: CODE | Column 5-11: MON-SUN | Column 12+: EXTRAS
-  const FIXED_RAW_COLUMNS = {
-    week: 0,
-    name: 1,
-    department: 2,  // Shared
-    code: 4,       // Employee code
-    monday: 5,
-    tuesday: 6,
-    wednesday: 7,
-    thursday: 8,
-    friday: 9,
-    saturday: 10,
-    sunday: 11,
-  };
-
-  // Determine if we need to use fixed columns or header-based parsing
-  const useFixedColumns = isRawData && header.weekIndex === 0 && header.nameIndex === 1;
-  
-  const startRowIndex = isRawData ? 0 : 1;
-
-  for (let rowIndex = startRowIndex; rowIndex < rows.length; rowIndex += 1) {
+  for (let rowIndex = layout.startRowIndex; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] as unknown[];
     if (!row || isBlankRow(row)) {
       currentWeekSlotIndex = -1;
@@ -608,7 +721,9 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
     let rawWeekLabel: string;
     let employeeName: string;
     let department: string;
+    let hr: string;
     let employeeCode: string;
+    let timeLabel: string;
     let monday: string;
     let tuesday: string;
     let wednesday: string;
@@ -617,12 +732,14 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
     let saturday: string;
     let sunday: string;
 
-    if (useFixedColumns) {
+    if (layout.useFixedColumns) {
       // Use fixed column positions for raw data
       rawWeekLabel = textAt(row, FIXED_RAW_COLUMNS.week);
       employeeName = textAt(row, FIXED_RAW_COLUMNS.name);
       department = textAt(row, FIXED_RAW_COLUMNS.department);
+      hr = textAt(row, FIXED_RAW_COLUMNS.hr);
       employeeCode = textAt(row, FIXED_RAW_COLUMNS.code);
+      timeLabel = textAt(row, FIXED_RAW_COLUMNS.time);
       monday = textAt(row, FIXED_RAW_COLUMNS.monday);
       tuesday = textAt(row, FIXED_RAW_COLUMNS.tuesday);
       wednesday = textAt(row, FIXED_RAW_COLUMNS.wednesday);
@@ -635,7 +752,9 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       rawWeekLabel = textAt(row, header.weekIndex >= 0 ? header.weekIndex : 0);
       employeeName = textAt(row, header.nameIndex);
       department = textAt(row, header.departmentIndex);
+      hr = textAt(row, header.hrIndex);
       employeeCode = textAt(row, header.codeIndex);
+      timeLabel = textAt(row, header.timeIndex);
       monday = textAt(row, header.dayIndexes.monday);
       tuesday = textAt(row, header.dayIndexes.tuesday);
       wednesday = textAt(row, header.dayIndexes.wednesday);
@@ -652,27 +771,30 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
 
     const parsedWeekNumber = parseWeekNumber(rawWeekLabel);
     if (parsedWeekNumber) {
+      if (parsedWeekNumber !== currentWeekNumber || rawWeekLabel !== currentWeekLabel) {
+        currentWeekSlotIndex = 0;
+      } else {
+        currentWeekSlotIndex += 1;
+      }
       currentWeekNumber = parsedWeekNumber;
       currentWeekLabel = rawWeekLabel || `WEEK ${parsedWeekNumber}`;
-      currentWeekSlotIndex = 0;
     } else if (currentWeekNumber) {
       currentWeekSlotIndex += 1;
     } else {
       // If no week detected and no current week, use row as-is with week 1
       currentWeekNumber = 1;
       currentWeekLabel = "WEEK 1";
-      currentWeekSlotIndex = rowIndex;
+      currentWeekSlotIndex = Math.max(0, rowIndex - layout.startRowIndex);
     }
 
     const weekNumber = currentWeekNumber;
-    const timeLabel = textAt(row, header.timeIndex >= 0 ? header.timeIndex : 12); // Column M if exists
     const notes = textAt(row, header.notesIndex);
     const expectedHours = buildExpectedHours(timeLabel || monday || "7-3");
 
     const extraColumns: Record<string, string> = {};
-    if (useFixedColumns) {
-      // Collect extra columns from column 12 onwards
-      for (let colIndex = 12; colIndex < row.length; colIndex++) {
+    if (layout.useFixedColumns) {
+      // Collect extra columns after the fixed Sunday column.
+      for (let colIndex = FIXED_RAW_COLUMNS.sunday + 1; colIndex < row.length; colIndex++) {
         const value = textAt(row, colIndex);
         if (value) {
           const key = `extra_${colIndex}`;
@@ -691,10 +813,9 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       });
     }
 
-    const groupKey = buildGroupKey(sheetName, currentWeekSlotIndex);
-    // Use employee code + name + week as unique key to prevent collisions across employees
-    const normalizedName = employeeName.replace(/\s+/g, "_").toLowerCase();
-    const rowKey = `${employeeCode}_${normalizedName}_w${weekNumber}`;
+    const groupKey = buildGroupKey(sheetName, weekNumber, currentWeekSlotIndex);
+    const rowIdentity = normalizeKey(employeeCode || employeeName) || `row_${currentWeekSlotIndex + 1}`;
+    const rowKey = `${groupKey}_${rowIdentity}`;
 
     const incoming: ShiftRow = {
       id: randomId(),
@@ -706,7 +827,7 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       employee_name: employeeName,
       employee_code: employeeCode,
       department,
-      hr: "",
+      hr,
       time_label: timeLabel,
       monday,
       tuesday,

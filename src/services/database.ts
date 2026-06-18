@@ -1106,8 +1106,10 @@ export async function getEmployees(filters?: {
   store?: string
   status?: string
   preferRemote?: boolean
+  authoritativeRemote?: boolean
 }): Promise<Employee[]> {
   const preferRemote = Boolean(filters?.preferRemote)
+  const authoritativeRemote = Boolean(filters?.authoritativeRemote)
   const cached = !preferRemote ? getCachedEmployees() : null
   if (cached) return cached
   
@@ -1126,9 +1128,25 @@ export async function getEmployees(filters?: {
     }
 
     const remote = (data || []) as Employee[]
+    const canReplaceStoredEmployees =
+      authoritativeRemote &&
+      !filters?.search &&
+      !filters?.region &&
+      !filters?.store &&
+      !filters?.status
+
+    const authoritativeEmployees =
+      remote.length > 0 || localEmployees.length === 0
+        ? mergeEmployeeCollections(remote)
+        : localEmployees
+
     const merged = mergeEmployeeCollections(remote, localEmployees)
-    if (merged.length > 0) await saveStoredEmployees(merged)
-    const result = filterEmployees(merged.length > 0 ? merged : localEmployees, filters)
+    const nextEmployees = canReplaceStoredEmployees
+      ? authoritativeEmployees
+      : (merged.length > 0 ? merged : localEmployees)
+
+    if (nextEmployees.length > 0) await saveStoredEmployees(nextEmployees)
+    const result = filterEmployees(nextEmployees, filters)
     if (!filters?.search && !filters?.region && !filters?.store && !filters?.status) {
       setCachedEmployees(result)
     }
@@ -1274,19 +1292,28 @@ export async function deleteEmployee(id: string): Promise<{ success: boolean; er
   }
 }
 
-export async function importEmployees(employees: EmployeeInput[]): Promise<{ success: boolean; error?: string; count?: number; skipped?: number }> {
+export async function importEmployees(
+  employees: EmployeeInput[],
+  options?: { replaceExisting?: boolean }
+): Promise<{ success: boolean; error?: string; count?: number; skipped?: number }> {
   try {
     const now = new Date().toISOString()
+    const replaceExisting = Boolean(options?.replaceExisting)
     const processedEmployees = employees.map(emp => ({
       ...normalizeEmployeePayload(emp),
       created_at: now,
       updated_at: now,
     }))
 
-    const localMap = new Map((await loadStoredEmployees()).map((employee) => [normalizeEmployeeCode(employee.employee_code), employee]))
+    const storedEmployees = await loadStoredEmployees()
+    const localMap = new Map(
+      (replaceExisting ? [] : storedEmployees).map((employee) => [normalizeEmployeeCode(employee.employee_code), employee])
+    )
     processedEmployees.forEach((employee) => {
       const normalizedCode = normalizeEmployeeCode(employee.employee_code)
-      const existing = localMap.get(normalizedCode)
+      const existing =
+        localMap.get(normalizedCode) ||
+        storedEmployees.find((item) => normalizeEmployeeCode(item.employee_code) === normalizedCode)
       localMap.set(normalizedCode, {
         id: existing?.id || randomId(),
         employee_code: normalizedCode,
@@ -1342,6 +1369,34 @@ export async function importEmployees(employees: EmployeeInput[]): Promise<{ suc
       const message = getEmployeeStorageErrorMessage(error)
       console.warn('Import employees warning:', message)
       return { success: true, count: processedEmployees.length, error: message }
+    }
+
+    if (replaceExisting) {
+      const { data: remoteEmployees, error: remoteFetchError } = await fetchRemoteEmployees()
+      if (remoteFetchError) {
+        const message = getEmployeeStorageErrorMessage(remoteFetchError)
+        console.warn('Replace employees warning:', message)
+        return { success: true, count: data?.length || processedEmployees.length, error: message }
+      }
+
+      const incomingCodes = new Set(uniqueByCode.map((employee) => normalizeEmployeeCode(employee.employee_code)))
+      const remoteIdsToDelete = (remoteEmployees || [])
+        .filter((employee) => {
+          const normalizedCode = normalizeEmployeeCode(employee.employee_code)
+          return normalizedCode && !incomingCodes.has(normalizedCode)
+        })
+        .map((employee) => employee.id)
+        .filter(Boolean)
+
+      for (let index = 0; index < remoteIdsToDelete.length; index += 500) {
+        const batch = remoteIdsToDelete.slice(index, index + 500)
+        const { error: deleteError } = await supabase.from('employees').delete().in('id', batch)
+        if (deleteError) {
+          const message = getEmployeeStorageErrorMessage(deleteError)
+          console.warn('Replace employees warning:', message)
+          return { success: true, count: data?.length || processedEmployees.length, error: message }
+        }
+      }
     }
 
     return { success: true, count: data?.length || processedEmployees.length }

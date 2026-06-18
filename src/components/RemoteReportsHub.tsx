@@ -210,7 +210,7 @@ export default function RemoteReportsHub() {
     (async () => {
       try {
         await initializeEmployeeDatabase();
-        const data = await getEmployees();
+        const data = await getEmployees({ preferRemote: true, authoritativeRemote: true });
         if (!alive) return;
         setEmployees(data);
       } catch (error) {
