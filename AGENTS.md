@@ -35,7 +35,7 @@ npm run preview  # Preview production build locally
 
 ### Dev Proxy (Important)
 
-`vite.config.ts` has a custom plugin that proxies `/api/download-shift` requests to Google Sheets/Drive. This enables local shift sync without CORS issues. The same logic runs in the Vercel serverless function in production.
+`vite.config.ts` has a custom plugin that proxies `/api/download-shift` requests to Google Sheets and Drive. This enables local shift sync without CORS issues. The same logic runs in the Vercel serverless function in production.
 
 ## Environment Variables
 
@@ -48,7 +48,7 @@ Required in `.env.local` (local dev) and Vercel environment variables (productio
 
 ## Database Setup
 
-Run `supabase-setup.sql` via Supabase SQL Editor, or trigger the `Supabase Schema Sync` GitHub Actions workflow manually.
+Run `supabase-setup.sql` via the Supabase SQL Editor, or trigger the `Supabase Schema Sync` GitHub Actions workflow manually.
 
 ## Deployment
 
@@ -57,7 +57,7 @@ Run `supabase-setup.sql` via Supabase SQL Editor, or trigger the `Supabase Schem
 3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
 4. Deploy
 
-Supabase storage requires a public bucket named `attendance-files` with read/insert policies.
+Supabase storage requires a bucket named `attendance-files` with browser read and insert policies. The bucket can remain private.
 
 ## GitHub Actions Secrets
 
