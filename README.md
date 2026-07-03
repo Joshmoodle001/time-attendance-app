@@ -6,7 +6,7 @@ A React + TypeScript dashboard for managing employee attendance, integrations, a
 
 - **Overview Dashboard** - KPI cards, pie charts, trend analysis, live event feed
 - **Attendance Management** - Excel file import with cloud storage (Supabase)
-- **Employee Directory** - Searchable/filterable employee table with hierarchy
+- **Employee Directory** - Searchable and filterable employee table with hierarchy
 - **Integrations** - API connection health monitoring and sync management
 
 ## Tech Stack
@@ -29,9 +29,9 @@ npm install
 ### 2. Set Up Supabase Storage
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Go to **Storage** → **Create bucket** named `attendance-files`
-3. Set bucket to **Public**
-4. Copy your **Project URL** and **anon key** from **Settings → API**
+2. Go to **Storage** -> **Create bucket** named `attendance-files`
+3. Keep the bucket **Private**
+4. Copy your **Project URL** and **anon key** from **Settings -> API**
 5. Create a `.env.local` file:
 
 ```env
@@ -66,20 +66,22 @@ Open [http://localhost:5173](http://localhost:5173)
 3. Add environment variables:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-4. Deploy!
+4. Deploy
 
 ### Supabase Storage Setup
 
-Make sure your Supabase bucket policy allows public read access:
+The app reads and writes `attendance-files` directly from the browser by using your Supabase anon key, so the bucket can stay private as long as the storage policies allow browser access:
 
 ```sql
 -- In Supabase SQL Editor
-create policy "Public Read" on storage.objects
+create policy "Attendance Files Read" on storage.objects
   for select using (bucket_id = 'attendance-files');
 
-create policy "Public Upload" on storage.objects
+create policy "Attendance Files Upload" on storage.objects
   for insert with check (bucket_id = 'attendance-files');
 ```
+
+For the shared coversheet flow, the app stores uploaded workbook snapshots in `attendance-files/coversheet/...` and stores the current pointer in `shift_sync_settings`.
 
 ## Build
 
@@ -91,13 +93,13 @@ Output is in the `dist/` directory.
 
 ## Project Structure
 
-```
+```text
 src/
-├── App.tsx           # Main application
-├── components/ui/    # UI components (Card, Button, etc.)
-├── lib/
-│   ├── supabase.ts   # Supabase client
-│   └── utils.ts      # Utility functions
-└── services/
-    └── storage.ts    # File upload/download service
+|-- App.tsx           # Main application
+|-- components/ui/    # UI components (Card, Button, etc.)
+|-- lib/
+|   |-- supabase.ts   # Supabase client
+|   `-- utils.ts      # Utility functions
+`-- services/
+    `-- storage.ts    # File upload/download service
 ```
