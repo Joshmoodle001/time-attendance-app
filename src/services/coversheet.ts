@@ -27,7 +27,6 @@ const COVER_SHEET_STORAGE_KEY = "coversheet-upload-v1";
 const COVER_SHEET_BUCKET = "attendance-files";
 const COVER_SHEET_STORAGE_PREFIX = "coversheet";
 const COVER_SHEET_SHARED_ROW_ID = "coversheet-upload";
-const COVER_SHEET_REMOTE_ENDPOINT = "/api/coversheet";
 
 type CoversheetSharedRecord = {
   payload?: {
@@ -156,34 +155,10 @@ export async function getSavedCoversheetUpload(): Promise<CoversheetUpload | nul
   const localUpload = loadLocalUpload();
   const sharedUpload = await getSharedCoversheetUpload();
   if (sharedUpload) return sharedUpload;
-
-  try {
-    const response = await fetch(COVER_SHEET_REMOTE_ENDPOINT, { method: "GET", cache: "no-store" });
-    if (!response.ok) return localUpload;
-    const payload = (await response.json()) as { upload?: CoversheetUpload | null };
-    if (!isValidUpload(payload.upload)) return localUpload;
-    saveLocalUpload(payload.upload);
-    return payload.upload;
-  } catch {
-    return localUpload;
-  }
+  return localUpload;
 }
 
 export async function saveCoversheetUpload(upload: CoversheetUpload) {
   saveLocalUpload(upload);
-
-  const sharedSaved = await saveSharedCoversheetUpload(upload);
-  if (sharedSaved) return;
-
-  try {
-    await fetch(COVER_SHEET_REMOTE_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(upload),
-    });
-  } catch {
-    // Local save is still kept as a fallback.
-  }
+  await saveSharedCoversheetUpload(upload);
 }
