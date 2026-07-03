@@ -60,6 +60,11 @@ function cleanText(value: unknown) {
   return value == null ? "" : String(value).trim();
 }
 
+function formatUploadTimestamp(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value || "Unknown" : parsed.toLocaleString("en-ZA");
+}
+
 function normalizeNumericText(value: string) {
   const compact = value.replace(/[,\s]/g, "");
   if (/^\d+(\.0+)?$/.test(compact)) return compact.replace(/\.0+$/g, "");
@@ -619,7 +624,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
             {upload && (
               <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4 text-sm text-slate-300">
                 <div className="font-medium text-white">{upload.fileName}</div>
-                <div className="text-xs text-slate-400">Uploaded {new Date(upload.uploadedAt).toLocaleString("en-ZA")}</div>
+                <div className="text-xs text-slate-400">Last uploaded and updated {formatUploadTimestamp(upload.uploadedAt)}</div>
                 <div className="mt-3 grid gap-3 sm:grid-cols-5">
                   <div className="rounded-lg border border-slate-700 px-3 py-2 text-center">
                     <div className="text-lg font-bold text-white">{stats.stores}</div>
@@ -673,13 +678,20 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-slate-400">
-        <span className="font-semibold text-slate-300">Coversheet</span>
-        <Badge className="border border-slate-600 bg-slate-700/40 text-slate-200">{stats.stores} stores</Badge>
-        <Badge className="border border-slate-600 bg-slate-700/40 text-slate-200">{stats.employees} employees</Badge>
-        <Badge className={statusBadgeClass("terminated")}>{stats.terminated} terminated</Badge>
-        <Badge className={statusBadgeClass("maternity")}>{stats.maternity} maternity</Badge>
-        <Badge className={statusBadgeClass("hold")}>{stats.hold} hold</Badge>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-slate-400">
+          <span className="font-semibold text-slate-300">Coversheet</span>
+          <Badge className="border border-slate-600 bg-slate-700/40 text-slate-200">{stats.stores} stores</Badge>
+          <Badge className="border border-slate-600 bg-slate-700/40 text-slate-200">{stats.employees} employees</Badge>
+          <Badge className={statusBadgeClass("terminated")}>{stats.terminated} terminated</Badge>
+          <Badge className={statusBadgeClass("maternity")}>{stats.maternity} maternity</Badge>
+          <Badge className={statusBadgeClass("hold")}>{stats.hold} hold</Badge>
+        </div>
+
+        <div className="rounded-xl border border-slate-700 bg-slate-900/40 px-4 py-3">
+          <div className="text-sm font-semibold text-white break-all">{upload.fileName}</div>
+          <div className="mt-1 text-xs text-slate-400">Last uploaded and updated {formatUploadTimestamp(upload.uploadedAt)}</div>
+        </div>
       </div>
 
       <Card className="rounded-2xl border-slate-700 bg-slate-900/50">
