@@ -27,12 +27,13 @@ import {
   initializeShiftDatabase,
   mergeShiftRosters,
   parseShiftWorkbook,
+  SHIFT_ROSTERS_UPDATED_EVENT,
   type ShiftDayKey,
   type ShiftRoster,
   type ShiftRow,
   upsertShiftRoster,
 } from "@/services/shifts";
-import { loadShiftSyncSettings, buildShiftDownloadUrl, hasConfiguredShiftSyncLinks } from "@/services/shiftSync";
+import { loadShiftSyncSettings, buildShiftDownloadUrl, hasConfiguredShiftSyncLinks, SHIFT_SYNC_UPDATED_EVENT } from "@/services/shiftSync";
 
 type CellPosition = {
   rowKey: string;
@@ -354,7 +355,7 @@ export default function ShiftBuilder() {
 
   useEffect(() => {
     let alive = true;
-    const loadRosters = async () => {
+    const loadRosters = async (reason: "initial" | "event" | "interval" = "initial") => {
       await initializeShiftDatabase();
       const loaded = await getShiftRosters();
       if (!alive) return;
@@ -381,21 +382,32 @@ export default function ShiftBuilder() {
         isInitialLoadRef.current = false;
       }
       
-      if (loaded.length) {
+      if (loaded.length && reason === "initial") {
         setStatusMessage(`Loaded ${loaded.length} shift roster${loaded.length === 1 ? "" : "s"}.`);
+      } else if (reason === "event") {
+        setStatusMessage(`Shift data refreshed from Admin sync.`);
       }
     };
 
     void loadRosters();
+
+    const handleShiftDataUpdate = () => {
+      void loadRosters("event");
+    };
     
     // Refresh less frequently (every 60 seconds instead of 20)
     const interval = window.setInterval(() => {
-      void loadRosters();
+      void loadRosters("interval");
     }, 60000);
+
+    window.addEventListener(SHIFT_SYNC_UPDATED_EVENT, handleShiftDataUpdate);
+    window.addEventListener(SHIFT_ROSTERS_UPDATED_EVENT, handleShiftDataUpdate);
 
     return () => {
       alive = false;
       window.clearInterval(interval);
+      window.removeEventListener(SHIFT_SYNC_UPDATED_EVENT, handleShiftDataUpdate);
+      window.removeEventListener(SHIFT_ROSTERS_UPDATED_EVENT, handleShiftDataUpdate);
     };
   }, []);
 

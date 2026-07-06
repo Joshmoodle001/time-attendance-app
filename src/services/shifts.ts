@@ -1,6 +1,8 @@
 import * as XLSX from "xlsx";
 import { loadShiftSyncSettings } from "@/services/shiftSync";
 
+export const SHIFT_ROSTERS_UPDATED_EVENT = "shift-rosters-updated";
+
 export type ShiftDayKey =
   | "monday"
   | "tuesday"
@@ -156,6 +158,7 @@ function saveLocalShiftRosters(rosters: ShiftRoster[]) {
 
   try {
     window.localStorage.setItem(SHIFT_ROSTER_STORAGE_KEY, JSON.stringify(rosters));
+    window.dispatchEvent(new CustomEvent(SHIFT_ROSTERS_UPDATED_EVENT, { detail: rosters }));
   } catch (error) {
     console.error("Save local shift rosters error:", error);
   }
