@@ -85,7 +85,7 @@ const DEFAULT_SHIFT_SYNC_SECTIONS = [
 const DEFAULT_SHIFT_SYNC_SETTINGS = {
   autoSyncEnabled: true,
   backupIntervalMinutes: 60,
-  scheduledRunTimes: [],
+  scheduledRunTimes: ["08:00", "17:00"],
   lastUniversalSyncedAt: "",
   lastUniversalStatus: "Hourly background sync is ready.",
   liveSyncEnabled: false,
@@ -100,14 +100,15 @@ function hasConfiguredSectionLinks(settings) {
 }
 
 function applyAutoSyncBootstrap(settings) {
-  if (!settings.autoSyncEnabled && !settings.lastUniversalSyncedAt && hasConfiguredSectionLinks(settings)) {
-    return {
-      ...settings,
-      autoSyncEnabled: true,
-      lastUniversalStatus: "Hourly background sync is ready.",
-    };
+  const next = { ...settings };
+  if (!Array.isArray(next.scheduledRunTimes) || next.scheduledRunTimes.length === 0) {
+    next.scheduledRunTimes = ["08:00", "17:00"];
   }
-  return settings;
+  if (!next.autoSyncEnabled && !next.lastUniversalSyncedAt && hasConfiguredSectionLinks(next)) {
+    next.autoSyncEnabled = true;
+    next.lastUniversalStatus = "Hourly background sync is ready.";
+  }
+  return next;
 }
 
 function createLiveWebhookKey() {

@@ -1,6 +1,10 @@
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+
 export const SHIFT_SYNC_STORAGE_KEY = "shift-sync-settings-v2";
 export const SHIFT_SYNC_UPDATED_EVENT = "shift-sync-settings-updated";
 const LEGACY_SHIFT_SYNC_STORAGE_KEY = "shift-sync-sections-v1";
+const SHIFT_SYNC_SHARED_ROW_ID = "global";
+const DEFAULT_SCHEDULED_RUN_TIMES = ["08:00", "17:00"];
 
 export type ShiftSyncSection = {
   id: string;
@@ -57,7 +61,7 @@ export const DEFAULT_SHIFT_SYNC_SECTIONS: ShiftSyncSection[] = [
 export const DEFAULT_SHIFT_SYNC_SETTINGS: ShiftSyncSettings = {
   autoSyncEnabled: true,
   backupIntervalMinutes: 60,
-  scheduledRunTimes: [],
+  scheduledRunTimes: DEFAULT_SCHEDULED_RUN_TIMES,
   lastUniversalSyncedAt: "",
   lastUniversalStatus: "Hourly background sync is ready.",
   liveSyncEnabled: false,
@@ -72,14 +76,15 @@ export function hasConfiguredShiftSyncLinks(settings?: Pick<ShiftSyncSettings, "
 }
 
 function applyAutoSyncBootstrap(settings: ShiftSyncSettings) {
-  if (!settings.autoSyncEnabled && !settings.lastUniversalSyncedAt && hasConfiguredShiftSyncLinks(settings)) {
-    return {
-      ...settings,
-      autoSyncEnabled: true,
-      lastUniversalStatus: "Hourly background sync is ready.",
-    };
+  const next = { ...settings };
+  if (next.scheduledRunTimes.length === 0) {
+    next.scheduledRunTimes = [...DEFAULT_SCHEDULED_RUN_TIMES];
   }
-  return settings;
+  if (!next.autoSyncEnabled && !next.lastUniversalSyncedAt && hasConfiguredShiftSyncLinks(next)) {
+    next.autoSyncEnabled = true;
+    next.lastUniversalStatus = "Hourly background sync is ready.";
+  }
+  return next;
 }
 
 function createLiveWebhookKey() {
@@ -148,7 +153,7 @@ function normalizeSettings(value: unknown): ShiftSyncSettings {
       ? raw.scheduledRunTimes
           .map((item) => normalizeText(item))
           .filter((item) => /^\d{2}:\d{2}$/.test(item))
-      : [],
+      : [...DEFAULT_SCHEDULED_RUN_TIMES],
     lastUniversalSyncedAt: normalizeText(raw.lastUniversalSyncedAt),
     lastUniversalStatus: normalizeText(raw.lastUniversalStatus) || DEFAULT_SHIFT_SYNC_SETTINGS.lastUniversalStatus,
     liveSyncEnabled: raw.liveSyncEnabled === undefined ? DEFAULT_SHIFT_SYNC_SETTINGS.liveSyncEnabled : Boolean(raw.liveSyncEnabled),
@@ -192,13 +197,115 @@ function saveLocalShiftSyncSettings(settings: ShiftSyncSettings) {
   }
 }
 
+type ShiftSyncSettingsSharedRecord = {
+  auto_sync_enabled?: boolean | null;
+  last_universal_synced_at?: string | null;
+  last_universal_status?: string | null;
+  payload?: {
+    backupIntervalMinutes?: number;
+    scheduledRunTimes?: string[];
+    liveSyncEnabled?: boolean;
+    lastLiveSyncedAt?: string | null;
+    lastLiveStatus?: string | null;
+    liveWebhookKey?: string | null;
+    sections?: ShiftSyncSection[];
+  } | null;
+};
+
+function mapSharedRecordToSettings(record: ShiftSyncSettingsSharedRecord | null | undefined) {
+  if (!record) return DEFAULT_SHIFT_SYNC_SETTINGS;
+  return applyAutoSyncBootstrap(normalizeSettings({
+    autoSyncEnabled: record.auto_sync_enabled,
+    backupIntervalMinutes: record.payload?.backupIntervalMinutes,
+    scheduledRunTimes: record.payload?.scheduledRunTimes,
+    lastUniversalSyncedAt: record.last_universal_synced_at,
+    lastUniversalStatus: record.last_universal_status,
+    liveSyncEnabled: record.payload?.liveSyncEnabled,
+    lastLiveSyncedAt: record.payload?.lastLiveSyncedAt,
+    lastLiveStatus: record.payload?.lastLiveStatus,
+    liveWebhookKey: record.payload?.liveWebhookKey,
+    sections: record.payload?.sections,
+  }));
+}
+
+async function loadSharedShiftSyncSettings() {
+  if (!isSupabaseConfigured) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("shift_sync_settings")
+      .select("*")
+      .eq("id", SHIFT_SYNC_SHARED_ROW_ID)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Could not load shared shift sync settings:", error);
+      return null;
+    }
+
+    return mapSharedRecordToSettings((data || null) as ShiftSyncSettingsSharedRecord | null);
+  } catch (error) {
+    console.error("Could not load shared shift sync settings:", error);
+    return null;
+  }
+}
+
+async function saveSharedShiftSyncSettings(settings: ShiftSyncSettings) {
+  if (!isSupabaseConfigured) return { success: false, error: "Supabase is not configured." };
+
+  try {
+    const normalized = applyAutoSyncBootstrap(normalizeSettings(settings));
+    const { error } = await supabase.from("shift_sync_settings").upsert(
+      {
+        id: SHIFT_SYNC_SHARED_ROW_ID,
+        auto_sync_enabled: normalized.autoSyncEnabled,
+        last_universal_synced_at: normalized.lastUniversalSyncedAt || null,
+        last_universal_status: normalized.lastUniversalStatus,
+        payload: {
+          backupIntervalMinutes: normalized.backupIntervalMinutes,
+          scheduledRunTimes: normalized.scheduledRunTimes,
+          liveSyncEnabled: normalized.liveSyncEnabled,
+          lastLiveSyncedAt: normalized.lastLiveSyncedAt || null,
+          lastLiveStatus: normalized.lastLiveStatus,
+          liveWebhookKey: normalized.liveWebhookKey,
+          sections: normalized.sections,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+
+    if (error) {
+      return {
+        success: false,
+        error: normalizeText(error.message) || "Could not save shared sync settings.",
+      };
+    }
+
+    return { success: true, error: "" };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Could not save shared sync settings.",
+    };
+  }
+}
+
 export async function loadShiftSyncSettings() {
+  const shared = await loadSharedShiftSyncSettings();
+  if (shared) {
+    saveLocalShiftSyncSettings(shared);
+    return shared;
+  }
   return loadLocalShiftSyncSettings();
 }
 
 export async function saveShiftSyncSettings(settings: ShiftSyncSettings) {
-  const normalized = normalizeSettings(settings);
+  const normalized = applyAutoSyncBootstrap(normalizeSettings(settings));
   saveLocalShiftSyncSettings(normalized);
+  if (isSupabaseConfigured) {
+    return await saveSharedShiftSyncSettings(normalized);
+  }
   return { success: true, error: "" };
 }
 
