@@ -1,10 +1,6 @@
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-
 export const SHIFT_SYNC_STORAGE_KEY = "shift-sync-settings-v2";
 export const SHIFT_SYNC_UPDATED_EVENT = "shift-sync-settings-updated";
 const LEGACY_SHIFT_SYNC_STORAGE_KEY = "shift-sync-sections-v1";
-const SHIFT_SYNC_REMOTE_SETUP_HINT =
-  "Background auto sync needs the remote shift sync table to be set up first. The links are still being stored in this browser for now.";
 
 export type ShiftSyncSection = {
   id: string;
@@ -196,139 +192,14 @@ function saveLocalShiftSyncSettings(settings: ShiftSyncSettings) {
   }
 }
 
-function getShiftSyncStorageErrorMessage(error: unknown) {
-  const message =
-    typeof error === "object" && error !== null && "message" in error
-      ? String((error as { message?: unknown }).message || "")
-      : error instanceof Error
-        ? error.message
-        : String(error || "");
-
-  if (message.includes("Could not find the table 'public.shift_sync_settings' in the schema cache")) {
-    return SHIFT_SYNC_REMOTE_SETUP_HINT;
-  }
-
-  if (message.includes('relation "public.shift_sync_settings" does not exist') || message.includes('relation "shift_sync_settings" does not exist')) {
-    return SHIFT_SYNC_REMOTE_SETUP_HINT;
-  }
-
-  return message;
-}
-
 export async function loadShiftSyncSettings() {
-  const localSettings = loadLocalShiftSyncSettings();
-
-  if (!isSupabaseConfigured) {
-    return localSettings;
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from("shift_sync_settings")
-      .select("*")
-      .eq("id", "global")
-      .maybeSingle();
-
-    if (error) {
-      console.warn("Load shift sync settings warning:", getShiftSyncStorageErrorMessage(error));
-      return localSettings;
-    }
-
-    if (!data) {
-      return localSettings;
-    }
-
-    const remoteSettings = applyAutoSyncBootstrap(normalizeSettings({
-      autoSyncEnabled: data.auto_sync_enabled,
-      backupIntervalMinutes: data.payload?.backupIntervalMinutes,
-      scheduledRunTimes: data.payload?.scheduledRunTimes,
-      lastUniversalSyncedAt: data.last_universal_synced_at,
-      lastUniversalStatus: data.last_universal_status,
-      liveSyncEnabled: data.payload?.liveSyncEnabled,
-      lastLiveSyncedAt: data.payload?.lastLiveSyncedAt,
-      lastLiveStatus: data.payload?.lastLiveStatus,
-      liveWebhookKey: data.payload?.liveWebhookKey,
-      sections: data.payload?.sections,
-    }));
-
-    const mergedSettings = applyAutoSyncBootstrap(normalizeSettings({
-      autoSyncEnabled: remoteSettings.autoSyncEnabled || localSettings.autoSyncEnabled,
-      backupIntervalMinutes: remoteSettings.backupIntervalMinutes || localSettings.backupIntervalMinutes,
-      scheduledRunTimes:
-        remoteSettings.scheduledRunTimes.length > 0
-          ? remoteSettings.scheduledRunTimes
-          : localSettings.scheduledRunTimes,
-      lastUniversalSyncedAt: pickPreferredText(remoteSettings.lastUniversalSyncedAt, localSettings.lastUniversalSyncedAt),
-      lastUniversalStatus: pickPreferredText(remoteSettings.lastUniversalStatus, localSettings.lastUniversalStatus),
-      liveSyncEnabled: remoteSettings.liveSyncEnabled ?? localSettings.liveSyncEnabled,
-      lastLiveSyncedAt: pickPreferredText(remoteSettings.lastLiveSyncedAt, localSettings.lastLiveSyncedAt),
-      lastLiveStatus: pickPreferredText(remoteSettings.lastLiveStatus, localSettings.lastLiveStatus),
-      liveWebhookKey: pickPreferredText(remoteSettings.liveWebhookKey, localSettings.liveWebhookKey),
-      sections: DEFAULT_SHIFT_SYNC_SECTIONS.map((section) => {
-        const localSection = localSettings.sections.find((item) => item.id === section.id);
-        const remoteSection = remoteSettings.sections.find((item) => item.id === section.id);
-        return {
-          ...section,
-          ...(remoteSection || {}),
-          ...(localSection || {}),
-          id: section.id,
-          label: section.label,
-          url: pickPreferredText(remoteSection?.url, localSection?.url, section.url),
-          lastSyncedAt: pickPreferredText(remoteSection?.lastSyncedAt, localSection?.lastSyncedAt, section.lastSyncedAt),
-          lastStatus: pickPreferredText(remoteSection?.lastStatus, localSection?.lastStatus, section.lastStatus),
-        };
-      }),
-    }));
-
-    saveLocalShiftSyncSettings(mergedSettings);
-    return mergedSettings;
-  } catch (error) {
-    console.warn("Load shift sync settings warning:", getShiftSyncStorageErrorMessage(error));
-    return localSettings;
-  }
+  return loadLocalShiftSyncSettings();
 }
 
 export async function saveShiftSyncSettings(settings: ShiftSyncSettings) {
   const normalized = normalizeSettings(settings);
   saveLocalShiftSyncSettings(normalized);
-
-  if (!isSupabaseConfigured) {
-    return { success: true };
-  }
-
-  try {
-    const { error } = await supabase.from("shift_sync_settings").upsert(
-      {
-        id: "global",
-        auto_sync_enabled: normalized.autoSyncEnabled,
-        last_universal_synced_at: normalized.lastUniversalSyncedAt || null,
-        last_universal_status: normalized.lastUniversalStatus,
-        payload: {
-          backupIntervalMinutes: normalized.backupIntervalMinutes,
-          scheduledRunTimes: normalized.scheduledRunTimes,
-          liveSyncEnabled: normalized.liveSyncEnabled,
-          lastLiveSyncedAt: normalized.lastLiveSyncedAt || null,
-          lastLiveStatus: normalized.lastLiveStatus,
-          liveWebhookKey: normalized.liveWebhookKey,
-          sections: normalized.sections,
-        },
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-
-    if (error) {
-      const message = getShiftSyncStorageErrorMessage(error);
-      console.warn("Save shift sync settings warning:", message);
-      return { success: true, error: message };
-    }
-
-    return { success: true };
-  } catch (error) {
-    const message = getShiftSyncStorageErrorMessage(error);
-    console.warn("Save shift sync settings warning:", message);
-    return { success: true, error: message };
-  }
+  return { success: true, error: "" };
 }
 
 export function createShiftSyncSectionId(label: string) {

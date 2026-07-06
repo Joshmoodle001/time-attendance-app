@@ -1,6 +1,5 @@
 import * as XLSX from "xlsx";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import { hasConfiguredShiftSyncLinks, loadShiftSyncSettings } from "@/services/shiftSync";
+import { loadShiftSyncSettings } from "@/services/shiftSync";
 
 export type ShiftDayKey =
   | "monday"
@@ -133,11 +132,6 @@ const FIXED_RAW_COLUMNS = {
   sunday: 12,
 } as const;
 const SHIFT_ROSTER_STORAGE_KEY = "shift-rosters-cache-v1";
-const SHIFT_REMOTE_SETUP_HINT =
-  "Remote shift table is not set up yet. Run setup-database.ps1 or the SQL in supabase-setup.sql to create the Supabase schema. Shifts are still being saved locally in this browser.";
-
-let shiftRemoteSetupAvailable: boolean | null = null;
-let shiftRemoteSetupCheck: Promise<boolean> | null = null;
 
 function randomId() {
   return globalThis.crypto?.randomUUID?.() ?? `shift_${Math.random().toString(36).slice(2)}_${Date.now()}`;
@@ -170,62 +164,10 @@ function saveLocalShiftRosters(rosters: ShiftRoster[]) {
 async function hasActiveShiftSyncLinks() {
   try {
     const settings = await loadShiftSyncSettings();
-    return hasConfiguredShiftSyncLinks(settings);
+    return Boolean(settings.sections.some((section) => normalizeText(section.url)));
   } catch {
     return false;
   }
-}
-
-async function checkRemoteShiftTableAvailability() {
-  if (shiftRemoteSetupAvailable !== null) {
-    return shiftRemoteSetupAvailable;
-  }
-
-  if (shiftRemoteSetupCheck) {
-    return shiftRemoteSetupCheck;
-  }
-
-  shiftRemoteSetupCheck = (async () => {
-    try {
-      if (!isSupabaseConfigured) {
-        shiftRemoteSetupAvailable = false;
-        return false;
-      }
-      const { error } = await supabase.from("shift_rosters").select("id").limit(1);
-      shiftRemoteSetupAvailable = !error;
-      return shiftRemoteSetupAvailable;
-    } catch {
-      shiftRemoteSetupAvailable = false;
-      return false;
-    } finally {
-      shiftRemoteSetupCheck = null;
-    }
-  })();
-
-  return shiftRemoteSetupCheck;
-}
-
-function getShiftStorageErrorMessage(error: unknown) {
-  const message =
-    typeof error === "object" && error !== null && "message" in error
-      ? String((error as { message?: unknown }).message || "")
-      : error instanceof Error
-        ? error.message
-        : String(error || "");
-
-  if (message.includes("Could not find the table 'public.shift_rosters' in the schema cache")) {
-    return SHIFT_REMOTE_SETUP_HINT;
-  }
-
-  if (message.includes("relation \"public.shift_rosters\" does not exist") || message.includes("relation \"shift_rosters\" does not exist")) {
-    return SHIFT_REMOTE_SETUP_HINT;
-  }
-
-  if (message.includes("Could not find the function public.exec")) {
-    return SHIFT_REMOTE_SETUP_HINT;
-  }
-
-  return message;
 }
 
 function normalizeText(value: unknown) {
@@ -929,69 +871,13 @@ export function mergeShiftRosters(existing: ShiftRoster | null | undefined, inco
 }
 
 export async function initializeShiftDatabase(): Promise<boolean> {
-  try {
-    const isAvailable = await checkRemoteShiftTableAvailability();
-    if (!isAvailable) {
-      console.warn("Shift database initialization warning:", SHIFT_REMOTE_SETUP_HINT);
-    }
-    return isAvailable;
-  } catch (err) {
-    console.warn("Shift database init warning:", getShiftStorageErrorMessage(err));
-    return false;
-  }
+  return true;
 }
 
 export async function getShiftRosters(): Promise<ShiftRoster[]> {
   const localRosters = loadLocalShiftRosters();
-  const hasActiveLinks = await hasActiveShiftSyncLinks();
-
-  // Always return local rosters if they exist (from manual imports or prior syncs).
-  // Only attempt remote fetch if sync links are configured AND Supabase is available.
-  if (!hasActiveLinks || !isSupabaseConfigured) {
-    return localRosters;
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from("shift_rosters")
-      .select("id, sheet_name, store_name, store_code, source_file_name, payload, updated_at")
-      .order("updated_at", { ascending: false });
-
-    if (error) {
-      console.warn("Get shift rosters warning:", getShiftStorageErrorMessage(error));
-      return localRosters;
-    }
-
-    const remoteRosters = ((data || []) as RemoteShiftRosterRecord[]).map((item) => {
-      const payload = item.payload || {};
-      return materializeRosterWithHistory({
-        id: item.id,
-        sheet_name: item.sheet_name,
-        store_name: item.store_name,
-        store_code: item.store_code || "",
-        source_file_name: item.source_file_name || "",
-        custom_columns: payload.custom_columns || [],
-        rows: payload.rows || [],
-        updated_at: item.updated_at,
-        import_summary: normalizeImportSummary(payload.import_summary),
-        history: payload.history || [],
-      } as ShiftRoster);
-    });
-
-    if (remoteRosters.length > 0) {
-      // Merge: remote rosters take priority, but preserve any local-only sheets
-      const remoteSheetNames = new Set(remoteRosters.map((r) => r.sheet_name));
-      const localOnly = localRosters.filter((r) => !remoteSheetNames.has(r.sheet_name));
-      const merged = [...remoteRosters, ...localOnly];
-      saveLocalShiftRosters(merged);
-      return merged;
-    }
-
-    return localRosters;
-  } catch (err) {
-    console.warn("Get shift rosters warning:", getShiftStorageErrorMessage(err));
-    return localRosters;
-  }
+  void hasActiveShiftSyncLinks();
+  return localRosters;
 }
 
 export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success: boolean; error?: string }> {
@@ -1007,44 +893,7 @@ export async function upsertShiftRoster(roster: ShiftRoster): Promise<{ success:
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
   saveLocalShiftRosters(mergedLocal);
-
-  if (!isSupabaseConfigured) {
-    return { success: true };
-  }
-
-  try {
-    const { error } = await supabase.from("shift_rosters").upsert(
-      {
-        sheet_name: mergedRoster.sheet_name,
-        store_name: mergedRoster.store_name,
-        store_code: mergedRoster.store_code,
-        source_file_name: mergedRoster.source_file_name,
-        payload: {
-          custom_columns: mergedRoster.custom_columns,
-          rows: mergedRoster.rows,
-          import_summary: mergedRoster.import_summary,
-          history: mergedRoster.history || [],
-        },
-        updated_at: mergedRoster.updated_at,
-      },
-      { onConflict: "sheet_name" }
-    );
-
-    if (error) {
-      const message = getShiftStorageErrorMessage(error);
-      console.warn("Upsert shift roster warning:", message);
-      return { success: true, error: message };
-    }
-
-    return { success: true };
-  } catch (err) {
-    const message = getShiftStorageErrorMessage(err);
-    console.warn("Upsert shift roster warning:", message);
-    return {
-      success: true,
-      error: message,
-    };
-  }
+  return { success: true };
 }
 
 export async function upsertShiftRosters(rosters: ShiftRoster[]): Promise<{ success: boolean; error?: string }> {

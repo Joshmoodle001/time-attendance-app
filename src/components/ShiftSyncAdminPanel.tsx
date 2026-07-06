@@ -13,6 +13,8 @@ import {
   saveShiftSyncSettings,
   type ShiftSyncSettings,
 } from "@/services/shiftSync";
+import { getShiftRosters } from "@/services/shifts";
+import { runShiftSyncSections } from "@/services/shiftSyncRunner";
 import { CheckCircle2, Copy, Link2, Plus, Radio, RefreshCw, Trash2, Waves } from "lucide-react";
 
 function normalizeText(value: unknown) {
@@ -60,47 +62,6 @@ function normalizeIncomingSettings(value: unknown): ShiftSyncSettings {
     liveWebhookKey: normalizeText(raw.liveWebhookKey) || DEFAULT_SHIFT_SYNC_SETTINGS.liveWebhookKey,
     sections: mergedSections,
   };
-}
-
-async function postJson(url: string, body?: Record<string, unknown>) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body || {}),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    const contentType = response.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      return await response.json().catch(() => null);
-    }
-    
-    // If not JSON, return basic error
-    return { 
-      success: false, 
-      error: `Server returned status ${response.status}`, 
-      message: `Request failed with status ${response.status}` 
-    };
-  } catch (error) {
-    clearTimeout(timeoutId);
-    
-    if (error instanceof Error) {
-      if (error.name === "AbortError") {
-        return { success: false, error: "Request timed out", message: "The request took too long. Please try again." };
-      }
-      return { success: false, error: error.message, message: error.message };
-    }
-    
-    return { success: false, error: "Unknown error", message: "An unknown error occurred" };
-  }
 }
 
 export default function ShiftSyncAdminPanel() {
@@ -203,43 +164,33 @@ export default function ShiftSyncAdminPanel() {
       }
 
       setStatusMessage(sectionId ? "Processing sheet..." : "Processing all sheets...");
+      const sourceSections = sectionId
+        ? settings.sections.filter((section) => section.id === sectionId)
+        : settings.sections.filter((section) => normalizeText(section.url));
 
-      const payload = await postJson("/api/shift-sync-run", sectionId ? { sectionId } : {});
-      
-      // Handle error response without throwing
-      if (!payload || payload?.success === false || payload?.error) {
-        const errorMsg = payload?.message || payload?.error || "Processing failed.";
-        setStatusMessage(`Error: ${errorMsg}`);
-        if (payload?.errors && Array.isArray(payload.errors)) {
-          payload.errors.forEach((err: { section?: string; error?: string }) => {
-            if (err.section && err.error) {
-              setStatusMessage(`${err.section}: ${err.error}`);
-            }
-          });
-        }
-      } else {
-        if (payload?.settings) {
-          const normalizedSettings = normalizeIncomingSettings(payload.settings);
-          setSettings(normalizedSettings);
-          savedSettingsRef.current = normalizedSettings;
-          void saveShiftSyncSettings(normalizedSettings);
-        } else {
-          try {
-            await refreshFromServer();
-          } catch (refreshError) {
-            console.warn("Failed to refresh settings:", refreshError);
-          }
-        }
-        
-        const message = payload?.message || 
-          payload?.settings?.lastUniversalStatus ||
-          (sectionId ? "Sheet processed." : "All linked sheets processed.");
-        setStatusMessage(message);
-        
-        if (payload?.totalRows !== undefined) {
-          setStatusMessage(`${message} (${payload.totalRows} rows synced)`);
-        }
+      if (sourceSections.length === 0) {
+        setStatusMessage("Add a Google Sheet link before processing.");
+        return;
       }
+
+      const currentRosters = await getShiftRosters();
+      const result = await runShiftSyncSections(sourceSections, currentRosters, {
+        onProgress: (message) => setStatusMessage(message),
+        triggerLabel: sectionId ? "Manual sheet sync" : "Manual shift sync",
+      });
+
+      const updatedSectionMap = new Map(result.updatedSections.map((section) => [section.id, section]));
+      const nextSettings = normalizeIncomingSettings({
+        ...settings,
+        lastUniversalSyncedAt: new Date().toISOString(),
+        lastUniversalStatus: result.message,
+        sections: settings.sections.map((section) => updatedSectionMap.get(section.id) || section),
+      });
+
+      setSettings(nextSettings);
+      savedSettingsRef.current = nextSettings;
+      await saveShiftSyncSettings(nextSettings);
+      setStatusMessage(result.message);
     } catch (error) {
       console.error("Process error:", error);
       const errorMsg = error instanceof Error ? error.message : "Could not process the live sheet.";
@@ -407,7 +358,7 @@ export default function ShiftSyncAdminPanel() {
               Live Shift Sheets
             </CardTitle>
             <CardDescription>
-              Manage live Google Sheets here. Paste a sheet link, click outside the field, and the app will save it and process it immediately while keeping the Shifts builder unchanged.
+              Manage live Google Sheets here. This live web app now processes sheets directly in this browser, matching the desktop flow instead of relying on Supabase.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
