@@ -23,7 +23,7 @@ export type ShiftSyncRunResult = {
   successCount: number;
   failureCount: number;
   totalRows: number;
-  importedRosterCount: number;
+  importedSheetCount: number;
   nextRosters: ShiftRoster[];
   updatedSections: ShiftSyncSection[];
   message: string;
@@ -45,7 +45,7 @@ export async function runShiftSyncSections(
   let successCount = 0;
   let failureCount = 0;
   let totalRows = 0;
-  let importedRosterCount = 0;
+  let importedSheetCount = 0;
 
   for (const section of sections) {
     const sourceUrl = normalizeText(section.url);
@@ -75,7 +75,7 @@ export async function runShiftSyncSections(
         throw new Error("No valid shift sheets were found in that workbook.");
       }
 
-      importedRosterCount += imported.length;
+      importedSheetCount += imported.length;
       const mergedForSection = imported.map((incoming) => {
         const existing =
           mergedRostersMap.get(incoming.sheet_name) || currentMap.get(incoming.sheet_name);
@@ -93,7 +93,7 @@ export async function runShiftSyncSections(
       updatedSections.push({
         ...section,
         lastSyncedAt: syncedAt,
-        lastStatus: `${triggerLabel} complete: ${mergedForSection.length} roster(s), ${sectionRows} rows synced.`,
+        lastStatus: `${triggerLabel} complete: ${mergedForSection.length} sheet(s), ${sectionRows} employee rows synced.`,
       });
     } catch (error) {
       failureCount += 1;
@@ -113,7 +113,7 @@ export async function runShiftSyncSections(
   );
 
   if (mergedRostersMap.size > 0) {
-    onProgress?.("Saving synced rosters...");
+    onProgress?.("Saving synced sheets...");
     await Promise.all(Array.from(mergedRostersMap.values()).map((roster) => upsertShiftRoster(roster)));
   }
 
@@ -122,15 +122,15 @@ export async function runShiftSyncSections(
       ? `${triggerLabel}: ${successCount} section(s) synced, ${failureCount} failed.`
       : failureCount > 0
         ? `${triggerLabel} failed for ${failureCount} section(s).`
-        : importedRosterCount > 0
-          ? `${triggerLabel} complete: ${importedRosterCount} roster(s), ${totalRows} rows synced.`
-          : `${triggerLabel} finished with no roster data found.`;
+        : importedSheetCount > 0
+          ? `${triggerLabel} complete: ${importedSheetCount} sheet(s), ${totalRows} employee rows synced.`
+          : `${triggerLabel} finished with no shift rows found.`;
 
   return {
     successCount,
     failureCount,
     totalRows,
-    importedRosterCount,
+    importedSheetCount,
     nextRosters,
     updatedSections,
     message,

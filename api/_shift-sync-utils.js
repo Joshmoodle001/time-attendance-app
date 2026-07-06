@@ -994,7 +994,7 @@ async function runSingleSectionSync(section, trigger) {
       section: {
         ...section,
         lastSyncedAt: syncedAt,
-        lastStatus: `${triggerLabel} sync complete: ${merged.length} roster(s) with ${merged.reduce((sum, r) => sum + (r.rows?.length || 0), 0)} employee rows.`,
+        lastStatus: `${triggerLabel} sync complete: ${merged.length} sheet(s) with ${merged.reduce((sum, r) => sum + (r.rows?.length || 0), 0)} employee rows.`,
       },
     };
   } catch (error) {
@@ -1153,7 +1153,7 @@ export async function runUniversalShiftSync(trigger = "manual", options = {}) {
 
     let statusText;
     if (failureCount === 0 && successCount > 0) {
-      statusText = `${triggerLabel} sync complete for ${successCount} section(s), ${totalRows} total rows.`;
+      statusText = `${triggerLabel} sync complete for ${successCount} section(s), ${totalRows} total employee rows.`;
     } else if (failureCount > 0 && successCount > 0) {
       statusText = `${triggerLabel} sync: ${successCount} succeeded, ${failureCount} failed.`;
     } else if (failureCount > 0) {

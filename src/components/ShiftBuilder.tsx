@@ -646,7 +646,7 @@ export default function ShiftBuilder() {
       }
 
       if (allMerged.length > 0) {
-        log(`Saving ${allMerged.length} synced roster(s)...`);
+        log(`Saving ${allMerged.length} synced sheet(s)...`);
         const preserved = rosters.filter((r) => !allMerged.some((m) => m.sheet_name === r.sheet_name));
         const next = [...preserved, ...allMerged].sort((a, b) => a.sheet_name.localeCompare(b.sheet_name));
         setRosters(next);
