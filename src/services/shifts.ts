@@ -408,13 +408,8 @@ function parseHeaderRow(headerRow: unknown[]): ParsedSheetHeader {
     index,
   }));
 
-  const findIndex = (exactCandidates: string[], includesCandidates: string[] = []) => {
-    for (const candidate of exactCandidates) {
-      const found = normalized.find((item) => item.value === candidate);
-      if (found) return found.index;
-    }
-
-    for (const candidate of includesCandidates) {
+  const findIndex = (...candidates: string[]) => {
+    for (const candidate of candidates) {
       const found = normalized.find((item) => item.value === candidate || item.value.includes(candidate));
       if (found) return found.index;
     }
@@ -422,63 +417,30 @@ function parseHeaderRow(headerRow: unknown[]): ParsedSheetHeader {
     return -1;
   };
 
-  const weekIndex = findIndex(["week"], ["week"]);
-  // Avoid matching title cells like "STORE NAME: ..." as the employee-name header.
-  const detectedNameIndex = findIndex(
-    ["employee name", "employee names", "name", "merchandiser", "merchandiser name"],
-    ["employee name", "employee names", "merchandiser name"]
-  );
-  const detectedDepartmentIndex = findIndex(["department", "section", "role"], ["department", "section", "role"]);
-  const hrIndex = findIndex(["hr"], ["hr"]);
-  const codeIndex = findIndex(["employee code", "code"], ["employee code"]);
-  const timeIndex = findIndex(["time", "shift"], ["shift time"]);
-  const mondayIndex = findIndex(["monday"], ["monday"]);
-  const tuesdayIndex = findIndex(["tuesday"], ["tuesday"]);
-  const wednesdayIndex = findIndex(["wednesday"], ["wednesday"]);
-  const thursdayIndex = findIndex(["thursday"], ["thursday"]);
-  const fridayIndex = findIndex(["friday"], ["friday"]);
-  const saturdayIndex = findIndex(["saturday"], ["saturday"]);
-  const sundayIndex = findIndex(["sunday"], ["sunday"]);
-  const notesIndex = findIndex(["notes", "note"], ["notes"]);
-
+  const weekIndex = findIndex("week");
+  const detectedNameIndex = findIndex("name", "employee name");
+  const detectedDepartmentIndex = findIndex("department", "section", "role");
+  const hrIndex = findIndex("hr");
+  const codeIndex = findIndex("employee code", "code");
+  const timeIndex = findIndex("time", "shift");
+  const notesIndex = findIndex("notes", "note");
   const dayIndexes = {
-    monday: mondayIndex,
-    tuesday: tuesdayIndex,
-    wednesday: wednesdayIndex,
-    thursday: thursdayIndex,
-    friday: fridayIndex,
-    saturday: saturdayIndex,
-    sunday: sundayIndex,
+    monday: findIndex("monday"),
+    tuesday: findIndex("tuesday"),
+    wednesday: findIndex("wednesday"),
+    thursday: findIndex("thursday"),
+    friday: findIndex("friday"),
+    saturday: findIndex("saturday"),
+    sunday: findIndex("sunday"),
   } as Record<ShiftDayKey, number>;
-
   const dayMax = Math.max(...DAY_ORDER.map((day) => dayIndexes[day]).filter((index) => index >= 0), -1);
+  const hasHeaders = weekIndex >= 0 || dayIndexes.monday >= 0 || detectedNameIndex >= 0;
 
-  // Check if this looks like a header row or raw data
-  const hasHeaders = weekIndex >= 0 || mondayIndex >= 0 || detectedNameIndex >= 0;
-  
-  // If no headers detected, use fixed column positions based on the actual format:
-  // Column 0: WEEK | Column 1: NAME | Column 2: SHARED | Column 3: TYPE | Column 4: CODE | Column 5-11: MON-SUN | Column 12+: EXTRAS
-  let finalWeekIndex: number;
-  let finalNameIndex: number;
-  let finalCodeIndex: number;
-  let finalDepartmentIndex: number;
-  let finalTimeIndex: number;
-
-  if (hasHeaders) {
-    // Use detected positions
-    finalWeekIndex = weekIndex;
-    finalNameIndex = detectedNameIndex >= 0 ? detectedNameIndex : 1;
-    finalDepartmentIndex = detectedDepartmentIndex >= 0 ? detectedDepartmentIndex : 2;
-    finalCodeIndex = codeIndex;
-    finalTimeIndex = timeIndex;
-  } else {
-    // Use fixed positions for raw data format
-    finalWeekIndex = 0;      // WEEK column
-    finalNameIndex = 1;      // Employee name
-    finalDepartmentIndex = 2; // Shared/Department
-    finalCodeIndex = 4;      // Employee code
-    finalTimeIndex = -1;     // No dedicated time column in this format
-  }
+  const resolvedWeekIndex = hasHeaders ? weekIndex : 0;
+  const resolvedNameIndex = hasHeaders ? (detectedNameIndex >= 0 ? detectedNameIndex : 1) : 1;
+  const resolvedDepartmentIndex = hasHeaders ? (detectedDepartmentIndex >= 0 ? detectedDepartmentIndex : 2) : 2;
+  const resolvedCodeIndex = hasHeaders ? codeIndex : 4;
+  const resolvedTimeIndex = hasHeaders ? timeIndex : -1;
 
   const hiddenExtraColumnKeys = new Set(["store", "rep", "terminated", "status", "company", "shared", "type", "b"]);
   const extraIndexes = headerRow
@@ -489,12 +451,12 @@ function parseHeaderRow(headerRow: unknown[]): ParsedSheetHeader {
     .filter(({ key }) => !hiddenExtraColumnKeys.has(key));
 
   return {
-    weekIndex: finalWeekIndex,
-    nameIndex: finalNameIndex,
-    departmentIndex: finalDepartmentIndex,
+    weekIndex: resolvedWeekIndex,
+    nameIndex: resolvedNameIndex,
+    departmentIndex: resolvedDepartmentIndex,
     hrIndex,
-    codeIndex: finalCodeIndex,
-    timeIndex: finalTimeIndex,
+    codeIndex: resolvedCodeIndex,
+    timeIndex: resolvedTimeIndex,
     dayIndexes,
     notesIndex,
     extraIndexes,
@@ -577,13 +539,27 @@ function resolveSheetLayout(rows: unknown[][], sheetName: string): SheetLayout {
   };
 }
 
-function buildGroupKey(sheetName: string, weekNumber: number, slotIndex: number) {
-  return `${normalizeKey(sheetName)}_w${Math.max(1, weekNumber)}_slot_${Math.max(1, slotIndex + 1)}`;
+function buildGroupKey(sheetName: string, slotIndex: number) {
+  return `${normalizeKey(sheetName)}_slot_${Math.max(1, slotIndex + 1)}`;
 }
 
 function parseWeekNumber(value: string) {
   const match = normalizeText(value).match(/week\s*(\d+)/i);
   return match ? Number(match[1]) : 0;
+}
+
+function getManualEditedFields(row: Pick<ShiftRow, "logs"> | null | undefined) {
+  const fields = new Set<string>();
+  const logs = Array.isArray(row?.logs) ? row.logs : [];
+  for (const log of logs) {
+    const source = normalizeText(log?.source).toLowerCase();
+    const field = normalizeText(log?.field);
+    if ((source === "edit" || source === "paste") && field) {
+      fields.add(field);
+    }
+  }
+
+  return fields;
 }
 
 function mergeRow(existing: ShiftRow | undefined, incoming: ShiftRow, source: "import" | "merge" = "import") {
@@ -611,6 +587,7 @@ function mergeRow(existing: ShiftRow | undefined, incoming: ShiftRow, source: "i
   ];
 
   const mergedLogs = [...existing.logs];
+  const manuallyEditedFields = getManualEditedFields(existing);
   const merged: ShiftRow = {
     ...existing,
     ...incoming,
@@ -622,6 +599,11 @@ function mergeRow(existing: ShiftRow | undefined, incoming: ShiftRow, source: "i
   for (const field of fields) {
     const before = normalizeText(existing[field]);
     const after = normalizeText(incoming[field]);
+    if (manuallyEditedFields.has(String(field))) {
+      merged[field] = existing[field] as never;
+      continue;
+    }
+
     if (after !== "" && before !== after) {
       merged[field] = after as never;
       mergedLogs.push({
@@ -641,19 +623,27 @@ function mergeRow(existing: ShiftRow | undefined, incoming: ShiftRow, source: "i
 
 function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName: string): ShiftRoster {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
-  const layout = resolveSheetLayout(rows, sheetName);
-  const header = layout.header;
-  const title = layout.title;
-  const storeCode = (title.match(/^(\d+)/)?.[1] || "").trim();
-  const storeName = title;
+  const headerRow = (rows[0] || []) as unknown[];
+  const header = parseHeaderRow(headerRow);
+  const firstCell = textAt(headerRow, 0).toLowerCase();
+  const looksLikeHeader = /^(run\s*date|week|employee|date|no\.?|name|store|branch|section|department|code)/i.test(firstCell);
+  const looksLikeStoreTitle = /^\d+\s|^checkers|^shoprite|^game|^cna|^pick/i.test(firstCell);
+  const derivedTitle = ((!looksLikeHeader || looksLikeStoreTitle) && firstCell ? textAt(headerRow, 0) : sheetName) || sheetName;
+  const storeCode = (derivedTitle.match(/^(\d+)/)?.[1] || "").trim();
+  const storeName = looksLikeHeader && !looksLikeStoreTitle ? sheetName : derivedTitle;
   const rowMap = new Map<string, ShiftRow>();
   const customColumnSet = new Set<string>();
   let importedRows = 0;
   let currentWeekNumber = 0;
   let currentWeekLabel = "";
   let currentWeekSlotIndex = -1;
+  const fixedColumnsByFirstRow =
+    /^WEEK\s*\d+/i.test(textAt(headerRow, FIXED_RAW_COLUMNS.week).toUpperCase()) &&
+    header.weekIndex === 0 &&
+    header.nameIndex === 1;
+  const startRowIndex = fixedColumnsByFirstRow ? 0 : 1;
 
-  for (let rowIndex = layout.startRowIndex; rowIndex < rows.length; rowIndex += 1) {
+  for (let rowIndex = startRowIndex; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] as unknown[];
     if (!row || isBlankRow(row)) {
       currentWeekSlotIndex = -1;
@@ -674,8 +664,7 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
     let saturday: string;
     let sunday: string;
 
-    if (layout.useFixedColumns) {
-      // Use fixed column positions for raw data
+    if (fixedColumnsByFirstRow) {
       rawWeekLabel = textAt(row, FIXED_RAW_COLUMNS.week);
       employeeName = textAt(row, FIXED_RAW_COLUMNS.name);
       department = textAt(row, FIXED_RAW_COLUMNS.department);
@@ -690,7 +679,6 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       saturday = textAt(row, FIXED_RAW_COLUMNS.saturday);
       sunday = textAt(row, FIXED_RAW_COLUMNS.sunday);
     } else {
-      // Use header-based parsing
       rawWeekLabel = textAt(row, header.weekIndex >= 0 ? header.weekIndex : 0);
       employeeName = textAt(row, header.nameIndex);
       department = textAt(row, header.departmentIndex);
@@ -706,37 +694,34 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       sunday = textAt(row, header.dayIndexes.sunday);
     }
 
-    // Skip if no employee name
-    if (!employeeName) {
+    if (!employeeName && !employeeCode && !normalizeText(monday) && !normalizeText(tuesday) && !normalizeText(wednesday) && !normalizeText(thursday) && !normalizeText(friday) && !normalizeText(saturday) && !normalizeText(sunday)) {
       continue;
     }
 
     const parsedWeekNumber = parseWeekNumber(rawWeekLabel);
     if (parsedWeekNumber) {
-      if (parsedWeekNumber !== currentWeekNumber || rawWeekLabel !== currentWeekLabel) {
-        currentWeekSlotIndex = 0;
-      } else {
-        currentWeekSlotIndex += 1;
-      }
       currentWeekNumber = parsedWeekNumber;
       currentWeekLabel = rawWeekLabel || `WEEK ${parsedWeekNumber}`;
+      currentWeekSlotIndex = 0;
     } else if (currentWeekNumber) {
       currentWeekSlotIndex += 1;
     } else {
-      // If no week detected and no current week, use row as-is with week 1
       currentWeekNumber = 1;
       currentWeekLabel = "WEEK 1";
-      currentWeekSlotIndex = Math.max(0, rowIndex - layout.startRowIndex);
+      currentWeekSlotIndex = rowIndex;
     }
 
     const weekNumber = currentWeekNumber;
+    const resolvedTimeLabel = fixedColumnsByFirstRow ? textAt(row, FIXED_RAW_COLUMNS.time) : textAt(row, header.timeIndex >= 0 ? header.timeIndex : 12);
+    if (!employeeName) {
+      employeeName = employeeCode ? employeeCode : `${department || "Shift"} ${resolvedTimeLabel || ""} W${weekNumber} R${rowIndex}`;
+    }
     const notes = textAt(row, header.notesIndex);
-    const expectedHours = buildExpectedHours(timeLabel || monday || "7-3");
+    const expectedHours = buildExpectedHours(resolvedTimeLabel || monday || "7-3");
 
     const extraColumns: Record<string, string> = {};
-    if (layout.useFixedColumns) {
-      // Collect extra columns after the fixed Sunday column.
-      for (let colIndex = FIXED_RAW_COLUMNS.sunday + 1; colIndex < row.length; colIndex++) {
+    if (fixedColumnsByFirstRow) {
+      for (let colIndex = FIXED_RAW_COLUMNS.sunday + 1; colIndex < row.length; colIndex += 1) {
         const value = textAt(row, colIndex);
         if (value) {
           const key = `extra_${colIndex}`;
@@ -745,7 +730,6 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
         }
       }
     } else {
-      // Use header-based extra columns
       header.extraIndexes.forEach(({ index, key }) => {
         const value = textAt(row, index);
         if (value !== "") {
@@ -755,9 +739,9 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       });
     }
 
-    const groupKey = buildGroupKey(sheetName, weekNumber, currentWeekSlotIndex);
-    const rowIdentity = normalizeKey(employeeCode || employeeName) || `row_${currentWeekSlotIndex + 1}`;
-    const rowKey = `${groupKey}_${rowIdentity}`;
+    const groupKey = buildGroupKey(sheetName, currentWeekSlotIndex);
+    const normalizedEmployeeName = employeeName.replace(/\s+/g, "_").toLowerCase();
+    const rowKey = `${employeeCode}_${normalizedEmployeeName}_w${weekNumber}`;
 
     const incoming: ShiftRow = {
       id: randomId(),
@@ -770,7 +754,7 @@ function parseSheetRows(sheet: XLSX.WorkSheet, sheetName: string, sourceFileName
       employee_code: employeeCode,
       department,
       hr,
-      time_label: timeLabel,
+      time_label: resolvedTimeLabel,
       monday,
       tuesday,
       wednesday,
@@ -831,24 +815,32 @@ export function mergeShiftRosters(existing: ShiftRoster | null | undefined, inco
     return materializeRosterWithHistory(incoming);
   }
 
-  const manualRows = existing.rows.filter((row) => row.group_key.includes("_blank_"));
-  const existingMap = new Map(manualRows.map((row) => [row.row_key, row]));
+  const existingMap = new Map(existing.rows.map((row) => [row.row_key, row]));
   const mergedRows: ShiftRow[] = [];
+  const leavePattern = /\b(AL|SL|LEAVE|ANNUAL LEAVE|SICK LEAVE)\b/;
   let updatedRows = 0;
 
   for (const incomingRow of incoming.rows) {
     const prior = existingMap.get(incomingRow.row_key);
     const mergedRow = mergeRow(prior, incomingRow, "merge");
     if (prior) {
-      const changed = JSON.stringify(prior) !== JSON.stringify(mergedRow);
-      if (changed) updatedRows += 1;
+      for (const day of DAY_ORDER) {
+        const priorValue = String(prior[day] || "").toUpperCase();
+        const nextValue = String(mergedRow[day] || "").toUpperCase();
+        if (leavePattern.test(priorValue) && !leavePattern.test(nextValue)) {
+          mergedRow[day] = prior[day];
+          updatedRows += 1;
+        }
+      }
     }
     mergedRows.push(mergedRow);
     existingMap.delete(incomingRow.row_key);
   }
 
   for (const remaining of existingMap.values()) {
-    mergedRows.push(remaining);
+    if (remaining.group_key.includes("_blank_")) {
+      mergedRows.push(remaining);
+    }
   }
 
   mergedRows.sort((a, b) => a.week_number - b.week_number || a.order_index - b.order_index);
