@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Mail, Phone, Search, Upload, User, MessageCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, Mail, Phone, RefreshCw, Search, Upload, User, MessageCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -428,6 +428,19 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
     };
   }, []);
 
+  const handleRefresh = async () => {
+    setLoading(true);
+    try {
+      const fresh = await getSavedCoversheetUpload();
+      if (fresh) {
+        setUpload(fresh);
+        setExpandedStores(new Set());
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (mode !== "view") return;
 
@@ -449,6 +462,7 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
       }
     };
 
+    void poll();
     const interval = setInterval(() => { void poll(); }, 10000);
     return () => {
       alive = false;
@@ -606,11 +620,15 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
       const phoneCount = stores.reduce((total, store) => total + store.employees.filter((employee) => !!employee.phone).length, 0);
       const emailCount = stores.reduce((total, store) => total + store.employees.filter((employee) => !!employee.email).length, 0);
 
-      await saveCoversheetUpload(nextUpload);
+      const saved = await saveCoversheetUpload(nextUpload);
       setUpload(nextUpload);
       setExpandedStores(new Set());
       setSearch("");
-      setMessage(`Imported ${employeeCount} employee row(s) across ${stores.length} store(s), ${phoneCount} phone(s), and ${emailCount} email(s).`);
+      setMessage(
+        saved
+          ? `Imported ${employeeCount} employee row(s) across ${stores.length} store(s), ${phoneCount} phone(s), and ${emailCount} email(s).`
+          : `Uploaded locally but could not sync to the cloud. Other devices will NOT see this coversheet. Check Supabase storage permissions.`
+      );
     } catch (error) {
       setMessage(`Upload failed: ${error instanceof Error ? error.message : "Unknown workbook parse error."}`);
     } finally {
@@ -715,6 +733,14 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
           <Badge className={statusBadgeClass("terminated")}>{stats.terminated} terminated</Badge>
           <Badge className={statusBadgeClass("maternity")}>{stats.maternity} maternity</Badge>
           <Badge className={statusBadgeClass("hold")}>{stats.hold} hold</Badge>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
         </div>
 
         <div className="rounded-xl border border-slate-700 bg-slate-900/40 px-4 py-3">

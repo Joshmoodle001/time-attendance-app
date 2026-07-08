@@ -177,5 +177,6 @@ export async function getSavedCoversheetUpload(): Promise<CoversheetUpload | nul
 
 export async function saveCoversheetUpload(upload: CoversheetUpload) {
   saveLocalUpload(upload);
-  await saveSharedCoversheetUpload(upload);
+  const ok = await saveSharedCoversheetUpload(upload);
+  return ok;
 }
