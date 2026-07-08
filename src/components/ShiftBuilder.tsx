@@ -8,13 +8,10 @@ import {
   ChevronRight,
   Copy,
   Download,
-  Expand,
   FileText,
   Plus,
-  RefreshCw,
   Search,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +30,7 @@ import {
   type ShiftRow,
   upsertShiftRoster,
 } from "@/services/shifts";
-import { loadShiftSyncSettings, buildShiftDownloadUrl, hasConfiguredShiftSyncLinks, SHIFT_SYNC_UPDATED_EVENT } from "@/services/shiftSync";
+import { SHIFT_SYNC_UPDATED_EVENT } from "@/services/shiftSync";
 
 type CellPosition = {
   rowKey: string;
@@ -335,20 +332,15 @@ function getMatchScore(haystack: string, query: string) {
 }
 
 export default function ShiftBuilder() {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const shiftSearchRef = useRef<HTMLInputElement | null>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
-  const fullscreenControlsTimerRef = useRef<number | null>(null);
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
   const [selectedSheet, setSelectedSheet] = useState("");
   const [shiftSearch, setShiftSearch] = useState("");
   const [selectedCell, setSelectedCell] = useState<CellPosition | null>(null);
   const [editingCell, setEditingCell] = useState<CellPosition | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [showFullscreen, setShowFullscreen] = useState(false);
-  const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(true);
   const [statusMessage, setStatusMessage] = useState("Load a workbook to build shifts.");
-  const [isSyncing, setIsSyncing] = useState(false);
   const isInitialLoadRef = useRef(true);
   const prevSelectedSheetRef = useRef<string>("");
   const scrollPositionRef = useRef<number>(0);
@@ -434,28 +426,6 @@ export default function ShiftBuilder() {
       });
     }
   }, [rosters]);
-
-  useEffect(() => {
-    if (!showFullscreen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [showFullscreen]);
-
-  useEffect(() => {
-    if (!showFullscreen) return;
-    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
-    setFullscreenControlsVisible(!isTouchDevice);
-
-    return () => {
-      if (fullscreenControlsTimerRef.current) {
-        window.clearTimeout(fullscreenControlsTimerRef.current);
-        fullscreenControlsTimerRef.current = null;
-      }
-    };
-  }, [showFullscreen]);
 
   const filteredRosters = useMemo(() => {
     const query = normalizeText(shiftSearch).toLowerCase();
@@ -557,127 +527,6 @@ export default function ShiftBuilder() {
     await persistRoster(updater(selectedRoster), message);
   };
 
-  const handleWorkbookUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const buffer = await file.arrayBuffer();
-      const imported = parseShiftWorkbook(buffer, file.name);
-      const currentMap = new Map(rosters.map((roster) => [roster.sheet_name, roster]));
-      const merged = imported.map((incoming) => mergeShiftRosters(currentMap.get(incoming.sheet_name), incoming));
-      const preserved = rosters.filter((roster) => !merged.some((item) => item.sheet_name === roster.sheet_name));
-      const next = [...preserved, ...merged].sort((a, b) => a.sheet_name.localeCompare(b.sheet_name));
-      setRosters(next);
-      if (next[0]) setSelectedSheet((current) => current || next[0].sheet_name);
-      await Promise.all(merged.map((roster) => upsertShiftRoster(roster)));
-      setStatusMessage(`Imported ${merged.length} sheet roster${merged.length === 1 ? "" : "s"} from ${file.name}.`);
-    } catch (err) {
-      console.error(err);
-      setStatusMessage("Could not parse that workbook.");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
-  const handleSyncFromSheets = async () => {
-    setIsSyncing(true);
-    const log = (msg: string) => {
-      console.log(`[ShiftSync] ${msg}`);
-      setStatusMessage(msg);
-    };
-
-    log("Loading sync settings...");
-    try {
-      const settings = await loadShiftSyncSettings();
-      log(`Settings loaded. ${settings.sections.length} sections found.`);
-
-      const linked = settings.sections.filter((s) => normalizeText(s.url));
-      log(`${linked.length} sections have URLs configured: ${linked.map((s) => s.label).join(", ") || "none"}`);
-
-      if (linked.length === 0) {
-        log("No Google Sheets links configured. Go to Admin > Sync Settings to add links.");
-        return;
-      }
-
-      let totalImported = 0;
-      let failures = 0;
-      const currentMap = new Map(rosters.map((r) => [r.sheet_name, r]));
-      const allMerged: ShiftRoster[] = [];
-
-      for (const section of linked) {
-        try {
-          log(`[${section.label}] Building download URL from: ${section.url}`);
-          const downloadUrl = buildShiftDownloadUrl(section.url);
-          if (!downloadUrl) {
-            log(`[${section.label}] Could not build download URL — skipping.`);
-            failures += 1;
-            continue;
-          }
-          log(`[${section.label}] Download URL: ${downloadUrl}`);
-
-          const proxyUrl = `/api/download-shift?url=${encodeURIComponent(section.url)}`;
-          log(`[${section.label}] Fetching via proxy: ${proxyUrl}`);
-
-          let buffer: ArrayBuffer | null = null;
-          try {
-            const resp = await fetch(proxyUrl);
-            log(`[${section.label}] Proxy response: ${resp.status} ${resp.statusText}, content-type: ${resp.headers.get("content-type")}`);
-            if (resp.ok) {
-              buffer = await resp.arrayBuffer();
-              log(`[${section.label}] Downloaded ${buffer.byteLength} bytes.`);
-            } else {
-              const errorBody = await resp.text().catch(() => "");
-              log(`[${section.label}] Proxy failed: ${resp.status} — ${errorBody}`);
-            }
-          } catch (fetchErr) {
-            log(`[${section.label}] Fetch error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
-          }
-
-          if (!buffer || buffer.byteLength === 0) {
-            log(`[${section.label}] No data received. Is the sheet publicly shared?`);
-            failures += 1;
-            continue;
-          }
-
-          log(`[${section.label}] Parsing XLSX...`);
-          const imported = parseShiftWorkbook(buffer, `${section.label}.xlsx`);
-          log(`[${section.label}] Parsed ${imported.length} sheet(s) with ${imported.reduce((sum, r) => sum + r.rows.length, 0)} total rows.`);
-
-          for (const incoming of imported) {
-            const merged = mergeShiftRosters(currentMap.get(incoming.sheet_name), incoming);
-            currentMap.set(merged.sheet_name, merged);
-            allMerged.push(merged);
-            totalImported += 1;
-          }
-        } catch (err) {
-          log(`[${section.label}] Error: ${err instanceof Error ? err.message : String(err)}`);
-          console.error(`Sync failed for ${section.label}:`, err);
-          failures += 1;
-        }
-      }
-
-      if (allMerged.length > 0) {
-        log(`Saving ${allMerged.length} synced sheet(s)...`);
-        const preserved = rosters.filter((r) => !allMerged.some((m) => m.sheet_name === r.sheet_name));
-        const next = [...preserved, ...allMerged].sort((a, b) => a.sheet_name.localeCompare(b.sheet_name));
-        setRosters(next);
-        if (next[0]) setSelectedSheet((current) => current || next[0].sheet_name);
-        await Promise.all(allMerged.map((r) => upsertShiftRoster(r)));
-      }
-
-      const parts: string[] = [];
-      if (totalImported > 0) parts.push(`Synced ${totalImported} sheet${totalImported === 1 ? "" : "s"}`);
-      if (failures > 0) parts.push(`${failures} failed`);
-      log(parts.length > 0 ? parts.join(", ") + "." : "Sync complete — no sheets found.");
-    } catch (err) {
-      log(`Sync failed: ${err instanceof Error ? err.message : String(err)}`);
-      console.error("Sync error:", err);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const handleCopy = async () => {
     if (!selectedRoster || !selectedCell) return;
     const row = selectedRoster.rows.find((item) => item.row_key === selectedCell.rowKey);
@@ -768,15 +617,6 @@ export default function ShiftBuilder() {
   const handleMove = async (direction: -1 | 1) => {
     if (!selectedRoster || !selectedCell) return;
     await applyToSelectedRoster((roster) => moveGroup(roster, selectedCell.rowKey, direction), "Reordered shift group.");
-  };
-
-  const revealFullscreenControls = () => {
-    setFullscreenControlsVisible(true);
-    if (!window.matchMedia("(pointer: coarse)").matches) return;
-    if (fullscreenControlsTimerRef.current) window.clearTimeout(fullscreenControlsTimerRef.current);
-    fullscreenControlsTimerRef.current = window.setTimeout(() => {
-      setFullscreenControlsVisible(false);
-    }, 2200);
   };
 
   const bringShiftSearchIntoView = () => {
@@ -875,21 +715,9 @@ export default function ShiftBuilder() {
           </p>
         </div>
         <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap">
-          <Button variant="outline" className="w-full xl:w-auto" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="mr-2 h-4 w-4" />
-            Upload workbook
-          </Button>
-          <Button variant="outline" className="w-full xl:w-auto" onClick={handleSyncFromSheets} disabled={isSyncing}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-            {isSyncing ? "Syncing..." : "Sync Sheets"}
-          </Button>
           <Button variant="outline" className="w-full xl:w-auto" onClick={handleExportPdf} disabled={!selectedRoster}>
             <FileText className="mr-2 h-4 w-4" />
             Export PDF
-          </Button>
-          <Button variant="outline" className="w-full xl:w-auto" onClick={() => setShowFullscreen(true)} disabled={!selectedRoster}>
-            <Expand className="mr-2 h-4 w-4" />
-            Full screen
           </Button>
           <Button variant="outline" className="hidden sm:flex sm:flex-none" onClick={handleCopy} disabled={!selectedCell}>
             <Copy className="mr-2 h-4 w-4" />
@@ -897,8 +725,6 @@ export default function ShiftBuilder() {
           </Button>
         </div>
       </div>
-
-      <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleWorkbookUpload} />
 
       <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-2 shadow-sm">
         <div className="px-2 pb-2">
@@ -944,10 +770,6 @@ export default function ShiftBuilder() {
                 <Button variant="outline" size="sm" onClick={() => setShowDetails((current) => !current)} disabled={!selectedRoster}>
                   {showDetails ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                   {showDetails ? "Collapse" : "Expand"}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setShowFullscreen(true)} disabled={!selectedRoster}>
-                  <Expand className="mr-2 h-4 w-4" />
-                  Full screen view
                 </Button>
               </div>
               <CardDescription className="text-slate-500">
@@ -1219,118 +1041,6 @@ export default function ShiftBuilder() {
           )}
         </CardContent>
       </Card>
-
-      {showFullscreen && selectedRoster && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm"
-          onTouchStart={revealFullscreenControls}
-          onMouseMove={revealFullscreenControls}
-          onClick={revealFullscreenControls}
-        >
-          <div className="flex h-full flex-col">
-            <div
-              className={`fixed right-4 top-4 z-10 flex flex-wrap items-center justify-end gap-2 transition-all duration-300 sm:right-6 sm:top-6 ${
-                fullscreenControlsVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0 pointer-events-none"
-              }`}
-            >
-              <div className="flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/85 p-2 shadow-2xl backdrop-blur">
-                <Button variant="outline" className="sm:flex-none" onClick={handleExportPdf}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download PDF
-                </Button>
-                <Button variant="outline" className="sm:flex-none" onClick={() => setShowFullscreen(false)}>
-                  <X className="mr-2 h-4 w-4" />
-                  Exit
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-4 py-16 sm:px-6 sm:py-20">
-              <div className="mx-auto max-w-7xl">
-                <div className="mx-auto max-w-6xl bg-white p-4 shadow-2xl sm:p-8">
-                  <div className="mb-5">
-                    <h3 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-                      {selectedRoster.store_name || selectedRoster.sheet_name}
-                    </h3>
-                    <div className="mt-2 text-sm text-slate-500">
-                      {selectedRoster.rows.length} rows • {rowGroups.length} groups
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 lg:hidden">
-                  {orderedRows.map((row) => (
-                    <div key={`${row.row_key}-fullscreen-mobile`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-base font-semibold text-slate-900">{row.employee_name || "Blank"}</div>
-                          <div className="mt-1 text-sm text-slate-500">
-                            {row.employee_code || "No code"} • {row.week_label}
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-slate-300 bg-white px-3 py-1 text-sm font-semibold text-slate-900">
-                          {formatHours(getWeekTotal(row))}h
-                        </div>
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                        {DAY_COLUMNS.map((day) => (
-                          <div key={`${row.row_key}-${day.key}-fs-mobile`} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                            <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{day.label}</div>
-                            <div className="mt-1 font-medium text-slate-900">{getCellValue(row, day.key) || "-"}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                  <div className="hidden overflow-x-auto bg-white lg:block">
-                  <table className="min-w-[1180px] w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-slate-100">
-                        <th className="border border-slate-200 bg-[#f8ab66] px-3 py-3 text-left text-black">Week</th>
-                        <th className="border border-slate-200 px-3 py-3 text-left">Employee</th>
-                        <th className="border border-slate-200 px-3 py-3 text-left">Department</th>
-                        <th className="border border-slate-200 px-3 py-3 text-center">HR</th>
-                        <th className="border border-slate-200 px-3 py-3 text-left">Code</th>
-                        <th className="border border-slate-200 px-3 py-3 text-left">Time</th>
-                        {DAY_COLUMNS.map((day) => (
-                          <th
-                            key={`${day.key}-fullscreen-header`}
-                            className={`border border-slate-200 px-3 py-3 text-center ${isWeekday(day.key) ? "bg-white" : WEEKEND_HEADER}`}
-                          >
-                            {day.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orderedRows.map((row) => (
-                        <tr key={`${row.row_key}-fullscreen-desktop`} className="bg-white">
-                          <td className="border border-slate-200 bg-[#f8ab66] px-3 py-2 text-black">{row.week_label}</td>
-                          <td className="border border-slate-200 px-3 py-2 font-medium">{row.employee_name || "Blank"}</td>
-                          <td className="border border-slate-200 px-3 py-2">{row.department || "-"}</td>
-                          <td className="border border-slate-200 px-3 py-2 text-center">{row.hr || "-"}</td>
-                          <td className="border border-slate-200 px-3 py-2">{row.employee_code || "-"}</td>
-                          <td className="border border-slate-200 px-3 py-2">{row.time_label || "-"}</td>
-                          {DAY_COLUMNS.map((day) => (
-                            <td
-                              key={`${row.row_key}-${day.key}-fullscreen-desktop`}
-                              className={`border border-slate-200 px-3 py-2 text-center ${getDayCellClass(day.key, getCellValue(row, day.key))}`}
-                            >
-                              {getCellValue(row, day.key) || "-"}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showDetails && selectedRow && (
         <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
