@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { getEmployees, normalizeEmployeeCode, type Employee } from "@/services/database";
 import {
   getSavedCoversheetUpload,
+  getSharedCoversheetPointer,
   saveCoversheetUpload,
   type CoversheetEmployee,
   type CoversheetStore,
@@ -426,6 +427,34 @@ export default function CoversheetHub({ mode }: CoversheetHubProps) {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (mode !== "view") return;
+
+    let alive = true;
+
+    const poll = async () => {
+      try {
+        const pointer = await getSharedCoversheetPointer();
+        if (!alive || !pointer) return;
+        if (pointer.uploadedAt !== upload?.uploadedAt) {
+          const fresh = await getSavedCoversheetUpload();
+          if (alive && fresh) {
+            setUpload(fresh);
+            setExpandedStores(new Set());
+          }
+        }
+      } catch {
+        // silent
+      }
+    };
+
+    const interval = setInterval(() => { void poll(); }, 10000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, [mode, upload?.uploadedAt]);
 
   const mergedStores = useMemo(() => {
     const stores = upload?.stores || [];

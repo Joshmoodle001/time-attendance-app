@@ -151,6 +151,23 @@ async function saveSharedCoversheetUpload(upload: CoversheetUpload) {
   }
 }
 
+export async function getSharedCoversheetPointer(): Promise<{ path: string; fileName: string; uploadedAt: string } | null> {
+  if (!isSupabaseConfigured) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("shift_sync_settings")
+      .select("payload")
+      .eq("id", COVER_SHEET_SHARED_ROW_ID)
+      .maybeSingle();
+
+    if (error) return null;
+    return extractSharedPointer(data);
+  } catch {
+    return null;
+  }
+}
+
 export async function getSavedCoversheetUpload(): Promise<CoversheetUpload | null> {
   const localUpload = loadLocalUpload();
   const sharedUpload = await getSharedCoversheetUpload();
