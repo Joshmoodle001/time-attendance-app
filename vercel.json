@@ -13,12 +13,6 @@
       "schedule": "0 15 * * *"
     }
   ],
-  "rewrites": [
-    {
-      "source": "/api/health",
-      "destination": "/api/report-server-status"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",

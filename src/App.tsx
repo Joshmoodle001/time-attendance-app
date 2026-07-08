@@ -46,7 +46,6 @@ import {
   Globe,
   Trash,
   Play,
-  FileSpreadsheet,
   Search,
   X,
 } from "lucide-react";
@@ -76,14 +75,12 @@ import {
 const sidebarItems = [
   { key: "coversheet", label: "Coversheet", icon: Table2 },
   { key: "shifts", label: "Shifts", icon: LayoutGrid },
-  { key: "reports", label: "Reports", icon: FileSpreadsheet },
   { key: "admin", label: "Admin", icon: Settings },
 ] as const;
 
 const ShiftBuilder = lazy(() => import("@/components/ShiftBuilder"));
 const CalendarBuilder = lazy(() => import("@/components/CalendarBuilder"));
 const RosterBuilder = lazy(() => import("@/components/RosterBuilder"));
-const ReportsBuilder = lazy(() => import("@/components/ReportsBuilder"));
 const CommunicationsHub = lazy(() => import("@/components/CommunicationsHub"));
 const ClockDataHub = lazy(() => import("@/components/ClockDataHub"));
 const LeaveHub = lazy(() => import("@/components/LeaveHub"));
@@ -91,7 +88,7 @@ const ShiftSyncAdminPanel = lazy(() => import("@/components/ShiftSyncAdminPanel"
 const AdminDataToolsPanel = lazy(() => import("@/components/AdminDataToolsPanel"));
 const EmployeesHub = lazy(() => import("@/components/EmployeesHub"));
 const CoversheetHub = lazy(() => import("@/components/CoversheetHub"));
-const RemoteReportsHub = lazy(() => import("@/components/RemoteReportsHub"));
+
 
 const ATTENDANCE_STATUS_CONFIG = [
   { key: "atWork", name: "At Work", color: "#22c55e" },
@@ -1980,7 +1977,7 @@ export default function App() {
 
   useEffect(() => {
     if (!trialResetReady) return;
-    if (activeNav === "employees" || activeNav === "communications" || activeNav === "reports" || activeNav === "clockData" || activeNav === "leave") {
+    if (activeNav === "employees" || activeNav === "communications" || activeNav === "clockData" || activeNav === "leave") {
       void loadEmployees();
     }
   }, [activeNav, loadEmployees, trialResetReady]);
@@ -4455,31 +4452,6 @@ export default function App() {
     </div>
   );
 
-  // ==================== RENDER REPORTS ====================
-  const renderReports = () => (
-    <Suspense fallback={
-      <Card className="overflow-hidden rounded-[28px] border-white/10 bg-slate-950/70 text-white">
-        <CardContent className="tech-loader p-8 text-center text-slate-300">
-          <div className="orb-loader mx-auto mb-4 w-fit">
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="font-medium text-white">Loading reports</div>
-          <div className="mt-1 text-xs text-slate-400">Building live report logic and preview data...</div>
-        </CardContent>
-      </Card>
-    }>
-      <ReportsBuilder
-        records={filteredRecords}
-        employees={employees}
-        reportDateRangeLabel={reportDateRangeLabel}
-        employeesReady={!isLoadingEmployees && employees.length > 0}
-        getStoreDeviceType={getStoreDeviceType}
-      />
-    </Suspense>
-  );
-
   const renderCommunications = () => (
     <CommunicationsHub
       employees={employees}
@@ -5091,7 +5063,6 @@ export default function App() {
 
   const renderMainSection = () => {
     if (activeNav === "shifts") return <ShiftBuilder />;
-    if (activeNav === "reports") return <RemoteReportsHub />;
     if (activeNav === "admin") return renderAdmin();
     return <CoversheetHub mode="view" />;
   };
@@ -5227,7 +5198,6 @@ export default function App() {
                   <p className="mt-2 text-slate-400 text-sm">
                     {activeNav === "coversheet" && "View grouped route coversheets with terminated, maternity, and hold statuses"}
                     {activeNav === "shifts" && "Build and update workbook-based shift rosters"}
-                    {activeNav === "reports" && "Request desktop-generated attendance and AWOL PDFs from the local Electron report server"}
                     {activeNav === "admin" && "Configure sync settings and manage sheet orchestration"}
                   </p>
                 </div>
