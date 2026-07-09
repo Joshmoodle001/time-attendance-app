@@ -32,12 +32,6 @@ export default function CalendarDownload() {
             </a>
           </div>
         </div>
-        <iframe
-          src={filePath}
-          title="2026 Calendar"
-          className="w-full rounded-xl border border-slate-700"
-          style={{ height: "700px" }}
-        />
       </CardContent>
     </Card>
   );
