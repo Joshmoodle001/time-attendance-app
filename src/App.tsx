@@ -75,11 +75,13 @@ import {
 const sidebarItems = [
   { key: "coversheet", label: "Coversheet", icon: Table2 },
   { key: "shifts", label: "Shifts", icon: LayoutGrid },
+  { key: "calendar", label: "Calendar", icon: Calendar },
   { key: "admin", label: "Admin", icon: Settings },
 ] as const;
 
 const ShiftBuilder = lazy(() => import("@/components/ShiftBuilder"));
 const CalendarBuilder = lazy(() => import("@/components/CalendarBuilder"));
+const CalendarDownload = lazy(() => import("@/components/CalendarDownload"));
 const RosterBuilder = lazy(() => import("@/components/RosterBuilder"));
 const CommunicationsHub = lazy(() => import("@/components/CommunicationsHub"));
 const ClockDataHub = lazy(() => import("@/components/ClockDataHub"));
@@ -5063,6 +5065,7 @@ export default function App() {
 
   const renderMainSection = () => {
     if (activeNav === "shifts") return <ShiftBuilder />;
+    if (activeNav === "calendar") return <CalendarDownload />;
     if (activeNav === "admin") return renderAdmin();
     return <CoversheetHub mode="view" />;
   };
@@ -5198,6 +5201,7 @@ export default function App() {
                   <p className="mt-2 text-slate-400 text-sm">
                     {activeNav === "coversheet" && "View grouped route coversheets with terminated, maternity, and hold statuses"}
                     {activeNav === "shifts" && "Build and update workbook-based shift rosters"}
+                    {activeNav === "calendar" && "Download the 2026 one-sheet calendar"}
                     {activeNav === "admin" && "Configure sync settings and manage sheet orchestration"}
                   </p>
                 </div>
